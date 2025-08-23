@@ -77,12 +77,12 @@ export default [
       'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }], // More lenient for extension
     },
   },
-  // Scripts configuration (Node.js)
+  // Scripts configuration (Node.js, ESM)
   {
     files: ['scripts/**/*.js'],
     languageOptions: {
       ecmaVersion: 'latest',
-      sourceType: 'script',
+      sourceType: 'module',
       globals: {
         require: 'readonly',
         __dirname: 'readonly',
@@ -91,6 +91,7 @@ export default [
         console: 'readonly',
         Buffer: 'readonly',
         global: 'readonly',
+        URL: 'readonly',
       },
     },
     rules: {

@@ -1,308 +1,329 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="uk">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>EDRSR-AI - Админская панель</title>
-    <link rel="stylesheet" href="styles.css">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-</head>
-<body>
+    <link rel="stylesheet" href="styles.css" />
+    <link
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
     <div class="admin-container">
-        <!-- Sidebar -->
-        <nav class="sidebar">
-            <div class="sidebar-header">
-                <div class="logo">
-                    <i class="fas fa-gavel"></i>
-                    <span>EDRSR-AI Admin</span>
+      <!-- Sidebar -->
+      <nav class="sidebar">
+        <div class="sidebar-header">
+          <div class="logo">
+            <i class="fas fa-gavel"></i>
+            <span>EDRSR-AI Admin</span>
+          </div>
+        </div>
+
+        <ul class="sidebar-menu">
+          <li>
+            <a href="#dashboard" class="menu-item active" data-page="dashboard">
+              <i class="fas fa-tachometer-alt"></i> Дашборд
+            </a>
+          </li>
+          <li>
+            <a href="#users" class="menu-item" data-page="users">
+              <i class="fas fa-users"></i> Пользователи
+            </a>
+          </li>
+          <li>
+            <a href="#jobs" class="menu-item" data-page="jobs">
+              <i class="fas fa-tasks"></i> Задания
+            </a>
+          </li>
+          <li>
+            <a href="#system" class="menu-item" data-page="system">
+              <i class="fas fa-cogs"></i> Система
+            </a>
+          </li>
+          <li>
+            <a href="#audit" class="menu-item" data-page="audit">
+              <i class="fas fa-clipboard-list"></i> Аудит
+            </a>
+          </li>
+          <li>
+            <a href="#security" class="menu-item" data-page="security">
+              <i class="fas fa-shield-alt"></i> Безопасность
+            </a>
+          </li>
+        </ul>
+
+        <div class="sidebar-footer">
+          <div class="user-info">
+            <i class="fas fa-user-shield"></i>
+            <span id="current-user">Загрузка...</span>
+          </div>
+          <button class="btn-logout" onclick="logout()">
+            <i class="fas fa-sign-out-alt"></i> Выйти
+          </button>
+        </div>
+      </nav>
+
+      <!-- Main content -->
+      <main class="main-content">
+        <!-- Header -->
+        <header class="top-header">
+          <h1 id="page-title">Дашборд</h1>
+          <div class="header-actions">
+            <button class="btn btn-refresh" onclick="refreshCurrentPage()">
+              <i class="fas fa-sync-alt"></i> Обновить
+            </button>
+          </div>
+        </header>
+
+        <!-- Content area -->
+        <div class="content">
+          <!-- Dashboard Page -->
+          <div id="dashboard-page" class="page active">
+            <div class="stats-grid">
+              <div class="stat-card">
+                <div class="stat-icon users">
+                  <i class="fas fa-users"></i>
                 </div>
+                <div class="stat-info">
+                  <h3 id="total-users">-</h3>
+                  <p>Всего пользователей</p>
+                </div>
+              </div>
+
+              <div class="stat-card">
+                <div class="stat-icon jobs">
+                  <i class="fas fa-tasks"></i>
+                </div>
+                <div class="stat-info">
+                  <h3 id="total-jobs">-</h3>
+                  <p>Всего заданий</p>
+                </div>
+              </div>
+
+              <div class="stat-card">
+                <div class="stat-icon completed">
+                  <i class="fas fa-check-circle"></i>
+                </div>
+                <div class="stat-info">
+                  <h3 id="completed-jobs">-</h3>
+                  <p>Завершено</p>
+                </div>
+              </div>
+
+              <div class="stat-card">
+                <div class="stat-icon memory">
+                  <i class="fas fa-memory"></i>
+                </div>
+                <div class="stat-info">
+                  <h3 id="memory-usage">-</h3>
+                  <p>Память (МБ)</p>
+                </div>
+              </div>
             </div>
-            
-            <ul class="sidebar-menu">
-                <li><a href="#dashboard" class="menu-item active" data-page="dashboard">
-                    <i class="fas fa-tachometer-alt"></i> Дашборд
-                </a></li>
-                <li><a href="#users" class="menu-item" data-page="users">
-                    <i class="fas fa-users"></i> Пользователи
-                </a></li>
-                <li><a href="#jobs" class="menu-item" data-page="jobs">
-                    <i class="fas fa-tasks"></i> Задания
-                </a></li>
-                <li><a href="#system" class="menu-item" data-page="system">
-                    <i class="fas fa-cogs"></i> Система
-                </a></li>
-                <li><a href="#audit" class="menu-item" data-page="audit">
-                    <i class="fas fa-clipboard-list"></i> Аудит
-                </a></li>
-                <li><a href="#security" class="menu-item" data-page="security">
-                    <i class="fas fa-shield-alt"></i> Безопасность
-                </a></li>
-            </ul>
 
-            <div class="sidebar-footer">
-                <div class="user-info">
-                    <i class="fas fa-user-shield"></i>
-                    <span id="current-user">Загрузка...</span>
-                </div>
-                <button class="btn-logout" onclick="logout()">
-                    <i class="fas fa-sign-out-alt"></i> Выйти
-                </button>
+            <div class="dashboard-grid">
+              <div class="dashboard-card">
+                <h3>Недавние задания (24ч)</h3>
+                <div class="big-number" id="jobs-24h">-</div>
+              </div>
+
+              <div class="dashboard-card">
+                <h3>Среднее время выполнения</h3>
+                <div class="big-number" id="avg-duration">-</div>
+              </div>
+
+              <div class="dashboard-card">
+                <h3>Время работы системы</h3>
+                <div class="big-number" id="uptime">-</div>
+              </div>
             </div>
-        </nav>
+          </div>
 
-        <!-- Main content -->
-        <main class="main-content">
-            <!-- Header -->
-            <header class="top-header">
-                <h1 id="page-title">Дашборд</h1>
-                <div class="header-actions">
-                    <button class="btn btn-refresh" onclick="refreshCurrentPage()">
-                        <i class="fas fa-sync-alt"></i> Обновить
-                    </button>
-                </div>
-            </header>
-
-            <!-- Content area -->
-            <div class="content">
-                <!-- Dashboard Page -->
-                <div id="dashboard-page" class="page active">
-                    <div class="stats-grid">
-                        <div class="stat-card">
-                            <div class="stat-icon users">
-                                <i class="fas fa-users"></i>
-                            </div>
-                            <div class="stat-info">
-                                <h3 id="total-users">-</h3>
-                                <p>Всего пользователей</p>
-                            </div>
-                        </div>
-                        
-                        <div class="stat-card">
-                            <div class="stat-icon jobs">
-                                <i class="fas fa-tasks"></i>
-                            </div>
-                            <div class="stat-info">
-                                <h3 id="total-jobs">-</h3>
-                                <p>Всего заданий</p>
-                            </div>
-                        </div>
-                        
-                        <div class="stat-card">
-                            <div class="stat-icon completed">
-                                <i class="fas fa-check-circle"></i>
-                            </div>
-                            <div class="stat-info">
-                                <h3 id="completed-jobs">-</h3>
-                                <p>Завершено</p>
-                            </div>
-                        </div>
-                        
-                        <div class="stat-card">
-                            <div class="stat-icon memory">
-                                <i class="fas fa-memory"></i>
-                            </div>
-                            <div class="stat-info">
-                                <h3 id="memory-usage">-</h3>
-                                <p>Память (МБ)</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="dashboard-grid">
-                        <div class="dashboard-card">
-                            <h3>Недавние задания (24ч)</h3>
-                            <div class="big-number" id="jobs-24h">-</div>
-                        </div>
-                        
-                        <div class="dashboard-card">
-                            <h3>Среднее время выполнения</h3>
-                            <div class="big-number" id="avg-duration">-</div>
-                        </div>
-                        
-                        <div class="dashboard-card">
-                            <h3>Время работы системы</h3>
-                            <div class="big-number" id="uptime">-</div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Users Page -->
-                <div id="users-page" class="page">
-                    <div class="page-header">
-                        <div class="search-bar">
-                            <input type="text" id="users-search" placeholder="Поиск пользователей...">
-                            <button onclick="searchUsers()"><i class="fas fa-search"></i></button>
-                        </div>
-                    </div>
-                    
-                    <div class="table-container">
-                        <table class="data-table">
-                            <thead>
-                                <tr>
-                                    <th>Email</th>
-                                    <th>Дата регистрации</th>
-                                    <th>Последний вход</th>
-                                    <th>Роли</th>
-                                    <th>Действия</th>
-                                </tr>
-                            </thead>
-                            <tbody id="users-table-body">
-                                <tr><td colspan="5" class="loading">Загрузка...</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                    
-                    <div class="pagination" id="users-pagination"></div>
-                </div>
-
-                <!-- Jobs Page -->
-                <div id="jobs-page" class="page">
-                    <div class="page-header">
-                        <div class="filters">
-                            <select id="jobs-status-filter">
-                                <option value="">Все статусы</option>
-                                <option value="pending">В ожидании</option>
-                                <option value="processing">Обработка</option>
-                                <option value="completed">Завершено</option>
-                                <option value="error">Ошибка</option>
-                            </select>
-                            
-                            <input type="text" id="jobs-search" placeholder="Поиск заданий...">
-                            <button onclick="searchJobs()"><i class="fas fa-search"></i></button>
-                        </div>
-                    </div>
-                    
-                    <div class="table-container">
-                        <table class="data-table">
-                            <thead>
-                                <tr>
-                                    <th>Название</th>
-                                    <th>Статус</th>
-                                    <th>Прогресс</th>
-                                    <th>Ссылок</th>
-                                    <th>Создано</th>
-                                    <th>Действия</th>
-                                </tr>
-                            </thead>
-                            <tbody id="jobs-table-body">
-                                <tr><td colspan="6" class="loading">Загрузка...</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                    
-                    <div class="pagination" id="jobs-pagination"></div>
-                </div>
-
-                <!-- System Page -->
-                <div id="system-page" class="page">
-                    <div class="system-grid">
-                        <div class="system-card">
-                            <h3>Очистка данных</h3>
-                            <p>Удаление старых заданий и кеша для оптимизации производительности</p>
-                            
-                            <div class="cleanup-options">
-                                <button class="btn btn-warning" onclick="performCleanup('old_jobs')">
-                                    <i class="fas fa-trash"></i> Старые задания (90+ дней)
-                                </button>
-                                
-                                <button class="btn btn-warning" onclick="performCleanup('failed_jobs')">
-                                    <i class="fas fa-exclamation-triangle"></i> Проваленные задания (7+ дней)
-                                </button>
-                                
-                                <button class="btn btn-warning" onclick="performCleanup('old_cache')">
-                                    <i class="fas fa-database"></i> Старый кеш (30+ дней)
-                                </button>
-                            </div>
-                        </div>
-                        
-                        <div class="system-card">
-                            <h3>Статистика системы</h3>
-                            <div id="system-stats">
-                                <div class="loading">Загрузка...</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Audit Page -->
-                <div id="audit-page" class="page">
-                    <div class="table-container">
-                        <table class="data-table">
-                            <thead>
-                                <tr>
-                                    <th>Время</th>
-                                    <th>Пользователь</th>
-                                    <th>Действие</th>
-                                    <th>Объект</th>
-                                    <th>IP адрес</th>
-                                </tr>
-                            </thead>
-                            <tbody id="audit-table-body">
-                                <tr><td colspan="5" class="loading">Загрузка...</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                    
-                    <div class="pagination" id="audit-pagination"></div>
-                </div>
-
-                <!-- Security Page -->
-                <div id="security-page" class="page">
-                    <h2>Мониторинг безопасности</h2>
-                    
-                    <div class="security-stats">
-                        <div class="stat-card alert">
-                            <h3><i class="fas fa-ban"></i> Заблокированные IP/Аккаунты</h3>
-                            <div id="blocked-list" class="blocked-list">
-                                <p class="no-data">Нет заблокированных адресов</p>
-                            </div>
-                        </div>
-                        
-                        <div class="stat-card warning">
-                            <h3><i class="fas fa-exclamation-triangle"></i> Попытки взлома</h3>
-                            <div id="failed-attempts-list" class="attempts-list">
-                                <p class="no-data">Нет подозрительной активности</p>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="security-actions">
-                        <button class="btn btn-info" onclick="loadSecurityStats()">
-                            <i class="fas fa-sync"></i> Обновить статистику
-                        </button>
-                    </div>
-                </div>
+          <!-- Users Page -->
+          <div id="users-page" class="page">
+            <div class="page-header">
+              <div class="search-bar">
+                <input type="text" id="users-search" placeholder="Поиск пользователей..." />
+                <button onclick="searchUsers()"><i class="fas fa-search"></i></button>
+              </div>
             </div>
-        </main>
+
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Email</th>
+                    <th>Дата регистрации</th>
+                    <th>Последний вход</th>
+                    <th>Роли</th>
+                    <th>Действия</th>
+                  </tr>
+                </thead>
+                <tbody id="users-table-body">
+                  <tr>
+                    <td colspan="5" class="loading">Загрузка...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="pagination" id="users-pagination"></div>
+          </div>
+
+          <!-- Jobs Page -->
+          <div id="jobs-page" class="page">
+            <div class="page-header">
+              <div class="filters">
+                <select id="jobs-status-filter">
+                  <option value="">Все статусы</option>
+                  <option value="pending">В ожидании</option>
+                  <option value="processing">Обработка</option>
+                  <option value="completed">Завершено</option>
+                  <option value="error">Ошибка</option>
+                </select>
+
+                <input type="text" id="jobs-search" placeholder="Поиск заданий..." />
+                <button onclick="searchJobs()"><i class="fas fa-search"></i></button>
+              </div>
+            </div>
+
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Название</th>
+                    <th>Статус</th>
+                    <th>Прогресс</th>
+                    <th>Ссылок</th>
+                    <th>Создано</th>
+                    <th>Действия</th>
+                  </tr>
+                </thead>
+                <tbody id="jobs-table-body">
+                  <tr>
+                    <td colspan="6" class="loading">Загрузка...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="pagination" id="jobs-pagination"></div>
+          </div>
+
+          <!-- System Page -->
+          <div id="system-page" class="page">
+            <div class="system-grid">
+              <div class="system-card">
+                <h3>Очистка данных</h3>
+                <p>Удаление старых заданий и кеша для оптимизации производительности</p>
+
+                <div class="cleanup-options">
+                  <button class="btn btn-warning" onclick="performCleanup('old_jobs')">
+                    <i class="fas fa-trash"></i> Старые задания (90+ дней)
+                  </button>
+
+                  <button class="btn btn-warning" onclick="performCleanup('failed_jobs')">
+                    <i class="fas fa-exclamation-triangle"></i> Проваленные задания (7+ дней)
+                  </button>
+
+                  <button class="btn btn-warning" onclick="performCleanup('old_cache')">
+                    <i class="fas fa-database"></i> Старый кеш (30+ дней)
+                  </button>
+                </div>
+              </div>
+
+              <div class="system-card">
+                <h3>Статистика системы</h3>
+                <div id="system-stats">
+                  <div class="loading">Загрузка...</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Audit Page -->
+          <div id="audit-page" class="page">
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Время</th>
+                    <th>Пользователь</th>
+                    <th>Действие</th>
+                    <th>Объект</th>
+                    <th>IP адрес</th>
+                  </tr>
+                </thead>
+                <tbody id="audit-table-body">
+                  <tr>
+                    <td colspan="5" class="loading">Загрузка...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="pagination" id="audit-pagination"></div>
+          </div>
+
+          <!-- Security Page -->
+          <div id="security-page" class="page">
+            <h2>Мониторинг безопасности</h2>
+
+            <div class="security-stats">
+              <div class="stat-card alert">
+                <h3><i class="fas fa-ban"></i> Заблокированные IP/Аккаунты</h3>
+                <div id="blocked-list" class="blocked-list">
+                  <p class="no-data">Нет заблокированных адресов</p>
+                </div>
+              </div>
+
+              <div class="stat-card warning">
+                <h3><i class="fas fa-exclamation-triangle"></i> Попытки взлома</h3>
+                <div id="failed-attempts-list" class="attempts-list">
+                  <p class="no-data">Нет подозрительной активности</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="security-actions">
+              <button class="btn btn-info" onclick="loadSecurityStats()">
+                <i class="fas fa-sync"></i> Обновить статистику
+              </button>
+            </div>
+          </div>
+        </div>
+      </main>
     </div>
 
     <!-- Login Modal -->
     <div id="login-modal" class="modal">
-        <div class="modal-content">
-            <h2>Авторизация в админ панели</h2>
-            <form id="login-form">
-                <div class="form-group">
-                    <label for="email">Email:</label>
-                    <input type="email" id="email" required>
-                </div>
-                
-                <div class="form-group">
-                    <label for="password">Пароль:</label>
-                    <input type="password" id="password" required>
-                </div>
-                
-                <button type="submit" class="btn btn-primary">Войти</button>
-            </form>
-            
-            <div id="login-error" class="error-message"></div>
-        </div>
+      <div class="modal-content">
+        <h2>Авторизация в админ панели</h2>
+        <form id="login-form">
+          <div class="form-group">
+            <label for="email">Email:</label>
+            <input type="email" id="email" required />
+          </div>
+
+          <div class="form-group">
+            <label for="password">Пароль:</label>
+            <input type="password" id="password" required />
+          </div>
+
+          <button type="submit" class="btn btn-primary">Войти</button>
+        </form>
+
+        <div id="login-error" class="error-message"></div>
+      </div>
     </div>
 
     <!-- Loading overlay -->
     <div id="loading-overlay" class="loading-overlay">
-        <div class="spinner"></div>
+      <div class="spinner"></div>
     </div>
 
     <script src="script.js"></script>
-</body>
+  </body>
 </html>

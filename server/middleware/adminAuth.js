@@ -9,8 +9,8 @@ export async function requireAdmin(req, res, next) {
   try {
     // Проверяем что пользователь авторизован
     if (!req.user || !req.user.id) {
-      return res.status(401).json({ 
-        error: 'Необходима авторизация для доступа к админской панели' 
+      return res.status(401).json({
+        error: 'Необходима авторизация для доступа к админской панели',
       });
     }
 
@@ -21,9 +21,11 @@ export async function requireAdmin(req, res, next) {
     );
 
     if (!adminRole) {
-      logger.warn(`[ADMIN_ACCESS_DENIED] User ${req.user.email} (${req.user.id}) attempted admin access`);
-      return res.status(403).json({ 
-        error: 'Доступ запрещен. Требуются права администратора.' 
+      logger.warn(
+        `[ADMIN_ACCESS_DENIED] User ${req.user.email} (${req.user.id}) attempted admin access`
+      );
+      return res.status(403).json({
+        error: 'Доступ запрещен. Требуются права администратора.',
       });
     }
 
@@ -33,8 +35,8 @@ export async function requireAdmin(req, res, next) {
     next();
   } catch (error) {
     logger.error('Error checking admin rights:', error);
-    res.status(500).json({ 
-      error: 'Ошибка проверки прав доступа' 
+    res.status(500).json({
+      error: 'Ошибка проверки прав доступа',
     });
   }
 }
@@ -42,7 +44,14 @@ export async function requireAdmin(req, res, next) {
 /**
  * Логирование административных действий
  */
-export async function logAdminAction(userId, action, targetType = null, targetId = null, details = {}, req = null) {
+export async function logAdminAction(
+  userId,
+  action,
+  targetType = null,
+  targetId = null,
+  details = {},
+  req = null
+) {
   try {
     const logData = {
       user_id: userId,
@@ -51,16 +60,26 @@ export async function logAdminAction(userId, action, targetType = null, targetId
       target_id: targetId,
       details: JSON.stringify(details),
       ip_address: req?.ip || null,
-      user_agent: req?.get('User-Agent') || null
+      user_agent: req?.get('User-Agent') || null,
     };
 
     await database.run(
       `INSERT INTO admin_audit_log (user_id, action, target_type, target_id, details, ip_address, user_agent) 
        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [logData.user_id, logData.action, logData.target_type, logData.target_id, logData.details, logData.ip_address, logData.user_agent]
+      [
+        logData.user_id,
+        logData.action,
+        logData.target_type,
+        logData.target_id,
+        logData.details,
+        logData.ip_address,
+        logData.user_agent,
+      ]
     );
 
-    logger.info(`[ADMIN_AUDIT] ${action} by ${userId} on ${targetType || 'system'}:${targetId || 'N/A'}`);
+    logger.info(
+      `[ADMIN_AUDIT] ${action} by ${userId} on ${targetType || 'system'}:${targetId || 'N/A'}`
+    );
   } catch (error) {
     logger.error('Failed to log admin action:', error);
     // Не прерываем выполнение если логирование не удалось
@@ -112,7 +131,7 @@ export async function grantAdminRole(targetUserId, grantedByUserId) {
        ON CONFLICT (user_id, role) DO NOTHING`,
       [targetUserId, grantedByUserId]
     );
-    
+
     await logAdminAction(grantedByUserId, 'GRANT_ADMIN_ROLE', 'user', targetUserId);
     return true;
   } catch (error) {
@@ -126,11 +145,11 @@ export async function grantAdminRole(targetUserId, grantedByUserId) {
  */
 export async function revokeAdminRole(targetUserId, revokedByUserId) {
   try {
-    const result = await database.run(
-      'DELETE FROM user_roles WHERE user_id = $1 AND role = $2',
-      [targetUserId, 'admin']
-    );
-    
+    const result = await database.run('DELETE FROM user_roles WHERE user_id = $1 AND role = $2', [
+      targetUserId,
+      'admin',
+    ]);
+
     if (result.changes > 0) {
       await logAdminAction(revokedByUserId, 'REVOKE_ADMIN_ROLE', 'user', targetUserId);
       return true;

@@ -18,7 +18,7 @@ config({ path: path.join(__dirname, '../.env') });
 
 async function createAdminFromUserId() {
   const userId = process.argv[2];
-  
+
   if (!userId) {
     console.error('❌ Ошибка: Укажите ID пользователя');
     console.log('Использование: node scripts/create-admin-simple.js <user_id>');
@@ -49,9 +49,13 @@ async function createAdminFromUserId() {
     }
 
     console.log('\n🎉 Настройка администратора завершена!');
-    console.log(`📍 Админская панель доступна по адресу: http://localhost:${process.env.PORT || 4000}/admin`);
+    console.log(
+      `📍 Админская панель доступна по адресу: http://localhost:${process.env.PORT || 4000}/admin`
+    );
     console.log(`👤 User ID: ${userId}`);
-    console.log(`💡 Пользователь сможет войти в админку используя свой обычный email/пароль из расширения`);
+    console.log(
+      `💡 Пользователь сможет войти в админку используя свой обычный email/пароль из расширения`
+    );
 
     process.exit(0);
   } catch (error) {

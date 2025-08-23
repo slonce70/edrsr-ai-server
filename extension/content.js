@@ -219,12 +219,21 @@ function createModal() {
     const templateSelect = document.getElementById('edrsr-prompt-template');
     const selectedIndex = templateSelect.selectedIndex;
     const selectedOption = templateSelect.options[selectedIndex];
-    const promptLabel = prompt && selectedOption && selectedOption.value !== 'custom'
-      ? selectedOption.textContent
-      : (prompt ? prompt.split(/\s+/).slice(0,6).join(' ') : null);
+    const promptLabel =
+      prompt && selectedOption && selectedOption.value !== 'custom'
+        ? selectedOption.textContent
+        : prompt
+          ? prompt.split(/\s+/).slice(0, 6).join(' ')
+          : null;
     // Try to read a saved preference from background settings if needed later; for now default to true
     const autoTitleEnabled = true;
-    await collectAndSend({ prompt, promptLabel, uniqueOnly, ignoreSessionVisited, autoTitleEnabled });
+    await collectAndSend({
+      prompt,
+      promptLabel,
+      uniqueOnly,
+      ignoreSessionVisited,
+      autoTitleEnabled,
+    });
   });
 }
 

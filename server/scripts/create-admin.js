@@ -22,7 +22,7 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 async function createFirstAdmin() {
   const email = process.argv[2];
-  
+
   if (!email) {
     console.error('❌ Ошибка: Укажите email администратора');
     console.log('Использование: node scripts/create-admin.js admin@example.com');
@@ -30,7 +30,9 @@ async function createFirstAdmin() {
   }
 
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-    console.error('❌ Ошибка: Не настроены переменные окружения SUPABASE_URL и SUPABASE_SERVICE_ROLE_KEY');
+    console.error(
+      '❌ Ошибка: Не настроены переменные окружения SUPABASE_URL и SUPABASE_SERVICE_ROLE_KEY'
+    );
     process.exit(1);
   }
 
@@ -48,7 +50,7 @@ async function createFirstAdmin() {
       throw new Error('Ошибка получения списка пользователей: ' + listError.message);
     }
 
-    const existingUser = users.users.find(user => user.email === email);
+    const existingUser = users.users.find((user) => user.email === email);
     let userId;
 
     if (existingUser) {
@@ -56,14 +58,14 @@ async function createFirstAdmin() {
       console.log(`✅ Пользователь ${email} уже существует (ID: ${userId})`);
     } else {
       console.log(`📧 Пользователь ${email} не найден. Создание нового пользователя...`);
-      
+
       // Generate a temporary password
       const tempPassword = generateTempPassword();
-      
+
       const { data: newUser, error: createError } = await supabase.auth.admin.createUser({
         email,
         password: tempPassword,
-        email_confirm: true // Auto-confirm email
+        email_confirm: true, // Auto-confirm email
       });
 
       if (createError) {
@@ -94,9 +96,11 @@ async function createFirstAdmin() {
     }
 
     console.log('\n🎉 Настройка администратора завершена!');
-    console.log(`📍 Админская панель доступна по адресу: http://localhost:${process.env.PORT || 4000}/admin`);
+    console.log(
+      `📍 Админская панель доступна по адресу: http://localhost:${process.env.PORT || 4000}/admin`
+    );
     console.log(`📧 Email: ${email}`);
-    
+
     if (!existingUser) {
       console.log(`🔑 Пароль: ${tempPassword} (смените после первого входа)`);
     }

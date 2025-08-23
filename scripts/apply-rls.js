@@ -18,7 +18,10 @@ function loadDatabaseUrl() {
         return value;
       }
     }
-  } catch {}
+  } catch {
+    // ignore missing server/.env or parse errors
+    void 0;
+  }
   return null;
 }
 

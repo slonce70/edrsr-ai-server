@@ -26,7 +26,16 @@ class DatabaseService {
             INSERT INTO jobs (id, title, status, total_links, prompt, progress, processed_links, user_id, title_source, user_edited, auto_title_enabled)
             VALUES ($1, $2, $3, $4, $5, 0, 0, $6, $7, false, $8)
         `;
-    await database.run(sql, [id, title, status, totalLinks, prompt, userId, titleSource, autoTitleEnabled]);
+    await database.run(sql, [
+      id,
+      title,
+      status,
+      totalLinks,
+      prompt,
+      userId,
+      titleSource,
+      autoTitleEnabled,
+    ]);
 
     if (jobData.links && jobData.links.length > 0) {
       await this.addJobLinks(id, jobData.links, userId);
