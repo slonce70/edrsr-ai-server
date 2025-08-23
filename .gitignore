@@ -1,0 +1,70 @@
+# Dependencies
+/node_modules
+/server/node_modules
+
+# Environment variables
+.env
+/server/.env
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Build output
+/dist
+/build
+/extension-build
+edrsr-ai-extension-*.zip
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+/server/database/data/
+
+# IDE and tools
+.cursor/
+.gemini/
+.vscode/
+.idea/
+.kiro/
+
+# OS files  
+.DS_Store
+Thumbs.db
+
+# Windows
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Chrome Extension
+extension-logs/
+*.crx
+*.pem
+
+# Debug and temp files
+*.log
+*.tmp
+.cache/
+temp/
+
+# Production deployment files
+/production-config/
+/ssl-certs/
+
+# Local development
+.dev/
+.local/
+
+# Security and credentials (never commit these!)
+*.key
+*.cert
+*.p12
+*credentials*.json
+*secrets*.json
+admin-keys.json

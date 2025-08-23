@@ -1,0 +1,96 @@
+// scripts/build-extension.js
+import fs from 'fs-extra';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import archiver from 'archiver';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const projectRoot = path.resolve(__dirname, '..');
+const extensionDir = path.join(projectRoot, 'extension');
+const buildDir = path.join(projectRoot, 'extension-build');
+
+const PROD_API_URL = 'https://edrsr-ai-server.onrender.com';
+const DEV_API_URL = 'http://localhost:4000';
+
+// --- Start of Edit ---
+const PROD_WS_URL = 'wss://edrsr-ai-server.onrender.com';
+const DEV_WS_URL = 'ws://localhost:4000';
+// --- End of Edit ---
+
+async function build() {
+  try {
+    console.log('🚀 Starting extension build for production...');
+
+    // 1. Clean and create build directory
+    console.log(`🧹 Cleaning build directory: ${buildDir}`);
+    await fs.emptyDir(buildDir);
+
+    // 2. Copy extension files to build directory
+    console.log(`📂 Copying files from ${extensionDir} to ${buildDir}`);
+    await fs.copy(extensionDir, buildDir);
+
+    // 3. Patch config.js
+    console.log(`🔄 Patching config.js with production URLs...`);
+    const configPath = path.join(buildDir, 'config.js');
+    let configContent = await fs.readFile(configPath, 'utf-8');
+
+    // Patch both HTTP and WebSocket URLs
+    configContent = configContent.replace(DEV_API_URL, PROD_API_URL);
+    configContent = configContent.replace(DEV_WS_URL, PROD_WS_URL);
+
+    await fs.writeFile(configPath, configContent, 'utf-8');
+    console.log('   ✅ Patched config.js');
+
+    // 4. Patch manifest.json
+    console.log('🔄 Patching manifest.json for production permissions');
+    const manifestPath = path.join(buildDir, 'manifest.json');
+    const manifestContent = await fs.readFile(manifestPath, 'utf-8');
+    const manifestJson = JSON.parse(manifestContent);
+
+    // Remove localhost and add production host permission
+    manifestJson.host_permissions = manifestJson.host_permissions.filter(
+      (p) => !p.includes('localhost')
+    );
+    manifestJson.host_permissions.push(PROD_API_URL + '/*');
+
+    await fs.writeFile(manifestPath, JSON.stringify(manifestJson, null, 2), 'utf-8');
+    console.log('   ✅ Patched manifest.json');
+
+    // 5. Create a zip archive for the store
+    console.log(`📦 Creating zip archive for Chrome Web Store...`);
+    const zipPath = path.join(projectRoot, `edrsr-ai-extension-v${manifestJson.version}.zip`);
+    const output = fs.createWriteStream(zipPath);
+    const archive = archiver('zip', {
+      zlib: { level: 9 }, // Sets the compression level.
+    });
+
+    await new Promise((resolve, reject) => {
+      output.on('close', resolve);
+      archive.on('warning', (err) => {
+        if (err.code === 'ENOENT') {
+          console.warn(err);
+        } else {
+          reject(err);
+        }
+      });
+      archive.on('error', reject);
+
+      archive.pipe(output);
+      archive.directory(buildDir, false);
+      archive.finalize();
+    });
+
+    console.log(`   ✅ Archive created at: ${zipPath}`);
+
+    console.log(
+      '\n🎉 Build successful! Production-ready extension is in "extension-build" directory.'
+    );
+  } catch (error) {
+    console.error('❌ Build failed:', error);
+    process.exit(1);
+  }
+}
+
+build();

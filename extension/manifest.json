@@ -1,0 +1,56 @@
+{
+  "manifest_version": 3,
+  "name": "EDRSR AI Assistant",
+  "version": "1.0",
+  "description": "AI-powered assistant for analyzing Ukrainian court decisions from EDRSR",
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "permissions": ["scripting", "storage", "activeTab", "notifications", "cookies"],
+  "host_permissions": [
+    "https://reyestr.court.gov.ua/*",
+    "http://localhost:4000/*",
+    "https://*.supabase.co/*"
+  ],
+  "background": {
+    "service_worker": "bg.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://reyestr.court.gov.ua/*"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "ЄДРСР → Gemini AI",
+    "default_icon": {
+      "16": "icon16.png",
+      "24": "icon48.png",
+      "32": "icon48.png"
+    }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "content.js",
+        "results.html",
+        "results.js",
+        "marked.min.js",
+        "init.js",
+        "utils.js",
+        "prompts.js",
+        "prompt-definitions.js",
+        "pdfobject.min.js"
+      ],
+      "matches": ["https://reyestr.court.gov.ua/*", "chrome-extension://*/*"]
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}
