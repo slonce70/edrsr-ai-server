@@ -7,6 +7,7 @@ import 'dotenv/config';
 
 import initRoutes from './routes/index.js';
 import adminRoutes from './routes/admin.js';
+import authRoutes from './routes/auth.js';
 import { initWebSocket } from './websocket.js';
 import errorHandler from './middleware/errorHandler.js';
 import { securityHeaders } from './middleware/security.js';
@@ -36,6 +37,7 @@ export function createServer() {
   const { clients } = initWebSocket(server);
 
   // Routes
+  app.use('/auth', authRoutes);
   app.use('/api', initRoutes(clients));
   app.use('/api/admin', adminRoutes);
 

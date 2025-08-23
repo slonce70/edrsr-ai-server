@@ -3,6 +3,7 @@ import fs from 'fs-extra';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import archiver from 'archiver';
+import dotenv from 'dotenv';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -11,12 +12,22 @@ const projectRoot = path.resolve(__dirname, '..');
 const extensionDir = path.join(projectRoot, 'extension');
 const buildDir = path.join(projectRoot, 'extension-build');
 
-const PROD_API_URL = 'https://edrsr-ai-server.onrender.com';
-const DEV_API_URL = 'http://localhost:4000';
+// Defaults (can be overridden via env)
+const PROD_API_URL = process.env.EXT_PROD_API_URL || 'https://edrsr-ai-server.onrender.com';
+const DEV_API_URL = process.env.EXT_DEV_API_URL || 'http://localhost:4000';
 
 // --- Start of Edit ---
-const PROD_WS_URL = 'wss://edrsr-ai-server.onrender.com';
-const DEV_WS_URL = 'ws://localhost:4000';
+const PROD_WS_URL = process.env.EXT_PROD_WS_URL || 'wss://edrsr-ai-server.onrender.com';
+const DEV_WS_URL = process.env.EXT_DEV_WS_URL || 'ws://localhost:4000';
+
+// Load env for future needs (not used to change Supabase creds; Supabase is same for dev/prod)
+const serverEnvPath = path.join(projectRoot, 'server/.env');
+if (fs.existsSync(serverEnvPath)) dotenv.config({ path: serverEnvPath });
+else dotenv.config();
+
+function escapeRegExp(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 // --- End of Edit ---
 
 async function build() {
@@ -36,14 +47,38 @@ async function build() {
     const configPath = path.join(buildDir, 'config.js');
     let configContent = await fs.readFile(configPath, 'utf-8');
 
-    // Patch both HTTP and WebSocket URLs
-    configContent = configContent.replace(DEV_API_URL, PROD_API_URL);
-    configContent = configContent.replace(DEV_WS_URL, PROD_WS_URL);
+    // Patch both HTTP and WebSocket URLs (replace all occurrences)
+    const devHttpRe = new RegExp(escapeRegExp(DEV_API_URL), 'g');
+    const devWsRe = new RegExp(escapeRegExp(DEV_WS_URL), 'g');
+    configContent = configContent.replace(devHttpRe, PROD_API_URL);
+    configContent = configContent.replace(devWsRe, PROD_WS_URL);
+
+    // Patch Supabase redirect to production callback
+    const devRedirect = `${DEV_API_URL.replace(/\/$/, '')}/auth/callback`;
+    const prodRedirect = `${PROD_API_URL.replace(/\/$/, '')}/auth/callback`;
+    const devRedirectRe = new RegExp(escapeRegExp(devRedirect), 'g');
+    configContent = configContent.replace(devRedirectRe, prodRedirect);
+
+    // Supabase URL/keys НЕ трогаем — одинаковы для dev и prod
 
     await fs.writeFile(configPath, configContent, 'utf-8');
     console.log('   ✅ Patched config.js');
 
-    // 4. Patch manifest.json
+    // 4. Patch popup.html footer text (remove localhost hint)
+    const popupPath = path.join(buildDir, 'popup.html');
+    if (await fs.pathExists(popupPath)) {
+      let popupHtml = await fs.readFile(popupPath, 'utf-8');
+      try {
+        const prodOrigin = new URL(PROD_API_URL).origin.replace(/^https?:\/\//, '');
+        popupHtml = popupHtml.replace('localhost:4000', prodOrigin);
+        await fs.writeFile(popupPath, popupHtml, 'utf-8');
+        console.log('   ✅ Patched popup.html footer');
+      } catch (e) {
+        console.warn('   ⚠️ Could not patch popup.html footer:', e.message);
+      }
+    }
+
+    // 5. Patch manifest.json
     console.log('🔄 Patching manifest.json for production permissions');
     const manifestPath = path.join(buildDir, 'manifest.json');
     const manifestContent = await fs.readFile(manifestPath, 'utf-8');
@@ -58,7 +93,7 @@ async function build() {
     await fs.writeFile(manifestPath, JSON.stringify(manifestJson, null, 2), 'utf-8');
     console.log('   ✅ Patched manifest.json');
 
-    // 5. Create a zip archive for the store
+    // 6. Create a zip archive for the store
     console.log(`📦 Creating zip archive for Chrome Web Store...`);
     const zipPath = path.join(projectRoot, `edrsr-ai-extension-v${manifestJson.version}.zip`);
     const output = fs.createWriteStream(zipPath);
