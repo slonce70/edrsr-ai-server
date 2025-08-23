@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Build outputs
+dist/
+build/
+extension-build/
+
+# Minified files
+*.min.js
+*.min.css
+
+# Generated files
+package-lock.json
+*/package-lock.json
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+
+# Chrome extension specific
+extension/marked.min.js
+
+# Markdown files (optional)
+*.md 

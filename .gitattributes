@@ -1,0 +1,17 @@
+# Normalize line endings to LF in repo; let Git convert to CRLF on checkout if configured
+* text=auto eol=lf
+
+# Ensure binary files are not normalized
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.zip binary
+*.pdf binary
+*.svg text eol=lf
+
+# Keep minified vendor files as-is
+extension/html2canvas.min.js -text
+extension/jspdf.umd.min.js -text
+extension/marked.min.js -text
+extension/pdfobject.min.js -text

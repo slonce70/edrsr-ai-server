@@ -1,0 +1,38 @@
+{
+  "name": "edrsr-gemini-backend",
+  "version": "0.2.1",
+  "type": "module",
+  "description": "Backend server for ЄДРСР AI analysis with Gemini",
+  "main": "index.js",
+  "scripts": {
+    "dev": "node index.js",
+    "start": "node index.js",
+    "admin:create": "node scripts/create-admin.js",
+    "admin:grant": "node scripts/create-admin-simple.js",
+    "transfer:jobs": "node scripts/transfer-jobs-to-user.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.4",
+    "express-rate-limit": "^7.3.1",
+    "@google/generative-ai": "^0.24.1",
+    "cheerio": "^1.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "edrsr-ai-monorepo": "file:..",
+    "express": "^4.19.2",
+    "got": "^14.4.2",
+    "p-limit": "^5.0.0",
+    "pg": "^8.16.3",
+    "uuid": "^9.0.1",
+    "ws": "^8.18.0"
+  },
+  "keywords": [
+    "edrsr",
+    "gemini",
+    "ai",
+    "court",
+    "decisions"
+  ],
+  "author": "EDRSR AI Team",
+  "license": "MIT"
+}
