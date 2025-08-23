@@ -1,5 +1,5 @@
 // Minimal Supabase auth client for MV3 (no external libs)
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
+import { SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_REDIRECT_TO } from './config.js';
 
 const SESSION_KEY = 'sb_session';
 
@@ -97,7 +97,14 @@ export async function signUpWithPassword(email, password) {
       'Content-Type': 'application/json',
       apikey: SUPABASE_ANON_KEY,
     },
-    body: JSON.stringify({ email, password }),
+    // Пробуем явно указать redirect, чтобы письмо подтверждения вело на наш колбэк
+    body: JSON.stringify({
+      email,
+      password,
+      // Оба поля на случай различий в API версий GoTrue
+      redirect_to: SUPABASE_REDIRECT_TO,
+      email_redirect_to: SUPABASE_REDIRECT_TO,
+    }),
   });
   const json = await res.json();
   if (!res.ok) throw new Error(json.error_description || json.error || 'Sign up failed');

@@ -5,6 +5,10 @@
 # Environment variables
 .env
 /server/.env
+# Ignore any env variants in server (do not commit secrets)
+/server/.env.*
+# But keep the example env file
+!/server/env.example
 
 # Logs
 npm-debug.log*
