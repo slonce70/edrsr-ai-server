@@ -1,5 +1,5 @@
 import database from '../database/connection.js';
-import { logger } from '../utils.js';
+import { logger, getClientIp } from '../utils.js';
 
 /**
  * Middleware для проверки административных прав
@@ -59,7 +59,7 @@ export async function logAdminAction(
       target_type: targetType,
       target_id: targetId,
       details: JSON.stringify(details),
-      ip_address: req?.ip || null,
+      ip_address: getClientIp(req),
       user_agent: req?.get('User-Agent') || null,
     };
 

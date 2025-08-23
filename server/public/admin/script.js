@@ -81,6 +81,39 @@ function setupEventListeners() {
   });
 
   document.getElementById('jobs-status-filter')?.addEventListener('change', searchJobs);
+
+  // Email filter: Enter to search
+  document.getElementById('jobs-email-filter')?.addEventListener('keypress', function (e) {
+    if (e.key === 'Enter') searchJobs();
+  });
+
+  // Sort by email when header clicked
+  const emailHeader = document.getElementById('jobs-email-header');
+  if (emailHeader) {
+    emailHeader.addEventListener('click', () => {
+      // Toggle sort direction: null -> asc -> desc -> null
+      if (!jobsEmailSortDir) jobsEmailSortDir = 'asc';
+      else if (jobsEmailSortDir === 'asc') jobsEmailSortDir = 'desc';
+      else jobsEmailSortDir = null;
+
+      // Reload current page with current filters
+      const page = document.querySelector('#jobs-pagination .active')?.textContent
+        ? parseInt(document.querySelector('#jobs-pagination .active').textContent, 10)
+        : 1;
+      const status = document.getElementById('jobs-status-filter').value;
+      const search = document.getElementById('jobs-search').value;
+      const email = document.getElementById('jobs-email-filter')?.value || '';
+      showJobsInlineLoading(true);
+      loadJobs(page, status, search, email).finally(() => showJobsInlineLoading(false));
+    });
+  }
+}
+
+function showJobsInlineLoading(isLoading) {
+  const el = document.getElementById('jobs-filter-loading');
+  const btn = document.getElementById('jobs-search-btn');
+  if (el) el.style.display = isLoading ? 'inline-flex' : 'none';
+  if (btn) btn.disabled = !!isLoading;
 }
 
 async function handleLogin(e) {
@@ -180,6 +213,9 @@ function navigateToPage(page) {
   loadPageData(page);
 }
 
+// Jobs page state for sorting
+let jobsEmailSortDir = null; // 'asc' | 'desc' | null
+
 async function loadPageData(page) {
   try {
     showLoading();
@@ -244,7 +280,7 @@ async function loadDashboard() {
   // Update dashboard cards
   document.getElementById('jobs-24h').textContent = data.jobs_24h || 0;
   document.getElementById('avg-duration').textContent = data.avg_job_duration
-    ? Math.round(data.avg_job_duration / 1000) + 'с'
+    ? formatDurationSeconds(data.avg_job_duration)
     : '-';
   document.getElementById('uptime').textContent = data.uptime_hours
     ? data.uptime_hours.toFixed(1) + 'ч'
@@ -307,20 +343,40 @@ async function loadUsers(page = 1, search = '') {
   updatePagination('users', response.pagination);
 }
 
-async function loadJobs(page = 1, status = '', search = '') {
+async function loadJobs(page = 1, status = '', search = '', email = '') {
   const params = new URLSearchParams({ page, limit: 20 });
   if (status) params.append('status', status);
   if (search) params.append('search', search);
+  if (email) params.append('email', email);
 
   const response = await apiCall(`/api/admin/jobs?${params}`);
   const tbody = document.getElementById('jobs-table-body');
 
-  if (response.jobs.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" class="loading">Задания не найдены</td></tr>';
+  let jobs = Array.isArray(response.jobs) ? [...response.jobs] : [];
+
+  // Email filter now handled server-side for full dataset
+
+  // Client-side sort by email when header toggled
+  if (jobsEmailSortDir) {
+    jobs.sort((a, b) => {
+      const ea = (a.user_email || '').toLowerCase();
+      const eb = (b.user_email || '').toLowerCase();
+      if (ea < eb) return jobsEmailSortDir === 'asc' ? -1 : 1;
+      if (ea > eb) return jobsEmailSortDir === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }
+
+  if (jobs.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="loading">Задания не найдены</td></tr>';
+    updatePagination('jobs', response.pagination);
+    // Update total count
+    const countEl = document.getElementById('jobs-results-count');
+    if (countEl) countEl.textContent = `Найдено: ${response.pagination.total || 0}`;
     return;
   }
 
-  tbody.innerHTML = response.jobs
+  tbody.innerHTML = jobs
     .map(
       (job) => `
         <tr>
@@ -332,6 +388,7 @@ async function loadJobs(page = 1, status = '', search = '') {
                     </button>
                 </div>
             </td>
+            <td>${job.user_email ? job.user_email : '<span class="muted">N/A</span>'}</td>
             <td><span class="status-badge status-${job.status}">${getStatusText(job.status)}</span></td>
             <td>
                 <div class="progress-bar">
@@ -360,7 +417,12 @@ async function loadJobs(page = 1, status = '', search = '') {
     )
     .join('');
 
+  // Keep original pagination totals
   updatePagination('jobs', response.pagination);
+  // Update total count
+  const countEl = document.getElementById('jobs-results-count');
+  if (countEl) countEl.textContent = `Найдено: ${response.pagination.total || 0}`;
+  return { jobsLength: jobs.length, pagination: response.pagination };
 }
 
 async function loadSystemStats() {
@@ -516,7 +578,17 @@ async function deleteJob(jobId) {
   try {
     await apiCall(`/api/admin/jobs/${jobId}`, 'DELETE');
     showSuccess('Задание удалено');
-    await loadJobs();
+    // Preserve current page and filters; if page becomes empty, go back 1 page
+    const status = document.getElementById('jobs-status-filter').value;
+    const search = document.getElementById('jobs-search').value;
+    const email = document.getElementById('jobs-email-filter')?.value || '';
+    const activePageBtn = document.querySelector('#jobs-pagination .active');
+    const currentPage = activePageBtn ? parseInt(activePageBtn.textContent, 10) || 1 : 1;
+
+    const { jobsLength } = await loadJobs(currentPage, status, search, email);
+    if (jobsLength === 0 && currentPage > 1) {
+      await loadJobs(currentPage - 1, status, search, email);
+    }
   } catch (error) {
     showError('Ошибка удаления задания: ' + error.message);
   }
@@ -576,7 +648,25 @@ async function searchUsers() {
 async function searchJobs() {
   const search = document.getElementById('jobs-search').value;
   const status = document.getElementById('jobs-status-filter').value;
-  await loadJobs(1, status, search);
+  const email = document.getElementById('jobs-email-filter')?.value || '';
+  showJobsInlineLoading(true);
+  try {
+    await loadJobs(1, status, search, email);
+  } finally {
+    showJobsInlineLoading(false);
+  }
+}
+
+function clearJobFilters() {
+  const statusSel = document.getElementById('jobs-status-filter');
+  const emailInp = document.getElementById('jobs-email-filter');
+  const searchInp = document.getElementById('jobs-search');
+  if (statusSel) statusSel.value = '';
+  if (emailInp) emailInp.value = '';
+  if (searchInp) searchInp.value = '';
+  jobsEmailSortDir = null;
+  showJobsInlineLoading(true);
+  loadJobs(1, '', '', '').finally(() => showJobsInlineLoading(false));
 }
 
 function refreshCurrentPage() {
@@ -622,6 +712,18 @@ function formatDate(dateString) {
 function formatDateTime(dateString) {
   if (!dateString) return 'N/A';
   return new Date(dateString).toLocaleString('ru-RU');
+}
+
+// Format duration provided in seconds into human-readable string
+function formatDurationSeconds(totalSeconds) {
+  const seconds = Math.max(0, Math.floor(totalSeconds));
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const s = seconds % 60;
+  const m = minutes % 60;
+  if (hours > 0) return `${hours}ч ${m}м`;
+  if (minutes > 0) return `${minutes}м ${s}с`;
+  return `${s}с`;
 }
 
 function getStatusText(status) {
@@ -678,7 +780,8 @@ async function changePage(type, page) {
     case 'jobs':
       const jobSearch = document.getElementById('jobs-search').value;
       const status = document.getElementById('jobs-status-filter').value;
-      await loadJobs(page, status, jobSearch);
+      const email = document.getElementById('jobs-email-filter')?.value || '';
+      await loadJobs(page, status, jobSearch, email);
       break;
     case 'audit':
       await loadAuditLog(page);

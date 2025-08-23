@@ -170,14 +170,14 @@ For Chrome Web Store publishing, use the generated `.zip` archive.
 - **GitHub**: [Repository](https://github.com/slonce70/edrsr-ai-server) for the full source code.
 - **Issues**: For bug reports and feature requests.
 - **Documentation**: 
-  - [DOCUMENTATION_INDEX.md](./DOCUMENTATION_INDEX.md) - **📚 Полный индекс всей документации проекта**
-  - [QUICK_COMMANDS.md](./QUICK_COMMANDS.md) - **🚀 Быстрые команды для ежедневного использования**
-  - [NPM_SCRIPTS.md](./NPM_SCRIPTS.md) - **📦 Справочник по всем npm скриптам**
-  - [API_REFERENCE.md](./API_REFERENCE.md) - **🔌 Полная документация API**
-  - [ENVIRONMENT_VARIABLES.md](./ENVIRONMENT_VARIABLES.md) - **🌍 Справочник по переменным окружения**
-  - [ADMIN_SCRIPTS.md](./ADMIN_SCRIPTS.md) - **🛠️ Справочник по админским скриптам**
-  - [PROJECT_COMMANDS.md](./PROJECT_COMMANDS.md) - **Полное руководство по командам и использованию проекта**
-  - [ADMIN_SETUP.md](./ADMIN_SETUP.md) - Настройка админки
+  - [DOCUMENTATION_INDEX.md](./docs/DOCUMENTATION_INDEX.md) - **📚 Полный индекс всей документации проекта**
+  - [QUICK_COMMANDS.md](./docs/QUICK_COMMANDS.md) - **🚀 Быстрые команды для ежедневного использования**
+  - [NPM_SCRIPTS.md](./docs/NPM_SCRIPTS.md) - **📦 Справочник по всем npm скриптам**
+  - [API_REFERENCE.md](./docs/API_REFERENCE.md) - **🔌 Полная документация API**
+  - [ENVIRONMENT_VARIABLES.md](./docs/ENVIRONMENT_VARIABLES.md) - **🌍 Справочник по переменным окружения**
+  - [ADMIN_SCRIPTS.md](./docs/ADMIN_SCRIPTS.md) - **🛠️ Справочник по админским скриптам**
+  - [PROJECT_COMMANDS.md](./docs/PROJECT_COMMANDS.md) - **Полное руководство по командам и использованию проекта**
+  - [ADMIN_SETUP.md](./docs/ADMIN_SETUP.md) - Настройка админки
   - See `docs/adr/` for architectural decision records (e.g., memory optimization).
 
 ## 📝 **License**

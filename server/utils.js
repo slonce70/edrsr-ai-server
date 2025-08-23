@@ -321,3 +321,43 @@ class Logger {
 }
 
 export const logger = new Logger();
+
+/**
+ * Best-effort client IP extraction supporting common proxy headers.
+ * Falls back to Express/Node addresses when headers are absent.
+ * @param {import('express').Request} req
+ * @returns {string|null}
+ */
+export function getClientIp(req) {
+  try {
+    const headers = req?.headers || {};
+    const xff = headers['x-forwarded-for'];
+    // x-forwarded-for may contain a comma-separated list; take the first public IP
+    let ip = Array.isArray(xff)
+      ? xff[0]
+      : typeof xff === 'string'
+        ? xff.split(',')[0].trim()
+        : null;
+
+    ip =
+      ip ||
+      headers['x-real-ip'] ||
+      headers['cf-connecting-ip'] ||
+      headers['true-client-ip'] ||
+      headers['x-client-ip'] ||
+      headers['fastly-client-ip'] ||
+      headers['x-cluster-client-ip'] ||
+      req?.ip ||
+      req?.connection?.remoteAddress ||
+      req?.socket?.remoteAddress ||
+      req?.connection?.socket?.remoteAddress ||
+      null;
+
+    if (typeof ip === 'string' && ip.startsWith('::ffff:')) {
+      ip = ip.substring(7);
+    }
+    return typeof ip === 'string' ? ip : null;
+  } catch {
+    return null;
+  }
+}

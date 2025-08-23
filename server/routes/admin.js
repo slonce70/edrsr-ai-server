@@ -267,7 +267,7 @@ router.delete('/users/:userId/admin-role', async (req, res) => {
 
 router.get('/jobs', async (req, res) => {
   try {
-    const { page = 1, limit = 20, status = '', search = '' } = req.query;
+    const { page = 1, limit = 20, status = '', search = '', email = '' } = req.query;
     const offset = (page - 1) * limit;
 
     let whereClause = '';
@@ -287,7 +287,67 @@ router.get('/jobs', async (req, res) => {
       paramIndex++;
     }
 
-    const jobs = await database.all(
+    // Optional server-side filtering by user email (full dataset)
+    if (email && supabaseAdmin) {
+      try {
+        const match = String(email).toLowerCase();
+        const matchingUserIds = [];
+        let pageNum = 1;
+        const perPage = 1000; // large page to reduce calls
+        // Iterate through all users and collect ids matching email substring
+        while (true) {
+          const { data, error } = await supabaseAdmin.auth.admin.listUsers({
+            page: pageNum,
+            perPage,
+          });
+          if (error) throw error;
+
+          const users = data?.users || [];
+          for (const u of users) {
+            const e = u?.email || '';
+            if (e && e.toLowerCase().includes(match)) {
+              matchingUserIds.push(u.id);
+            }
+          }
+
+          const total = data?.total || 0;
+          if (users.length < perPage || pageNum * perPage >= total) break;
+          pageNum++;
+        }
+
+        if (matchingUserIds.length === 0) {
+          // No users matched the email, return empty result early
+          await logAdminAction(
+            req.user.id,
+            'VIEW_ALL_JOBS',
+            null,
+            null,
+            { page, status, search, email },
+            req
+          );
+          return res.json({
+            success: true,
+            jobs: [],
+            pagination: {
+              page: parseInt(page),
+              limit: parseInt(limit),
+              total: 0,
+            },
+          });
+        }
+
+        // Filter jobs by matching user ids
+        whereClause += ` ${whereClause ? 'AND' : 'WHERE'} user_id = ANY($${paramIndex}::uuid[])`;
+        params.push(matchingUserIds);
+        paramIndex++;
+      } catch (e) {
+        // If we cannot fetch users for any reason, proceed without email filter
+        // but log a warning
+        logger.warn('Email filter skipped due to Supabase error:', e.message);
+      }
+    }
+
+    let jobs = await database.all(
       `SELECT id, title, status, progress, total_links, processed_links, 
               created_at, updated_at, user_id, duration, error_message
        FROM jobs ${whereClause}
@@ -296,12 +356,35 @@ router.get('/jobs', async (req, res) => {
       [...params, limit, offset]
     );
 
+    // Enrich with user emails for admin visibility
+    if (supabaseAdmin && Array.isArray(jobs) && jobs.length > 0) {
+      const uniqueUserIds = [...new Set(jobs.map((j) => j.user_id).filter(Boolean))];
+      const emailMap = new Map();
+      for (const uid of uniqueUserIds) {
+        try {
+          const { data } = await supabaseAdmin.auth.admin.getUserById(uid);
+          const email = data?.user?.email || null;
+          emailMap.set(uid, email);
+        } catch (e) {
+          emailMap.set(uid, null);
+        }
+      }
+      jobs = jobs.map((j) => ({ ...j, user_email: emailMap.get(j.user_id) || null }));
+    }
+
     const totalCount = await database.get(
       `SELECT COUNT(*) as count FROM jobs ${whereClause}`,
       params
     );
 
-    await logAdminAction(req.user.id, 'VIEW_ALL_JOBS', null, null, { page, status, search }, req);
+    await logAdminAction(
+      req.user.id,
+      'VIEW_ALL_JOBS',
+      null,
+      null,
+      { page, status, search, email },
+      req
+    );
     res.json({
       success: true,
       jobs,
