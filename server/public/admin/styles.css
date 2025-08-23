@@ -348,6 +348,13 @@ body {
   vertical-align: middle;
 }
 
+/* Make the Links column wider and prevent wrapping (5th column in Jobs table) */
+.data-table th:nth-child(5),
+.data-table td:nth-child(5) {
+  min-width: 120px;
+  white-space: nowrap;
+}
+
 .data-table tr:hover {
   background: #f8f9fa;
 }
@@ -422,6 +429,13 @@ body {
   border: 1px solid #ddd;
   border-radius: 6px;
   font-size: 0.9rem;
+}
+
+/* Inline loading indicator near filters */
+.inline-loading {
+  margin-left: 10px;
+  color: #6b7280;
+  font-size: 0.95rem;
 }
 
 .search-bar button {

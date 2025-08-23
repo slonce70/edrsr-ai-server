@@ -1,5 +1,5 @@
 import rateLimit from 'express-rate-limit';
-import { logger } from '../utils.js';
+import { logger, getClientIp } from '../utils.js';
 
 // Store failed login attempts in memory (for production use Redis/database)
 const failedAttempts = new Map();
@@ -32,9 +32,10 @@ export const adminLoginRateLimit = rateLimit({
   limit: 5, // 5 attempts per 15 minutes per IP
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => req.ip,
+  keyGenerator: (req) => getClientIp(req) || req.ip,
   handler: (req, res) => {
-    logger.warn(`[SECURITY] Admin login rate limit exceeded from IP: ${req.ip}`);
+    const ip = getClientIp(req) || req.ip;
+    logger.warn(`[SECURITY] Admin login rate limit exceeded from IP: ${ip}`);
     res.status(429).json({
       error: 'Слишком много попыток входа. Попробуйте через 15 минут.',
       retryAfter: 15 * 60,
@@ -48,9 +49,10 @@ export const adminRouteRateLimit = rateLimit({
   limit: 100, // 100 requests per minute per IP
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => req.ip,
+  keyGenerator: (req) => getClientIp(req) || req.ip,
   handler: (req, res) => {
-    logger.warn(`[SECURITY] Admin route rate limit exceeded from IP: ${req.ip}, Path: ${req.path}`);
+    const ip = getClientIp(req) || req.ip;
+    logger.warn(`[SECURITY] Admin route rate limit exceeded from IP: ${ip}, Path: ${req.path}`);
     res.status(429).json({
       error: 'Слишком много запросов к админке. Попробуйте позже.',
       retryAfter: 60,
@@ -65,7 +67,7 @@ export function trackFailedLogin(req, res, next) {
   res.send = function (data) {
     // Only track if this is an authentication failure
     if (res.statusCode === 401) {
-      const ip = req.ip;
+      const ip = getClientIp(req) || req.ip;
       const email = req.body?.email;
 
       if (email) {
@@ -108,7 +110,7 @@ export function trackFailedLogin(req, res, next) {
     } else if (res.statusCode === 200 && req.body?.email) {
       // Clear failed attempts on successful login
       const email = req.body.email;
-      const ip = req.ip;
+      const ip = getClientIp(req) || req.ip;
       failedAttempts.delete(`email:${email}`);
       failedAttempts.delete(`ip:${ip}`);
       logger.info(`[SECURITY] Successful admin login for ${email} from ${ip}`);
@@ -122,7 +124,7 @@ export function trackFailedLogin(req, res, next) {
 
 // Check if IP or email is blocked
 export function checkBlocked(req, res, next) {
-  const ip = req.ip;
+  const ip = getClientIp(req) || req.ip;
   const email = req.body?.email;
 
   // Check IP block
@@ -141,7 +143,7 @@ export function checkBlocked(req, res, next) {
     const emailBlock = blockedIPs.get(`email:${email}`);
     if (emailBlock && Date.now() < emailBlock.blockedUntil) {
       const remainingTime = Math.ceil((emailBlock.blockedUntil - Date.now()) / 60000);
-      logger.warn(`[SECURITY] Blocked email ${email} attempted access from ${ip}`);
+    logger.warn(`[SECURITY] Blocked email ${email} attempted access from ${ip}`);
       return res.status(429).json({
         error: `Аккаунт временно заблокирован за множественные неудачные попытки входа. Попробуйте через ${remainingTime} минут.`,
         retryAfter: remainingTime * 60,
@@ -206,7 +208,7 @@ export function logSuspiciousActivity(req, res, next) {
 
   if (suspicious || unusualUA) {
     logger.warn(`[SECURITY] Suspicious activity detected:`, {
-      ip: req.ip,
+      ip: getClientIp(req) || req.ip,
       method: req.method,
       url: req.url,
       userAgent,

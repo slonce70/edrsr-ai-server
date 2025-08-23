@@ -184,9 +184,17 @@
                   <option value="error">Ошибка</option>
                 </select>
 
+                <input type="text" id="jobs-email-filter" placeholder="Фильтр по email..." />
                 <input type="text" id="jobs-search" placeholder="Поиск заданий..." />
-                <button onclick="searchJobs()"><i class="fas fa-search"></i></button>
+                <button id="jobs-search-btn" onclick="searchJobs()"><i class="fas fa-search"></i></button>
+                <button id="jobs-clear-btn" class="btn btn-secondary" onclick="clearJobFilters()">
+                  <i class="fas fa-times-circle"></i> Очистить
+                </button>
+                <span id="jobs-filter-loading" class="inline-loading" style="display:none">
+                  <i class="fas fa-circle-notch fa-spin"></i> Поиск...
+                </span>
               </div>
+              <div class="results-count"><span id="jobs-results-count"></span></div>
             </div>
 
             <div class="table-container">
@@ -194,6 +202,7 @@
                 <thead>
                   <tr>
                     <th>Название</th>
+                    <th id="jobs-email-header" class="sortable">Email</th>
                     <th>Статус</th>
                     <th>Прогресс</th>
                     <th>Ссылок</th>
@@ -203,7 +212,7 @@
                 </thead>
                 <tbody id="jobs-table-body">
                   <tr>
-                    <td colspan="6" class="loading">Загрузка...</td>
+                    <td colspan="7" class="loading">Загрузка...</td>
                   </tr>
                 </tbody>
               </table>
