@@ -445,7 +445,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       }
 
-      let prompt; let promptLabel = null;
+      let prompt;
+      let promptLabel = null;
       const selectedIndex = elements.promptTemplate.selectedIndex;
       const selectedOption = elements.promptTemplate.options[selectedIndex];
       const selectedValue = elements.promptTemplate.value;
@@ -498,24 +499,35 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
           const res = await chrome.runtime.sendMessage({ type: 'API_GET_PROCESSED_URLS' });
           if (res?.success && Array.isArray(res.urls)) processedSet = new Set(res.urls);
-        } catch (_) {}
+        } catch (_) {
+          // ignore processed URLs retrieval failure
+          void 0;
+        }
 
         let sessionSet = new Set();
         try {
           const sres = await chrome.runtime.sendMessage({ type: 'API_GET_SESSION_VISITED' });
           if (sres?.success && Array.isArray(sres.urls)) sessionSet = new Set(sres.urls);
-        } catch (_) {}
+        } catch (_) {
+          // ignore session visited retrieval failure
+          void 0;
+        }
 
         const uniqueHistory = urls.filter((u) => !processedSet.has(u));
         const uniqueSession = uniqueHistory.filter((u) => !sessionSet.has(u));
-        elements.uniqueCountHistory && (elements.uniqueCountHistory.textContent = String(uniqueHistory.length));
-        elements.uniqueCountSession && (elements.uniqueCountSession.textContent = String(uniqueSession.length));
+        elements.uniqueCountHistory &&
+          (elements.uniqueCountHistory.textContent = String(uniqueHistory.length));
+        elements.uniqueCountSession &&
+          (elements.uniqueCountSession.textContent = String(uniqueSession.length));
 
         const useUnique = !!elements.uniqueOnlyToggle?.checked;
         const useSession = !!elements.ignoreSessionToggle?.checked;
         let finalCount = urls.length;
         if (useUnique) finalCount = uniqueHistory.length;
-        if (useSession) finalCount = useUnique ? uniqueSession.length : urls.filter((u) => !sessionSet.has(u)).length;
+        if (useSession)
+          finalCount = useUnique
+            ? uniqueSession.length
+            : urls.filter((u) => !sessionSet.has(u)).length;
         elements.collectBtn.innerHTML = `<span>🔍 Зібрати та проаналізувати (${finalCount})</span>`;
         elements.collectInfo.style.display = 'block';
         elements.collectBtn.disabled = false;

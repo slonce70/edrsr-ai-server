@@ -29,44 +29,46 @@ if (SUPABASE_URL && SUPABASE_ANON_KEY) {
 }
 
 // Auth endpoints (public)
-router.post('/auth/signin', 
+router.post(
+  '/auth/signin',
   // Add security middleware
   adminLoginRateLimit,
   checkBlocked,
   trackFailedLogin,
   async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
-    }
-    
-    if (!supabase) {
-      return res.status(500).json({ error: 'Supabase not configured' });
-    }
-    
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password
-    });
-    
-    if (error) {
-      return res.status(401).json({ error: error.message });
-    }
-    
-    res.json({
-      access_token: data.session.access_token,
-      user: {
-        id: data.user.id,
-        email: data.user.email
+    try {
+      const { email, password } = req.body;
+
+      if (!email || !password) {
+        return res.status(400).json({ error: 'Email and password are required' });
       }
-    });
-  } catch (error) {
-    logger.error('Sign in error:', error);
-    res.status(500).json({ error: 'Authentication failed' });
+
+      if (!supabase) {
+        return res.status(500).json({ error: 'Supabase not configured' });
+      }
+
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) {
+        return res.status(401).json({ error: error.message });
+      }
+
+      res.json({
+        access_token: data.session.access_token,
+        user: {
+          id: data.user.id,
+          email: data.user.email,
+        },
+      });
+    } catch (error) {
+      logger.error('Sign in error:', error);
+      res.status(500).json({ error: 'Authentication failed' });
+    }
   }
-});
+);
 
 // Attach user (if any) and require auth for all routes except auth and health endpoints
 router.use(attachUser);
@@ -77,10 +79,7 @@ const chatMeta = new Map(); // jobId -> { createdAt: number, lastUsed: number }
 
 // Настройки лимитов/TTL для чат‑сессий
 const CHAT_MAX_SESSIONS = Number.parseInt(process.env.CHAT_MAX_SESSIONS || '100', 10);
-const CHAT_TTL_MS = Number.parseInt(
-  process.env.CHAT_TTL_MS || String(4 * 60 * 60 * 1000),
-  10
-); // по умолчанию 4 часа
+const CHAT_TTL_MS = Number.parseInt(process.env.CHAT_TTL_MS || String(4 * 60 * 60 * 1000), 10); // по умолчанию 4 часа
 const CHAT_CLEANUP_INTERVAL_MS = Number.parseInt(
   process.env.CHAT_CLEANUP_INTERVAL_MS || String(5 * 60 * 1000),
   10
@@ -927,7 +926,7 @@ export default function (clients) {
       const now = Date.now();
       const current = chatMeta.get(jobId) || { createdAt: now, lastUsed: now };
       chatMeta.set(jobId, {
-        createdAt: hadSessionBefore ? current.createdAt ?? now : now,
+        createdAt: hadSessionBefore ? (current.createdAt ?? now) : now,
         lastUsed: now,
       });
 

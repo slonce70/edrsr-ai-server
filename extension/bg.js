@@ -299,7 +299,10 @@ async function handlePortMessage(message, port, sendResponse) {
           if (payload.ignoreSessionVisited === true) {
             linksToSend = linksToSend.filter((l) => l && l.url && !sessionVisited.has(l.url));
           }
-        } catch (_e) {}
+        } catch (_e) {
+          // intentionally ignore optional filtering errors to keep UX smooth
+          void 0;
+        }
 
         if (!Array.isArray(linksToSend) || linksToSend.length === 0) {
           throw new Error('Немає справ для відправки на аналіз за вибраними фільтрами.');
@@ -323,7 +326,10 @@ async function handlePortMessage(message, port, sendResponse) {
         // Mark as visited in this session to avoid repeat submits
         try {
           linksToSend.forEach((l) => l?.url && sessionVisited.add(l.url));
-        } catch (_e) {}
+        } catch (_e) {
+          // ignore sessionVisited cache issues
+          void 0;
+        }
 
         // Inform the content script which job to track
         if (result.jobId && payload.tabId) {
@@ -695,7 +701,10 @@ async function apiFetch(path, init = {}) {
       if (socket && socket.readyState === WebSocket.OPEN) {
         try {
           socket.send(JSON.stringify({ type: 'auth', token }));
-        } catch (_e) {}
+        } catch (_e) {
+          // best-effort WS re-auth; ignore transient failures
+          void 0;
+        }
       }
       res = await attempt(token);
     }

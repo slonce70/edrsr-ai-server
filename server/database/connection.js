@@ -316,10 +316,10 @@ class Database {
         WHERE table_name='user_roles';
       `;
       const userRolesExists = await this.get(checkUserRoles);
-      
+
       if (!userRolesExists) {
-        console.log(" MIGRATING: Creating admin tables (user_roles, admin_audit_log)...");
-        
+        console.log(' MIGRATING: Creating admin tables (user_roles, admin_audit_log)...');
+
         // Create user_roles table (simplified for PostgreSQL without Supabase auth functions)
         const userRolesTable = `
           CREATE TABLE user_roles (
@@ -350,10 +350,16 @@ class Database {
         await this.query(auditLogTable);
 
         // Create indexes
-        await this.query('CREATE INDEX IF NOT EXISTS idx_user_roles_user_id ON user_roles(user_id)');
+        await this.query(
+          'CREATE INDEX IF NOT EXISTS idx_user_roles_user_id ON user_roles(user_id)'
+        );
         await this.query('CREATE INDEX IF NOT EXISTS idx_user_roles_role ON user_roles(role)');
-        await this.query('CREATE INDEX IF NOT EXISTS idx_admin_audit_user_id ON admin_audit_log(user_id)');
-        await this.query('CREATE INDEX IF NOT EXISTS idx_admin_audit_created_at ON admin_audit_log(created_at DESC)');
+        await this.query(
+          'CREATE INDEX IF NOT EXISTS idx_admin_audit_user_id ON admin_audit_log(user_id)'
+        );
+        await this.query(
+          'CREATE INDEX IF NOT EXISTS idx_admin_audit_created_at ON admin_audit_log(created_at DESC)'
+        );
 
         console.log('    ...admin tables created.');
       }

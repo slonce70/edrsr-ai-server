@@ -139,4 +139,3 @@ router.get('/callback', (req, res) => {
 });
 
 export default router;
-

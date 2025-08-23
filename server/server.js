@@ -48,10 +48,10 @@ export function createServer() {
 
   // Default route
   app.get('/', (req, res) => {
-    res.json({ 
-      message: 'EDRSR-AI Server is running', 
+    res.json({
+      message: 'EDRSR-AI Server is running',
       version: '2.0.0',
-      admin_panel: '/admin'
+      admin_panel: '/admin',
     });
   });
 

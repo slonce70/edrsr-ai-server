@@ -1,4 +1,5 @@
 // --- EDRSR-AI Results Page Script v2.0 ---
+/* global html2canvas */
 // This script uses a modern, robust architecture with a long-lived port
 // connection to the service worker for receiving job data.
 import { getPromptName } from './prompt-definitions.js';
