@@ -372,7 +372,7 @@ function forceTerminateWorker(jobId, reason = 'Принудительное за
 
 async function processQueue() {
   if (!jobQueue.isIdle()) {
-    logger.info('[QUEUE] Обработчик занят.');
+    logger.debug('[QUEUE] Обработчик занят.');
     return;
   }
 
