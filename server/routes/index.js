@@ -394,7 +394,7 @@ async function processQueue() {
       jobQueue.startProcessing();
       startWorker({ jobId: claimed.id, links, cookie: '', prompt: claimed.prompt, claimed: true });
     } else {
-      logger.info('[QUEUE] Очередь пуста.');
+      logger.debug('[QUEUE] Очередь пуста.');
     }
   } catch (e) {
     logger.error('[QUEUE] Ошибка обработки очереди:', e.message);
@@ -537,16 +537,20 @@ export default function (clients) {
     logger.error('[CHAT_CLEANUP] Failed to start cleanup interval', e);
   }
 
-  // Queue recovery on startup + periodic pump
+  // Queue recovery on startup + periodic pump (throttled, quiet)
   dbService.recoverStuckJobs().catch((e) => {
     logger.warn('[QUEUE] Initial recovery failed:', e.message);
   });
-  // Periodically recover stuck jobs and try processing queue if idle
-  setInterval(() => {
-    dbService.recoverStuckJobs().catch(() => {});
-    processQueue();
-  }, 15000);
-  // Kick the queue once on startup
+  const PUMP_INTERVAL = parseInt(process.env.QUEUE_PUMP_INTERVAL_MS || '60000', 10);
+  setInterval(async () => {
+    try {
+      const recovered = await dbService.recoverStuckJobs();
+      if (recovered > 0) {
+        processQueue();
+      }
+    } catch {}
+  }, PUMP_INTERVAL);
+  // Kick the queue once on startup (handles already queued jobs)
   setTimeout(() => processQueue(), 2000);
 
   router.post('/collect', limitCollect, async (req, res, next) => {
