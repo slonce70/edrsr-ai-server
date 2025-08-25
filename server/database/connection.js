@@ -138,6 +138,7 @@ class Database {
     await this.runMigration_addUserIdColumns();
     await this.runMigration_addJobTitleMeta();
     await this.runMigration_addAdminTables();
+    await this.runMigration_addQueueColumns();
 
     // Create performance indexes
     await this.createIndexes();
@@ -247,6 +248,11 @@ class Database {
 
       // Text search index
       "CREATE INDEX IF NOT EXISTS idx_edrsr_name_search ON edrsr USING GIN(to_tsvector('simple', name))",
+
+      // Queue/locking related indexes
+      'CREATE INDEX IF NOT EXISTS idx_jobs_status_created ON jobs(status, created_at)',
+      'CREATE INDEX IF NOT EXISTS idx_jobs_lease_until ON jobs(lease_until)',
+      'CREATE INDEX IF NOT EXISTS idx_jobs_locked_by ON jobs(locked_by)',
     ];
 
     for (const indexSql of indexes) {
@@ -366,6 +372,32 @@ class Database {
     } catch (e) {
       console.error('Migration error (addAdminTables):', e.message);
     }
+  }
+
+  async runMigration_addQueueColumns() {
+    // Adds columns used for DB-backed leasing/queueing
+    const addColumnIfMissing = async (table, column, typeSql) => {
+      try {
+        const exists = await this.get(
+          `SELECT column_name FROM information_schema.columns WHERE table_name=$1 AND column_name=$2`,
+          [table, column]
+        );
+        if (!exists) {
+          await this.query(`ALTER TABLE ${table} ADD COLUMN ${column} ${typeSql}`);
+          console.log(`✅ Added column ${column} to ${table}`);
+        }
+      } catch (e) {
+        console.error(`Migration error (addQueueColumn ${table}.${column}):`, e.message);
+      }
+    };
+
+    await addColumnIfMissing('jobs', 'locked_by', 'TEXT NULL');
+    await addColumnIfMissing('jobs', 'locked_at', 'TIMESTAMPTZ NULL');
+    await addColumnIfMissing('jobs', 'lease_until', 'TIMESTAMPTZ NULL');
+    await addColumnIfMissing('jobs', 'heartbeat_at', 'TIMESTAMPTZ NULL');
+    await addColumnIfMissing('jobs', 'attempt', 'INTEGER DEFAULT 0');
+    await addColumnIfMissing('jobs', 'max_attempts', 'INTEGER DEFAULT 3');
+    await addColumnIfMissing('jobs', 'priority', 'INTEGER DEFAULT 0');
   }
 }
 

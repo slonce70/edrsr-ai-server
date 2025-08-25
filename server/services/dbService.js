@@ -18,6 +18,7 @@ import { logger } from '../utils.js';
 */
 
 class DatabaseService {
+  // ---- JOB CREATION/READ ----
   async createJob(jobData, userId = null) {
     const { id, status, totalLinks, prompt, title, titleSource = 'heuristic' } = jobData;
     const autoTitleEnabled =
@@ -467,6 +468,124 @@ class DatabaseService {
     `;
     const results = await database.all(sql, userId ? [userId] : []);
     return results.map((row) => row.url);
+  }
+
+  // ---- QUEUE/LEASING OPERATIONS ----
+
+  async recoverStuckJobs() {
+    // Return stuck in-progress jobs (no lease or expired lease) back to 'retrying'
+    const sql = `
+      UPDATE jobs
+      SET status = 'retrying', locked_by = NULL, locked_at = NULL, lease_until = NULL, heartbeat_at = NULL, updated_at = CURRENT_TIMESTAMP
+      WHERE status NOT IN ('completed','error','queued','retrying')
+        AND (lease_until IS NULL OR lease_until < NOW())
+    `;
+    try {
+      const res = await database.run(sql);
+      if (res.changes > 0) {
+        logger.info(`🔁 Recovered ${res.changes} stuck job(s) to 'retrying'`);
+      }
+      return res.changes || 0;
+    } catch (e) {
+      logger.error('[DB] recoverStuckJobs error:', e.message);
+      return 0;
+    }
+  }
+
+  async claimNextJob(workerId) {
+    // Atomically claim the next queued/retrying job
+    const sql = `
+      UPDATE jobs
+      SET status = 'processing', locked_by = $1, locked_at = NOW(), lease_until = NOW() + INTERVAL '30 minutes',
+          attempt = COALESCE(attempt,0) + 1, updated_at = CURRENT_TIMESTAMP
+      WHERE id = (
+        SELECT id FROM jobs
+        WHERE status IN ('queued','retrying')
+        ORDER BY priority DESC, created_at ASC
+        FOR UPDATE SKIP LOCKED
+        LIMIT 1
+      )
+      RETURNING id, prompt, user_id
+    `;
+    try {
+      const row = await database.get(sql, [workerId]);
+      if (row?.id) {
+        logger.info(`[QUEUE/DB] Claimed job ${row.id} by ${workerId}`);
+        return row;
+      }
+      return null;
+    } catch (e) {
+      logger.error('[DB] claimNextJob error:', e.message);
+      return null;
+    }
+  }
+
+  async lockJob(jobId, workerId) {
+    const sql = `
+      UPDATE jobs
+      SET status = 'processing', locked_by = $2, locked_at = NOW(), lease_until = NOW() + INTERVAL '30 minutes',
+          attempt = COALESCE(attempt,0) + 1, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1 AND (locked_by IS NULL OR lease_until IS NULL OR lease_until < NOW())
+      RETURNING id
+    `;
+    try {
+      const row = await database.get(sql, [jobId, workerId]);
+      return !!row?.id;
+    } catch (e) {
+      logger.error('[DB] lockJob error:', e.message);
+      return false;
+    }
+  }
+
+  async heartbeatJob(jobId, workerId) {
+    const sql = `
+      UPDATE jobs
+      SET heartbeat_at = NOW(), lease_until = NOW() + INTERVAL '30 minutes'
+      WHERE id = $1 AND locked_by = $2
+    `;
+    try {
+      await database.run(sql, [jobId, workerId]);
+    } catch (e) {
+      logger.debug('[DB] heartbeatJob error (non-fatal):', e.message);
+    }
+  }
+
+  async clearJobLock(jobId) {
+    const sql = `
+      UPDATE jobs
+      SET locked_by = NULL, locked_at = NULL, lease_until = NULL, heartbeat_at = NULL, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+    `;
+    try {
+      await database.run(sql, [jobId]);
+    } catch (e) {
+      logger.error('[DB] clearJobLock error:', e.message);
+    }
+  }
+
+  async requeueJob(jobId, { resetLinks = false } = {}) {
+    // Clear lock and move to 'retrying'
+    const sql = `
+      UPDATE jobs
+      SET status = 'retrying', locked_by = NULL, locked_at = NULL, lease_until = NULL, heartbeat_at = NULL, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+      RETURNING id
+    `;
+    const row = await database.get(sql, [jobId]);
+    if (!row) return false;
+    if (resetLinks) {
+      // Reset links that are not yet processed back to pending (we consider 'error' or null states)
+      try {
+        await database.run(
+          `UPDATE job_links SET status = 'pending', processed_at = NULL WHERE job_id = $1 AND status NOT IN ('pending','processed')`,
+          [jobId]
+        );
+      } catch (e) {
+        logger.warn('[DB] requeueJob: resetLinks error:', e.message);
+      }
+    }
+    logger.info(`[QUEUE/DB] Requeued job ${jobId}`);
+    return true;
   }
 }
 

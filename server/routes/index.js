@@ -18,6 +18,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const router = express.Router();
+const WORKER_ID = process.env.WORKER_ID || uuid();
 
 // Supabase client for auth
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -143,7 +144,16 @@ async function refreshHeuristicTitle(jobId) {
   }
 }
 
-function startWorker({ jobId, links, cookie, prompt }) {
+function startWorker({ jobId, links, cookie, prompt, claimed = false }) {
+  // If the job wasn't claimed via DB, attempt to lock it now (best-effort)
+  if (!claimed) {
+    dbService
+      .lockJob(jobId, WORKER_ID)
+      .then((locked) => {
+        if (!locked) logger.warn(`[${jobId}] Could not acquire DB lock before start`);
+      })
+      .catch((e) => logger.warn(`[${jobId}] Lock attempt failed: ${e.message}`));
+  }
   const worker = new Worker(path.resolve(__dirname, '../worker.js'), {
     workerData: { jobId, links, cookie, prompt },
   });
@@ -159,6 +169,8 @@ function startWorker({ jobId, links, cookie, prompt }) {
   const updateStatus = async (status, progress, message, extra = {}) => {
     const jobDataToUpdate = { progress, ...extra };
     const updatedJob = await dbService.updateJobStatus(jobId, status, jobDataToUpdate);
+    // Heartbeat to extend lease while processing
+    dbService.heartbeatJob(jobId, WORKER_ID).catch(() => {});
 
     // Send light updates during progress to reduce payload; full data only on completion
     const wsData =
@@ -197,6 +209,7 @@ function startWorker({ jobId, links, cookie, prompt }) {
     } else if (msg.type === 'jobSuccess') {
       await updateStatus('analyzing', 95, 'Контроль якості...');
       await updateStatus('completed', 100, 'Анализ успешно завершен!', msg.payload);
+      await dbService.clearJobLock(jobId);
       // Удаляем воркер из отслеживания
       const workerInfo = activeWorkers.get(jobId);
       if (workerInfo) {
@@ -216,6 +229,7 @@ function startWorker({ jobId, links, cookie, prompt }) {
         errorMessage,
         duration,
       });
+      await dbService.clearJobLock(jobId);
       // Удаляем воркер из отслеживания
       const workerInfo = activeWorkers.get(jobId);
       if (workerInfo) {
@@ -232,6 +246,7 @@ function startWorker({ jobId, links, cookie, prompt }) {
       await updateStatus('error', 0, `Задача отменена: ${message}`, {
         errorMessage: message,
       });
+      await dbService.clearJobLock(jobId);
       // Удаляем воркер из отслеживания
       const workerInfo = activeWorkers.get(jobId);
       if (workerInfo) {
@@ -251,6 +266,7 @@ function startWorker({ jobId, links, cookie, prompt }) {
     await updateStatus('error', 0, `Критическая ошибка: ${error.message}`, {
       errorMessage: error.message,
     });
+    await dbService.clearJobLock(jobId);
   });
 
   worker.on('exit', (code) => {
@@ -260,6 +276,7 @@ function startWorker({ jobId, links, cookie, prompt }) {
       jobQueue.endProcessing();
       logger.info(`[${jobId}] Воркер завершился аварийно. Проверяю очередь...`);
 
+      dbService.clearJobLock(jobId).catch(() => {});
       processQueue();
     } else {
       logger.info(`[${jobId}] Воркер завершил работу корректно.`);
@@ -353,16 +370,34 @@ function forceTerminateWorker(jobId, reason = 'Принудительное за
   }
 }
 
-function processQueue() {
-  if (jobQueue.isIdle() && jobQueue.getQueueStatus().length > 0) {
-    const job = jobQueue.dequeue();
-    if (job) {
-      logger.info(`[QUEUE] Запускаю задание ${job.jobId} из очереди.`);
+async function processQueue() {
+  if (!jobQueue.isIdle()) {
+    logger.info('[QUEUE] Обработчик занят.');
+    return;
+  }
+
+  // 1) Предпочтительно брать из памяти (чтобы не потерять cookie)
+  const memJob = jobQueue.dequeue();
+  if (memJob) {
+    logger.info(`[QUEUE] Запускаю задание ${memJob.jobId} из памяти.`);
+    jobQueue.startProcessing();
+    startWorker({ ...memJob, claimed: false });
+    return;
+  }
+
+  // 2) Если в памяти пусто — пробуем забрать из БД
+  try {
+    const claimed = await dbService.claimNextJob(WORKER_ID);
+    if (claimed && claimed.id) {
+      const links = await dbService.getJobLinks(claimed.id, claimed.user_id || null);
+      logger.info(`[QUEUE/DB] Запускаю задание ${claimed.id} из БД.`);
       jobQueue.startProcessing();
-      startWorker(job);
+      startWorker({ jobId: claimed.id, links, cookie: '', prompt: claimed.prompt, claimed: true });
+    } else {
+      logger.info('[QUEUE] Очередь пуста.');
     }
-  } else {
-    logger.info('[QUEUE] Обработчик занят или очередь пуста.');
+  } catch (e) {
+    logger.error('[QUEUE] Ошибка обработки очереди:', e.message);
   }
 }
 
@@ -501,6 +536,18 @@ export default function (clients) {
   } catch (e) {
     logger.error('[CHAT_CLEANUP] Failed to start cleanup interval', e);
   }
+
+  // Queue recovery on startup + periodic pump
+  dbService.recoverStuckJobs().catch((e) => {
+    logger.warn('[QUEUE] Initial recovery failed:', e.message);
+  });
+  // Periodically recover stuck jobs and try processing queue if idle
+  setInterval(() => {
+    dbService.recoverStuckJobs().catch(() => {});
+    processQueue();
+  }, 15000);
+  // Kick the queue once on startup
+  setTimeout(() => processQueue(), 2000);
 
   router.post('/collect', limitCollect, async (req, res, next) => {
     try {

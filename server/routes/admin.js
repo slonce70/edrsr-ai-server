@@ -15,6 +15,7 @@ import {
   getSecurityStats,
 } from '../middleware/security.js';
 import { logger } from '../utils.js';
+import dbService from '../services/dbService.js';
 
 const router = express.Router();
 
@@ -237,6 +238,31 @@ router.delete('/users/:userId', async (req, res) => {
   } catch (error) {
     logger.error('Delete user error:', error);
     res.status(500).json({ error: 'Ошибка удаления пользователя' });
+  }
+});
+
+// =====================
+// ОЧЕРЕДЬ/ПЕРЕЗАПУСК ЗАДАНИЙ
+// =====================
+
+// Перезапускает задание: снимает блокировку и переводит в состояние retrying/queued
+router.post('/jobs/:id/requeue', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reset_links = false } = req.body || {};
+
+    const ok = await dbService.requeueJob(id, { resetLinks: !!reset_links });
+    if (!ok) {
+      return res.status(404).json({ success: false, error: 'Задание не найдено' });
+    }
+
+    // Логируем админ-действие
+    await logAdminAction(req.user.id, 'REQUEUE_JOB', 'job', id, { reset_links: !!reset_links }, req);
+
+    res.json({ success: true, message: `Задание ${id} поставлено в очередь на повтор` });
+  } catch (error) {
+    logger.error('Admin requeue error:', error);
+    res.status(500).json({ success: false, error: 'Ошибка перезапуска задания' });
   }
 });
 
