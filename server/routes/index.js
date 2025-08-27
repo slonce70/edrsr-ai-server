@@ -206,6 +206,27 @@ function startWorker({ jobId, links, cookie, prompt, claimed = false }) {
       if (workerInfo) {
         workerInfo.worker.postMessage({ type: 'statusUpdateAck', requestId: msg.requestId });
       }
+    } else if (msg.type === 'healthCheckResponse') {
+      // Обрабатываем ответ на health check
+      const workerInfo = activeWorkers.get(jobId);
+      if (workerInfo) {
+        workerInfo.lastHealthCheck = Date.now();
+        workerInfo.memoryUsedMB = msg.memoryUsedMB;
+        workerInfo.isHighMemory = msg.isHighMemory;
+        workerInfo.isCriticalMemory = msg.isCriticalMemory;
+        
+        logger.debug(
+          `[HEALTH_CHECK] Воркер ${jobId}: ${msg.memoryUsedMB}MB${msg.isHighMemory ? ' (HIGH)' : ''}${msg.isCriticalMemory ? ' (CRITICAL)' : ''}`
+        );
+        
+        // Если память критически высокая, предупреждаем и готовимся к принудительному завершению
+        if (msg.isCriticalMemory) {
+          logger.warn(
+            `[HEALTH_CHECK] Критическое потребление памяти воркером ${jobId}: ${msg.memoryUsedMB}MB`
+          );
+          // Можно добавить логику принудительного завершения при критической памяти
+        }
+      }
     } else if (msg.type === 'jobSuccess') {
       await updateStatus('analyzing', 95, 'Контроль якості...');
       await updateStatus('completed', 100, 'Анализ успешно завершен!', msg.payload);
@@ -339,7 +360,7 @@ function forceTerminateWorker(jobId, reason = 'Принудительное за
       reason: reason,
     });
 
-    // Даем воркеру 5 секунд на корректное завершение
+    // Даем воркеру 3 секунды на корректное завершение (сокращено с 5)
     setTimeout(() => {
       const stillActive = activeWorkers.get(jobId);
       if (stillActive) {
@@ -348,9 +369,19 @@ function forceTerminateWorker(jobId, reason = 'Принудительное за
         );
 
         // Принудительно завершаем воркер
-        stillActive.worker.terminate();
+        try {
+          stillActive.worker.terminate();
+        } catch (termError) {
+          logger.error(`[FORCE_TERMINATE] Ошибка при завершении воркера ${jobId}:`, termError.message);
+        }
+        
         stillActive.status = 'force_terminated';
         activeWorkers.delete(jobId);
+
+        // Освобождаем блокировку в БД
+        dbService.clearJobLock(jobId).catch(err => {
+          logger.error(`[FORCE_TERMINATE] Ошибка очистки блокировки в БД для ${jobId}:`, err.message);
+        });
 
         // Освобождаем очередь если этот воркер блокировал её
         if (!jobQueue.isIdle()) {
@@ -358,7 +389,7 @@ function forceTerminateWorker(jobId, reason = 'Принудительное за
           processQueue();
         }
       }
-    }, 5000);
+    }, 3000);
 
     return true;
   } catch (error) {
@@ -403,9 +434,11 @@ async function processQueue() {
 
 // Автоматическая очистка зависших воркеров
 function startWorkerCleanupService() {
-  const CLEANUP_INTERVAL = 2 * 60 * 1000; // Проверяем каждые 2 минуты
-  const MAX_WORKER_LIFETIME = 35 * 60 * 1000; // 35 минут максимум (больше чем в worker.js)
-  const HEALTH_CHECK_INTERVAL = 5 * 60 * 1000; // Проверяем здоровье воркеров каждые 5 минут
+  const CLEANUP_INTERVAL = 30 * 1000; // Проверяем каждые 30 секунд (было 2 минуты)
+  const MAX_WORKER_LIFETIME = 25 * 60 * 1000; // 25 минут максимум (синхронизировано с worker.js)
+  const HEALTH_CHECK_INTERVAL = 2 * 60 * 1000; // Проверяем здоровье воркеров каждые 2 минуты (было 5 минут)
+  const MEMORY_CHECK_THRESHOLD = 5 * 60 * 1000; // Проверяем память воркеров старше 5 минут
+  const HIGH_MEMORY_THRESHOLD = 300; // MB
 
   let lastHealthCheck = Date.now();
 
@@ -426,8 +459,8 @@ function startWorkerCleanupService() {
         });
       }
       // Если воркер работает долго, но еще не превысил лимит - проверим его здоровье
-      else if (runningTime > 10 * 60 * 1000) {
-        // Больше 10 минут
+      else if (runningTime > MEMORY_CHECK_THRESHOLD) {
+        // Больше 5 минут - проверяем здоровье и память
         workersToHealthCheck.push({ jobId, workerInfo, runningTime });
       }
     }
@@ -480,6 +513,44 @@ function startWorkerCleanupService() {
   logger.info('[CLEANUP] Служба автоматической очистки зависших воркеров запущена');
 }
 
+// Функция восстановления зависших заданий в БД
+async function recoverStuckJobs() {
+  try {
+    const recoveredCount = await dbService.recoverStuckJobs();
+    if (recoveredCount > 0) {
+      logger.info(`🔄 [RECOVERY] Восстановлено ${recoveredCount} зависших заданий в БД`);
+      // После восстановления пытаемся запустить обработку очереди
+      setTimeout(() => processQueue(), 1000);
+    }
+  } catch (error) {
+    logger.error('[RECOVERY] Ошибка восстановления зависших заданий:', error.message);
+  }
+}
+
+// Периодическое восстановление зависших заданий
+function startPeriodicRecovery() {
+  // Запускаем восстановление каждые 5 минут
+  const RECOVERY_INTERVAL = 5 * 60 * 1000;
+  
+  setInterval(() => {
+    recoverStuckJobs();
+  }, RECOVERY_INTERVAL);
+  
+  logger.info('[RECOVERY] Периодическое восстановление зависших заданий запущено (каждые 5 минут)');
+}
+
+// Инициализация всех служб мониторинга
+function initializeMonitoringServices() {
+  // Первоначальное восстановление при старте
+  recoverStuckJobs();
+  
+  // Запуск служб
+  startWorkerCleanupService();
+  startPeriodicRecovery();
+  
+  logger.info('🔧 [MONITORING] Все службы мониторинга и восстановления запущены');
+}
+
 // Очистка чат‑сессий по TTL и LRU‑лимиту
 function evictExpiredChatSessions(reason = 'scheduled') {
   const now = Date.now();
@@ -523,8 +594,8 @@ function evictExpiredChatSessions(reason = 'scheduled') {
 }
 
 export default function (clients) {
-  // Запускаем службу очистки при инициализации
-  startWorkerCleanupService();
+  // Запускаем все службы мониторинга при инициализации
+  initializeMonitoringServices();
   // Запускаем периодическую очистку чат‑сессий
   try {
     setInterval(() => evictExpiredChatSessions('interval'), CHAT_CLEANUP_INTERVAL_MS);

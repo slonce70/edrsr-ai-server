@@ -27,13 +27,25 @@ parentPort.on('message', (msg) => {
       payload: { jobId: msg.jobId, message: 'Задача отменена пользователем' },
     });
   } else if (msg.type === 'healthCheck') {
-    // Отвечаем на проверку здоровья
+    // Отвечаем на проверку здоровья с детальной информацией
+    const memUsage = process.memoryUsage();
+    const memUsedMB = Math.round(memUsage.heapUsed / 1024 / 1024);
+    
     parentPort.postMessage({
       type: 'healthCheckResponse',
       timestamp: msg.timestamp,
       alive: true,
-      memoryUsage: process.memoryUsage(),
+      memoryUsage: memUsage,
+      memoryUsedMB: memUsedMB,
+      isHighMemory: memUsedMB > 300,
+      isCriticalMemory: memUsedMB > 400
     });
+    
+    // Если память критически высокая, принудительно запускаем GC
+    if (memUsedMB > 350 && global.gc) {
+      console.log(`🗑️ [WORKER] Health check triggered GC due to high memory: ${memUsedMB}MB`);
+      global.gc();
+    }
   }
 });
 // --- End Mechanism ---
@@ -70,9 +82,10 @@ function postStatusUpdate(status, progress, message, extra = {}) {
  */
 async function processJobInWorker(jobId, links, cookie, prompt) {
   const startTime = Date.now();
-  const MAX_JOB_DURATION = 30 * 60 * 1000; // 30 минут максимум на задачу
-  // const MAX_SINGLE_LINK_DURATION = 2 * 60 * 1000; // 2 минуты на одну ссылку (не используется)
-  const MAX_STALL_DURATION = 12 * 60 * 1000; // 12 минут без прогресса
+  const MAX_JOB_DURATION = 25 * 60 * 1000; // 25 минут максимум на задачу (сокращено)
+  const MAX_STALL_DURATION = 8 * 60 * 1000; // 8 минут без прогресса (сокращено)
+  const MAX_MEMORY_MB = 400; // Максимум памяти в MB (снижено с 500)
+  const MEMORY_WARNING_MB = 300; // Предупреждение о памяти
 
   let lastProgressTime = Date.now();
   let lastProcessedCount = 0;
@@ -140,7 +153,7 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
     }
 
     let totalProcessedCount = 0;
-    const allValidCasesForAnalysis = [];
+    const allValidCasesForAnalysis = []; // Возвращаем оригинальную логику для качественного анализа
 
     // Обрабатываем каждый пакет отдельно
     for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
@@ -192,11 +205,21 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
             }
           );
 
-          // If memory usage is too high, warn and potentially stop
-          if (memUsedMB > 450) {
+          // Проактивный мониторинг памяти
+          if (memUsedMB > MEMORY_WARNING_MB) {
             console.warn(`⚠️ [WORKER] High memory usage: ${memUsedMB}MB`);
-            if (memUsedMB > 500) {
-              throw new Error(`Memory limit exceeded: ${memUsedMB}MB > 500MB`);
+            // Принудительная сборка мусора при превышении предупреждения
+            if (global.gc) {
+              global.gc();
+              const memAfterGC = process.memoryUsage();
+              const memAfterGCMB = Math.round(memAfterGC.heapUsed / 1024 / 1024);
+              console.log(`🗑️ [WORKER] Forced GC: ${memUsedMB}MB -> ${memAfterGCMB}MB`);
+              
+              if (memAfterGCMB > MAX_MEMORY_MB) {
+                throw new Error(`Memory limit exceeded: ${memAfterGCMB}MB > ${MAX_MEMORY_MB}MB after GC`);
+              }
+            } else if (memUsedMB > MAX_MEMORY_MB) {
+              throw new Error(`Memory limit exceeded: ${memUsedMB}MB > ${MAX_MEMORY_MB}MB`);
             }
           }
         },
@@ -236,16 +259,29 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
         )}MB rss=${Math.round(memAfterSave.rss / 1024 / 1024)}MB`
       );
 
-      // Собираем валидные случаи для анализа (сохраняем body для AI)
+      // Собираем валидные случаи для анализа (сохраняем оригинальную логику)
       const validCasesInBatch = casesWithDates.filter((c) => !c.error);
-      allValidCasesForAnalysis.push(...validCasesInBatch);
+      
+      // Оптимизация памяти: оставляем только нужные поля для AI
+      const optimizedCases = validCasesInBatch.map(caseData => ({
+        caseNumber: caseData.caseNumber,
+        id: caseData.id || caseData.caseNumber,
+        url: caseData.url,
+        body: caseData.body, // Нужно для AI
+        decisionDate: caseData.decisionDate
+      }));
+      
+      allValidCasesForAnalysis.push(...optimizedCases);
 
-      // Очищаем память после сохранения пакета (оставляя данные, нужные для AI)
-      // Сознательно не трогаем allValidCasesForAnalysis до этапа AI
-      // Удаляем ссылки на временные массивы
+      // Очищаем память после копирования
+      for (const caseData of casesWithDates) {
+        caseData.body = null;
+        caseData.metadata = null;
+      }
       cases.length = 0;
-      // Явно освобождаем batch локальные ссылки
-      // (оставляем batch как источник индексации, но не держим дубликаты данных)
+      casesWithDates.length = 0;
+      validCasesInBatch.length = 0;
+      optimizedCases.length = 0;
 
       // Принудительный запуск сборщика мусора между пакетами
       if (global.gc) {
@@ -259,7 +295,7 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
       totalProcessedCount += batch.length;
     }
 
-    // Выполняем AI анализ всех валидных случаев
+    // Выполняем AI анализ всех валидных случаев (оригинальная логика)
     const analysis = await analyzeCases(allValidCasesForAnalysis, prompt, (statusUpdate) =>
       postStatusUpdate('analyzing', 65, statusUpdate)
     );
@@ -267,7 +303,6 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
     // Очищаем память после завершения AI анализа
     for (const caseData of allValidCasesForAnalysis) {
       caseData.body = null;
-      caseData.metadata = null;
     }
     allValidCasesForAnalysis.length = 0;
 

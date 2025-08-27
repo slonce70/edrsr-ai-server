@@ -104,4 +104,4 @@ npm run admin:grant
 - **Админка:** http://localhost:4000/admin
 - **Supabase:** https://supabase.com/dashboard
 - **Render:** https://dashboard.render.com
-- **Полная документация:** [PROJECT_COMMANDS.md](./PROJECT_COMMANDS.md)
+- **Индекс документации:** [DOCUMENTATION_INDEX.md](./DOCUMENTATION_INDEX.md)

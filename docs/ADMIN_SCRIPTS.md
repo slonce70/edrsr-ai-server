@@ -2,7 +2,7 @@
 
 ## **Обзор**
 
-EDRSR-AI включает набор скриптов для административного управления системой. Все скрипты находятся в папке `server/scripts/` и могут выполняться через npm команды или напрямую через Node.js.
+EDRSR-AI включает набор скриптов для административного управления системой. Скрипты находятся в `server/scripts/` (сервер) и `scripts/` (root). Их можно запускать через npm команды или напрямую через Node.js.
 
 ## **📁 Структура скриптов**
 
@@ -12,7 +12,7 @@ server/scripts/
 ├── create-admin-simple.js       # Прямое назначение роли админа в БД
 ├── transfer-jobs-to-user.js     # Перенос заданий между пользователями
 ├── transfer-jobs-to-user.sql    # SQL скрипт для переноса данных
-├── apply-rls.js                 # Применение Row Level Security
+└── (root)/scripts/apply-rls.js  # Применение Row Level Security
 ├── memory-load-test.js          # Тест нагрузки памяти
 ├── test-race-condition-fix.js   # Тест race conditions
 └── reset-user-password.js       # Сброс пароля пользователя
@@ -149,12 +149,11 @@ UPDATE parsed_cases SET user_id = 'USER_ID_HERE' WHERE user_id IS NULL;
 
 ### **5. Применение Row Level Security**
 
-**Файл:** `server/scripts/apply-rls.js`
+**Файл:** `scripts/apply-rls.js` (в корне)
 
 **Команда:**
 ```bash
-cd server
-node scripts/apply-rls.js
+npm run apply:rls
 ```
 
 **Что делает:**
@@ -195,8 +194,7 @@ node scripts/test-race-condition-fix.js
 ```
 
 **Что делает:**
-- Тестирует исправления race conditions
-- Проверяет корректность обработки конкурентных запросов
+- Тестирует обработку конкурентных запросов
 
 ## **🔧 Утилиты**
 

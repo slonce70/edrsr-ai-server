@@ -6,7 +6,9 @@
   "main": "index.js",
   "scripts": {
     "dev": "node index.js",
-    "start": "node index.js",
+    "start": "node start-optimized.js",
+    "start:basic": "node index.js",
+    "start:monitor": "ENABLE_MEMORY_MONITORING=true node start-optimized.js",
     "admin:create": "node scripts/create-admin.js",
     "admin:grant": "node scripts/create-admin-simple.js",
     "transfer:jobs": "node scripts/transfer-jobs-to-user.js"
