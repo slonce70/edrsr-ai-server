@@ -16,7 +16,6 @@ import {
 } from '../middleware/security.js';
 import { logger } from '../utils.js';
 import dbService from '../services/dbService.js';
-import got from 'got';
 
 const router = express.Router();
 
@@ -259,23 +258,22 @@ router.post('/jobs/:id/requeue', async (req, res) => {
     }
 
     // Логируем админ-действие
-    await logAdminAction(req.user.id, 'REQUEUE_JOB', 'job', id, { reset_links: !!reset_links }, req);
+    await logAdminAction(
+      req.user.id,
+      'REQUEUE_JOB',
+      'job',
+      id,
+      { reset_links: !!reset_links },
+      req
+    );
 
-    // Запускаем обработку очереди после requeue
-    setTimeout(async () => {
-      const url = `${process.env.API_BASE_URL || 'http://localhost:4000'}/api/internal/process-queue`;
+    // Запускаем обработку очереди после requeue (внутренним событием)
+    setTimeout(() => {
       try {
-        await got.post(url, {
-          headers: {
-            'Content-Type': 'application/json',
-            'x-internal-request': 'true',
-          },
-          timeout: { request: 2000 },
-        });
-        logger.info(`[ADMIN_RETRY] Очередь запущена после requeue задания ${id}`);
-      } catch (error) {
-        logger.warn(`[ADMIN_RETRY] Не удалось запустить очередь: ${error?.message || 'unknown error'} (${url})`);
-        try { process.emit('edrsr:queue:pump'); } catch {}
+        process.emit('edrsr:queue:pump');
+        logger.info(`[ADMIN_RETRY] Очередь запрошена после requeue задания ${id}`);
+      } catch (_e) {
+        // noop
       }
     }, 500);
 
@@ -580,16 +578,9 @@ router.get('/jobs/errors', async (req, res) => {
   try {
     const { limit = 20 } = req.query;
     const errorJobs = await dbService.getJobsWithErrors(parseInt(limit));
-    
-    await logAdminAction(
-      req.user.id,
-      'VIEW_ERROR_JOBS',
-      'system',
-      'N/A',
-      { limit },
-      req
-    );
-    
+
+    await logAdminAction(req.user.id, 'VIEW_ERROR_JOBS', 'system', 'N/A', { limit }, req);
+
     res.json({ success: true, jobs: errorJobs });
   } catch (error) {
     logger.error('Get error jobs error:', error);
@@ -601,20 +592,25 @@ router.get('/jobs/errors', async (req, res) => {
 router.post('/jobs/:jobId/retry', async (req, res) => {
   try {
     const { jobId } = req.params;
-    
+
     // Получаем информацию о задании
-    const job = await database.get('SELECT id, status, error_message, attempt FROM jobs WHERE id = $1', [jobId]);
-    
+    const job = await database.get(
+      'SELECT id, status, error_message, attempt FROM jobs WHERE id = $1',
+      [jobId]
+    );
+
     if (!job) {
       return res.status(404).json({ error: 'Задание не найдено' });
     }
-    
+
     if (job.status !== 'error') {
-      return res.status(400).json({ error: `Задание не в статусе ошибки (текущий статус: ${job.status})` });
+      return res
+        .status(400)
+        .json({ error: `Задание не в статусе ошибки (текущий статус: ${job.status})` });
     }
-    
+
     const success = await dbService.manualRetryJob(jobId);
-    
+
     if (success) {
       await logAdminAction(
         req.user.id,
@@ -624,29 +620,21 @@ router.post('/jobs/:jobId/retry', async (req, res) => {
         {
           old_status: job.status,
           error_message: job.error_message,
-          attempt: job.attempt
+          attempt: job.attempt,
         },
         req
       );
-      
+
       // ВАЖНО: Запускаем обработку очереди после retry!
-      setTimeout(async () => {
-        const url = `${process.env.API_BASE_URL || 'http://localhost:4000'}/api/internal/process-queue`;
+      setTimeout(() => {
         try {
-          await got.post(url, {
-            headers: {
-              'Content-Type': 'application/json',
-              'x-internal-request': 'true'
-            },
-            timeout: { request: 2000 }
-          });
-          logger.info(`[ADMIN_RETRY] Очередь запущена после retry задания ${jobId}`);
-        } catch (error) {
-          logger.warn(`[ADMIN_RETRY] Не удалось запустить очередь: ${error?.message || 'unknown error'} (${url})`);
-          try { process.emit('edrsr:queue:pump'); } catch {}
+          process.emit('edrsr:queue:pump');
+          logger.info(`[ADMIN_RETRY] Очередь запрошена после retry задания ${jobId}`);
+        } catch (_e) {
+          // noop
         }
       }, 500);
-      
+
       res.json({ success: true, message: 'Задание поставлено на повторное выполнение' });
     } else {
       res.status(400).json({ error: 'Не удалось перезапустить задание' });
@@ -661,7 +649,7 @@ router.post('/jobs/:jobId/retry', async (req, res) => {
 router.post('/jobs/retry-failed', async (req, res) => {
   try {
     const retriedCount = await dbService.retryFailedJobs();
-    
+
     await logAdminAction(
       req.user.id,
       'RETRY_FAILED_JOBS',
@@ -670,31 +658,25 @@ router.post('/jobs/retry-failed', async (req, res) => {
       { retried_count: retriedCount },
       req
     );
-    
+
     // Запускаем обработку очереди если есть восстановленные задания
     if (retriedCount > 0) {
-      setTimeout(async () => {
-        const url = `${process.env.API_BASE_URL || 'http://localhost:4000'}/api/internal/process-queue`;
+      setTimeout(() => {
         try {
-          await got.post(url, {
-            headers: {
-              'Content-Type': 'application/json',
-              'x-internal-request': 'true'
-            },
-            timeout: { request: 2000 }
-          });
-          logger.info(`[ADMIN_RETRY] Очередь запущена после массового retry (${retriedCount} заданий)`);
-        } catch (error) {
-          logger.warn(`[ADMIN_RETRY] Не удалось запустить очередь: ${error?.message || 'unknown error'} (${url})`);
-          try { process.emit('edrsr:queue:pump'); } catch {}
+          process.emit('edrsr:queue:pump');
+          logger.info(
+            `[ADMIN_RETRY] Очередь запрошена после массового retry (${retriedCount} заданий)`
+          );
+        } catch (_e) {
+          // noop
         }
       }, 500);
     }
-    
-    res.json({ 
-      success: true, 
+
+    res.json({
+      success: true,
       message: `Перезапущено ${retriedCount} заданий с временными ошибками`,
-      retried_count: retriedCount
+      retried_count: retriedCount,
     });
   } catch (error) {
     logger.error('Retry failed jobs error:', error);
@@ -721,22 +703,12 @@ router.post('/jobs/recover-stuck', async (req, res) => {
 
     if (recovered > 0) {
       setTimeout(() => {
-        const url = `${process.env.API_BASE_URL || 'http://localhost:4000'}/api/internal/process-queue`;
-        got
-          .post(url, {
-            headers: {
-              'Content-Type': 'application/json',
-              'x-internal-request': 'true',
-            },
-            timeout: { request: 2000 },
-          })
-          .then(() => logger.info(`[ADMIN_RETRY] Очередь запущена после ручного recovery (${recovered})`))
-          .catch((error) => {
-            logger.warn(`[ADMIN_RETRY] Не удалось запустить очередь: ${error?.message || 'unknown error'} (${url})`);
-            try {
-              process.emit('edrsr:queue:pump');
-            } catch {}
-          });
+        try {
+          process.emit('edrsr:queue:pump');
+          logger.info(`[ADMIN_RETRY] Очередь запрошена после ручного recovery (${recovered})`);
+        } catch (_e) {
+          // noop
+        }
       }, 300);
     }
 
@@ -757,32 +729,36 @@ router.post('/system/cleanup', async (req, res) => {
     const result = { cleaned: 0 };
 
     switch (cleanupType) {
-      case 'old_jobs':
+      case 'old_jobs': {
         // Удаляем задания старше 90 дней
         const oldJobs = await database.run(
           "DELETE FROM jobs WHERE created_at < now() - interval '90 days'"
         );
         result.cleaned = oldJobs.changes;
         break;
+      }
 
-      case 'failed_jobs':
+      case 'failed_jobs': {
         // Удаляем проваленные задания старше 7 дней
         const failedJobs = await database.run(
           "DELETE FROM jobs WHERE status = 'error' AND updated_at < now() - interval '7 days'"
         );
         result.cleaned = failedJobs.changes;
         break;
+      }
 
-      case 'old_cache':
+      case 'old_cache': {
         // Очищаем старый кеш
         const oldCache = await database.run(
           "DELETE FROM parsed_cases WHERE created_at < now() - interval '30 days'"
         );
         result.cleaned = oldCache.changes;
         break;
+      }
 
-      default:
+      default: {
         return res.status(400).json({ error: 'Неизвестный тип очистки' });
+      }
     }
 
     await logAdminAction(req.user.id, 'SYSTEM_CLEANUP', 'system', cleanupType, result, req);

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="uk">
+<html lang="ru">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -490,48 +490,48 @@
       <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px">
         <div>
           <h1>🤖 ЄДРСР → Gemini AI</h1>
-          <p>Аналіз судових рішень за допомогою штучного інтелекту</p>
+          <p>Анализ судебных решений с помощью искусственного интеллекта</p>
         </div>
-        <div id="authBadge" class="auth-badge badge-guest">Гість</div>
+        <div id="authBadge" class="auth-badge badge-guest">Гость</div>
       </div>
     </div>
 
     <div class="content">
       <div id="serverStatus" class="status-indicator status-offline">
         <div class="status-dot dot-offline"></div>
-        <span>Перевіряю сервер...</span>
+        <span>Проверяю сервер...</span>
       </div>
 
       <div class="tabs">
-        <button class="tab active" data-tab="collect">📥 Збір</button>
+        <button class="tab active" data-tab="collect">📥 Сбор</button>
         <button class="tab" data-tab="status">📊 Статус</button>
-        <button class="tab" data-tab="results">📋 Результати</button>
-        <button class="tab" data-tab="history">🗂️ Історія</button>
-        <button class="tab" data-tab="auth">🔐 Вхід</button>
+        <button class="tab" data-tab="results">📋 Результаты</button>
+        <button class="tab" data-tab="history">🗂️ История</button>
+        <button class="tab" data-tab="auth">🔐 Вход</button>
       </div>
 
       <div id="collectTab" class="tab-content active">
         <div class="job-info" id="collectInfo">
           <div class="job-detail">
-            <span>Поточна сторінка:</span>
+            <span>Текущая страница:</span>
             <strong id="currentPage">-</strong>
           </div>
           <div class="job-detail">
-            <span>Знайдено посилань:</span>
+            <span>Найдено ссылок:</span>
             <strong id="linksCount">0</strong>
           </div>
           <div class="job-detail">
-            <span>Унікальні (за історією):</span>
+            <span>Уникальные (по истории):</span>
             <strong id="uniqueCountHistory">0</strong>
           </div>
           <div class="job-detail">
-            <span>З урахуванням сеансу:</span>
+            <span>С учетом сессии:</span>
             <strong id="uniqueCountSession">0</strong>
           </div>
         </div>
 
         <div class="input-group">
-          <label for="promptTemplate">Шаблон аналізу:</label>
+          <label for="promptTemplate">Шаблон анализа:</label>
           <select id="promptTemplate">
             <!-- Options are now populated by popup.js -->
           </select>
@@ -541,34 +541,34 @@
         <div class="input-group checks">
           <label class="check-row" for="uniqueOnlyToggle">
             <input type="checkbox" id="uniqueOnlyToggle" checked />
-            <span class="check-text">Тільки унікальні справи</span>
+            <span class="check-text">Только уникальные дела</span>
           </label>
           <label class="check-row" for="ignoreSessionToggle">
             <input type="checkbox" id="ignoreSessionToggle" />
-            <span class="check-text">Ігнорувати у цій сесії</span>
+            <span class="check-text">Игнорировать в этой сессии</span>
           </label>
           <label class="check-row" for="autoTitleToggle">
             <input type="checkbox" id="autoTitleToggle" checked />
-            <span class="check-text">Авто‑оновлення заголовка завдання</span>
+            <span class="check-text">Автообновление заголовка задания</span>
           </label>
         </div>
 
         <div id="customPromptContainer" class="input-group hidden">
-          <label for="customPrompt">Ваш промпт для AI:</label>
+          <label for="customPrompt">Ваш промпт для ИИ:</label>
           <textarea
             id="customPrompt"
             rows="4"
-            placeholder="Наприклад: 'Знайди всі згадки про експертизи...'"
+            placeholder="Например: 'Найди все упоминания об экспертизах...'"
           ></textarea>
           <div style="margin-top: 10px; display: flex; gap: 10px; align-items: flex-end">
             <div style="flex-grow: 1">
               <label for="promptName" style="font-size: 11px; color: #555"
-                >Назва для збереження:</label
+                >Имя для сохранения:</label
               >
               <input
                 type="text"
                 id="promptName"
-                placeholder="Назва промпту"
+                placeholder="Название промпта"
                 style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px"
               />
             </div>
@@ -577,7 +577,7 @@
               class="button button-secondary"
               style="padding: 8px 12px; font-size: 13px"
             >
-              Зберегти
+              Сохранить
             </button>
           </div>
         </div>
@@ -587,30 +587,30 @@
           class="button button-secondary"
           style="margin-top: 10px; width: 100%; justify-content: center"
         >
-          <span>🗑️ Видалити вибраний промпт</span>
+          <span>🗑️ Удалить выбранный промпт</span>
         </button>
 
         <button id="collectBtn" class="button button-primary">
-          <span>🔍 Зібрати та проаналізувати</span>
+          <span>🔍 Собрать и проанализировать</span>
         </button>
       </div>
 
       <div id="statusTab" class="tab-content">
         <div class="input-group">
-          <label for="jobIdInput">ID завдання:</label>
-          <input type="text" id="jobIdInput" placeholder="Введіть ID завдання" />
+          <label for="jobIdInput">ID задания:</label>
+          <input type="text" id="jobIdInput" placeholder="Введите ID задания" />
         </div>
 
         <button id="checkStatusBtn" class="button button-secondary">
-          <span>📊 Перевірити статус</span>
+          <span>📊 Проверить статус</span>
         </button>
 
         <button id="loadLastJobBtn" class="button button-secondary">
-          <span>🔄 Останнє завдання</span>
+          <span>🔄 Последнее задание</span>
         </button>
 
         <button id="retryJobBtn" class="button button-secondary hidden">
-          <span>🔄 Перезапустити завдання</span>
+          <span>🔄 Перезапустить задание</span>
         </button>
 
         <button
@@ -618,29 +618,29 @@
           class="button button-secondary hidden"
           style="background: #ff5722; color: white"
         >
-          <span>⚠️ Примусово перезапустити</span>
+          <span>⚠️ Принудительно перезапустить</span>
         </button>
 
         <div id="jobStatus" class="hidden">
           <div class="job-info">
-            <h3 id="jobTitle">Завдання</h3>
+            <h3 id="jobTitle">Задание</h3>
             <div class="job-detail">
               <span>Статус:</span>
               <strong id="jobStatusText">-</strong>
             </div>
             <div class="job-detail">
-              <span>Прогрес:</span>
+              <span>Прогресс:</span>
               <strong id="jobProgress">0%</strong>
             </div>
             <div class="progress-bar">
               <div id="progressFill" class="progress-fill" style="width: 0%"></div>
             </div>
             <div class="job-detail">
-              <span>Посилань:</span>
+              <span>Ссылок:</span>
               <strong id="jobLinks">-</strong>
             </div>
             <div class="job-detail">
-              <span>Час створення:</span>
+              <span>Время создания:</span>
               <strong id="jobStartTime">-</strong>
             </div>
           </div>
@@ -649,15 +649,15 @@
 
       <div id="resultsTab" class="tab-content">
         <button id="openResultsPageBtn" class="button button-primary hidden">
-          <span>🚀 Відкрити у новому вікні</span>
+          <span>🚀 Открыть в новом окне</span>
         </button>
 
         <button id="showResultBtn" class="button button-success" disabled>
-          <span>📋 Показати результат</span>
+          <span>📋 Показать результат</span>
         </button>
 
         <button id="copyResultBtn" class="button button-secondary hidden">
-          <span>📋 Копіювати</span>
+          <span>📋 Копировать</span>
         </button>
 
         <div id="resultArea" class="result-area hidden"></div>
@@ -665,7 +665,7 @@
 
       <div id="historyTab" class="tab-content">
         <ul id="historyList">
-          <li style="text-align: center; color: #999">Завантаження історії...</li>
+          <li style="text-align: center; color: #999">Загрузка истории...</li>
         </ul>
       </div>
 
@@ -683,26 +683,26 @@
               class="button button-secondary"
               style="width: auto; padding: 6px 8px"
             >
-              Показати
+              Показать
             </button>
           </div>
         </div>
         <div class="auth-actions" style="display: flex; gap: 10px; margin-bottom: 8px">
-          <button id="loginBtn" class="button button-primary" style="flex: 1">🔐 Увійти</button>
+          <button id="loginBtn" class="button button-primary" style="flex: 1">🔐 Войти</button>
           <button id="signupBtn" class="button button-secondary" style="flex: 1">
-            🆕 Реєстрація
+            🆕 Регистрация
           </button>
         </div>
         <button id="recoverBtn" class="button button-secondary" style="margin-bottom: 8px">
-          🔁 Забули пароль?
+          🔁 Забыли пароль?
         </button>
-        <button id="logoutBtn" class="button button-secondary">🚪 Вийти</button>
+        <button id="logoutBtn" class="button button-secondary">🚪 Выйти</button>
         <div id="authStatus" style="margin-top: 10px; font-size: 12px; color: #555"></div>
       </div>
     </div>
 
     <div class="footer">
-      <p id="footer-status">Версія 1.4.0 | Потрібен запущений сервер на localhost:4000</p>
+      <p id="footer-status">Версия 1.4.0 | Требуется запущенный сервер на localhost:4000</p>
     </div>
 
     <script src="marked.min.js"></script>

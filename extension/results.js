@@ -5,6 +5,78 @@
 import { getPromptName } from './prompt-definitions.js';
 
 document.addEventListener('DOMContentLoaded', () => {
+  // --- Minimal HTML sanitizer (DOMPurify alternative for MV3) ---
+  const ALLOWED_TAGS = new Set([
+    'p',
+    'ul',
+    'ol',
+    'li',
+    'strong',
+    'em',
+    'code',
+    'pre',
+    'blockquote',
+    'a',
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+    'hr',
+    'br',
+    'table',
+    'thead',
+    'tbody',
+    'tr',
+    'th',
+    'td',
+  ]);
+  const ALLOWED_ATTRS = {
+    a: new Set(['href', 'title']),
+    '*': new Set([]),
+  };
+  function isAllowedAttr(tag, attr) {
+    return (ALLOWED_ATTRS[tag] && ALLOWED_ATTRS[tag].has(attr)) || ALLOWED_ATTRS['*'].has(attr);
+  }
+  function sanitizeHtml(html) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(String(html || ''), 'text/html');
+    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_ELEMENT, null, false);
+    const toStrip = [];
+    while (walker.nextNode()) {
+      const el = walker.currentNode;
+      const tag = el.tagName.toLowerCase();
+      if (!ALLOWED_TAGS.has(tag)) {
+        toStrip.push(el);
+        continue;
+      }
+      // Strip disallowed attributes
+      for (const { name } of Array.from(el.attributes)) {
+        if (!isAllowedAttr(tag, name)) el.removeAttribute(name);
+      }
+      if (tag === 'a') {
+        const href = el.getAttribute('href') || '';
+        try {
+          const u = new URL(href, location.origin);
+          if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+            el.removeAttribute('href');
+          } else {
+            el.setAttribute('rel', 'noopener noreferrer');
+            el.setAttribute('target', '_blank');
+          }
+        } catch {
+          el.removeAttribute('href');
+        }
+      }
+    }
+    // Replace stripped nodes with their text content
+    for (const el of toStrip) {
+      const span = doc.createElement('span');
+      span.textContent = el.textContent || '';
+      el.replaceWith(span);
+    }
+    return doc.body.innerHTML;
+  }
+
   // --- Marked.js Configuration for new tabs ---
   const renderer = new marked.Renderer();
   renderer.link = (href, title, text) => {
@@ -17,7 +89,8 @@ document.addEventListener('DOMContentLoaded', () => {
   };
   marked.setOptions({ renderer });
 
-  let librariesLoaded = false;
+  let librariesLoaded = false; // for image PDF path (jsPDF)
+  let imageLibsLoading = false;
   let reportRendered = false;
 
   const elements = {
@@ -40,27 +113,46 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   const checkEnablePdfButton = () => {
-    if (librariesLoaded && reportRendered) {
+    // Enable button when report is rendered; we'll lazy-load libs if user picks image
+    if (reportRendered) {
       elements.downloadPdfBtn.disabled = false;
-      elements.pdfBtnText.textContent = '📄 Скачати звіт';
+      elements.pdfBtnText.textContent = '📄 Скачать отчёт';
     }
   };
 
-  // --- Library Loading Check ---
-  const libraryCheckInterval = setInterval(() => {
-    if (window.jspdf && window.html2canvas) {
-      clearInterval(libraryCheckInterval);
-      librariesLoaded = true;
-      checkEnablePdfButton();
+  async function ensureImageLibsLoaded() {
+    if (librariesLoaded) return true;
+    if (imageLibsLoading) {
+      // wait until loaded
+      return new Promise((resolve) => {
+        const iv = setInterval(() => {
+          if (librariesLoaded) {
+            clearInterval(iv);
+            resolve(true);
+          }
+        }, 100);
+      });
     }
-  }, 100);
+    imageLibsLoading = true;
+    // Load jsPDF only on demand (html2canvas already loaded by HTML)
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = chrome.runtime.getURL('jspdf.umd.min.js');
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error('Failed to load jsPDF'));
+      document.head.appendChild(s);
+    });
+    librariesLoaded = true;
+    imageLibsLoading = false;
+    return true;
+  }
 
   const urlParams = new URLSearchParams(window.location.search);
   const jobId = urlParams.get('jobId');
   let currentJobData = null;
 
   if (!jobId) {
-    document.body.innerHTML = '<h1>Помилка: ID завдання не знайдено.</h1>';
+    document.body.innerHTML = '<h1>Ошибка: ID задания не найден.</h1>';
     return;
   }
 
@@ -86,21 +178,21 @@ document.addEventListener('DOMContentLoaded', () => {
       console.log(`[RESULTS] Redirecting to ${payload.url}`);
       window.location.href = payload.url;
     } else if (type === 'ERROR') {
-      alert(`Помилка: ${payload.message}`);
+      alert(`Ошибка: ${payload.message}`);
     }
   });
 
   // --- UI Rendering ---
   function renderPage(job) {
     if (!job) {
-      elements.jobTitle.textContent = `Завдання ${jobId.substring(0, 8)}...`;
-      elements.statusBadge.textContent = 'Завантаження...';
+      elements.jobTitle.textContent = `Задание ${jobId.substring(0, 8)}...`;
+      elements.statusBadge.textContent = 'Загрузка...';
       elements.statusBadge.className = 'status-badge status-loading';
       return;
     }
 
     currentJobData = job; // Make sure currentJobData is updated
-    elements.jobTitle.textContent = job.title || `Результати аналізу завдання: ${job.id}`;
+    elements.jobTitle.textContent = job.title || `Отчёт анализа задания: ${job.id}`;
     elements.statusBadge.textContent = job.status;
     elements.statusBadge.className = `status-badge status-${job.status}`;
 
@@ -110,10 +202,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // Render metadata
     const metadataHTML = `
       <li><strong>Статус:</strong> ${job.status}</li>
-      <li><strong>Створено:</strong> ${new Date(job.created_at).toLocaleString('uk-UA')}</li>
-      <li><strong>Всього посилань:</strong> ${job.total_links}</li>
-      <li><strong>Оброблено:</strong> ${job.processed_links || 0}</li>
-      <li><strong>Тривалість:</strong> ${job.duration || 'N/A'} сек.</li>
+      <li><strong>Создано:</strong> ${new Date(job.created_at).toLocaleString('ru-RU')}</li>
+      <li><strong>Всего ссылок:</strong> ${job.total_links}</li>
+      <li><strong>Обработано:</strong> ${job.processed_links || 0}</li>
+      <li><strong>Длительность:</strong> ${job.duration || 'N/A'} сек.</li>
     `;
     elements.jobMetadata.innerHTML = metadataHTML;
 
@@ -123,19 +215,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Prepend the user's prompt to the analysis if it exists
       if (job.prompt && job.prompt.trim() !== '') {
-        const promptMarkdown = `### Користувацький запит\n\n> ${job.prompt}\n\n---\n\n`;
+        const promptMarkdown = `### Пользовательский запрос\n\n> ${job.prompt}\n\n---\n\n`;
         analysisContent = promptMarkdown + analysisContent;
       }
 
-      elements.analysisResult.innerHTML = marked.parse(analysisContent);
+      elements.analysisResult.innerHTML = sanitizeHtml(marked.parse(analysisContent));
       elements.downloadBtn.style.display = 'block';
       reportRendered = true;
       checkEnablePdfButton();
     } else if (job.status === 'error') {
       elements.analysisResult.innerHTML = `
         <div class="error-container">
-          <p class="error-message"><strong>Помилка:</strong> ${job.error_message || 'Невідома помилка'}</p>
-          <button id="retryBtn" class="button button-primary" data-job-id="${job.id}">&#x21BB; Повторити спробу</button>
+          <p class="error-message"><strong>Ошибка:</strong> ${job.error_message || 'Неизвестная ошибка'}</p>
+          <button id="retryBtn" class="button button-primary" data-job-id="${job.id}">&#x21BB; Повторить попытку</button>
         </div>
       `;
       elements.downloadBtn.style.display = 'none';
@@ -146,7 +238,7 @@ document.addEventListener('DOMContentLoaded', () => {
         retryBtn.addEventListener('click', handleRetry);
       }
     } else {
-      elements.analysisResult.innerHTML = '<p>Аналіз ще не завершено...</p>';
+      elements.analysisResult.innerHTML = '<p>Анализ ещё не завершён...</p>';
       elements.downloadBtn.style.display = 'none';
     }
 
@@ -168,7 +260,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const editIcon = document.createElement('span');
     editIcon.innerHTML = '&#x270E;';
     editIcon.className = 'edit-icon';
-    editIcon.title = 'Редагувати назву';
+    editIcon.title = 'Редактировать название';
 
     const editContainer = document.createElement('div');
     editContainer.className = 'title-edit-container hidden';
@@ -225,11 +317,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const roleDiv = document.createElement('div');
       roleDiv.className = 'role';
-      roleDiv.textContent = msg.role === 'user' ? 'Ви:' : 'AI:';
+      roleDiv.textContent = msg.role === 'user' ? 'Вы:' : 'AI:';
 
       const contentDiv = document.createElement('div');
       contentDiv.className = 'content';
-      contentDiv.innerHTML = marked.parse(msg.content);
+      contentDiv.innerHTML = sanitizeHtml(marked.parse(msg.content));
 
       msgDiv.appendChild(roleDiv);
       msgDiv.appendChild(contentDiv);
@@ -245,7 +337,7 @@ document.addEventListener('DOMContentLoaded', () => {
       console.log(`[RESULTS] Retrying job: ${jobIdToRetry}`);
       port.postMessage({ type: 'RETRY_JOB', payload: { jobId: jobIdToRetry } });
       // Optionally, update UI to show it's retrying
-      elements.analysisResult.innerHTML = '<p>Повторна спроба завдання...</p>';
+      elements.analysisResult.innerHTML = '<p>Повторная попытка задания...</p>';
       elements.statusBadge.textContent = 'queued';
       elements.statusBadge.className = 'status-badge status-queued';
     }
@@ -266,7 +358,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const userContentDiv = document.createElement('div');
     userContentDiv.className = 'content';
-    userContentDiv.innerHTML = marked.parse(message); // Using marked to be consistent
+    userContentDiv.innerHTML = sanitizeHtml(marked.parse(message)); // Sanitize user message
 
     userMsgDiv.appendChild(userRoleDiv);
     userMsgDiv.appendChild(userContentDiv);
@@ -283,14 +375,14 @@ document.addEventListener('DOMContentLoaded', () => {
   elements.copyBtn.addEventListener('click', () => {
     if (currentJobData?.analysis) {
       navigator.clipboard.writeText(currentJobData.analysis);
-      elements.copyBtn.textContent = '✅ Скопійовано!';
+      elements.copyBtn.textContent = '✅ Скопировано!';
       setTimeout(() => {
-        elements.copyBtn.textContent = '📋 Копіювати звіт';
+        elements.copyBtn.textContent = '📋 Копировать отчёт';
       }, 2000);
     }
   });
 
-  elements.downloadPdfBtn.addEventListener('click', () => {
+  elements.downloadPdfBtn.addEventListener('click', async () => {
     elements.downloadPdfBtn.disabled = true;
     const pdfType = elements.pdfTypeSelect.value;
     elements.pdfBtnText.textContent = pdfType === 'text' ? 'Генерація TXT...' : 'Генерація PDF...';
@@ -299,7 +391,16 @@ document.addEventListener('DOMContentLoaded', () => {
     if (pdfType === 'text') {
       generateTextPDF();
     } else {
-      generateImagePDF();
+      try {
+        await ensureImageLibsLoaded();
+        generateImagePDF();
+      } catch (e) {
+        console.error('Error loading PDF libraries:', e);
+        alert('Не удалось загрузить библиотеку для PDF.');
+        elements.downloadPdfBtn.disabled = false;
+        elements.pdfBtnText.textContent = '📄 Скачать отчёт';
+        elements.pdfBtnSpinner.style.display = 'none';
+      }
     }
   });
 
@@ -320,10 +421,10 @@ document.addEventListener('DOMContentLoaded', () => {
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error('Error generating text PDF:', err);
-      alert('Не вдалося створити текстовий звіт. Перевірте консоль для деталей.');
+      alert('Не удалось создать текстовый отчёт. Проверьте консоль для деталей.');
     } finally {
       elements.downloadPdfBtn.disabled = false;
-      elements.pdfBtnText.textContent = '📄 Скачати звіт';
+      elements.pdfBtnText.textContent = '📄 Скачать отчёт';
       elements.pdfBtnSpinner.style.display = 'none';
     }
   }
@@ -332,32 +433,32 @@ document.addEventListener('DOMContentLoaded', () => {
     let content = '';
 
     // Add title
-    const title = currentJobData?.title || `Звіт аналізу завдання: ${jobId}`;
+    const title = currentJobData?.title || `Отчёт анализа задания: ${jobId}`;
     content += title + '\n';
     content += '='.repeat(title.length) + '\n\n';
 
     // Add metadata
     if (currentJobData) {
-      content += 'МЕТАДАНІ\n';
-      content += '--------\n';
+      content += 'МЕТАДАННЫЕ\n';
+      content += '----------\n';
       content += `Статус: ${currentJobData.status}\n`;
-      content += `Створено: ${new Date(currentJobData.created_at).toLocaleString('uk-UA')}\n`;
-      content += `Всього посилань: ${currentJobData.total_links}\n`;
-      content += `Оброблено: ${currentJobData.processed_links || 0}\n`;
-      content += `Тривалість: ${currentJobData.duration || 'N/A'} сек.\n\n`;
+      content += `Создано: ${new Date(currentJobData.created_at).toLocaleString('ru-RU')}\n`;
+      content += `Всего ссылок: ${currentJobData.total_links}\n`;
+      content += `Обработано: ${currentJobData.processed_links || 0}\n`;
+      content += `Длительность: ${currentJobData.duration || 'N/A'} сек.\n\n`;
     }
 
     // Add user prompt if exists
     if (currentJobData?.prompt && currentJobData.prompt.trim() !== '') {
-      content += 'КОРИСТУВАЦЬКИЙ ЗАПИТ\n';
-      content += '-------------------\n';
+      content += 'ПОЛЬЗОВАТЕЛЬСКИЙ ЗАПРОС\n';
+      content += '-----------------------\n';
       content += currentJobData.prompt + '\n\n';
     }
 
     // Add analysis content
     if (currentJobData?.analysis) {
-      content += 'РЕЗУЛЬТАТИ АНАЛІЗУ\n';
-      content += '-----------------\n';
+      content += 'РЕЗУЛЬТАТЫ АНАЛИЗА\n';
+      content += '-------------------\n';
       content += convertMarkdownToText(currentJobData.analysis);
     }
 
@@ -541,36 +642,36 @@ document.addEventListener('DOMContentLoaded', () => {
         })
         .catch((err) => {
           console.error('Error generating image PDF:', err);
-          alert('Не вдалося створити PDF зображення. Перевірте консоль для деталей.');
+          alert('Не удалось создать PDF изображение. Проверьте консоль для деталей.');
           reportElement.style.backgroundColor = originalBg;
         })
         .finally(() => {
           elements.downloadPdfBtn.disabled = false;
-          elements.pdfBtnText.textContent = '📄 Скачати звіт';
+          elements.pdfBtnText.textContent = '📄 Скачать отчёт';
           elements.pdfBtnSpinner.style.display = 'none';
         });
     } catch (err) {
       console.error('Error generating image PDF:', err);
-      alert('Не вдалося створити PDF зображення. Перевірте консоль для деталей.');
+      alert('Не удалось создать PDF изображение. Проверьте консоль для деталей.');
       elements.downloadPdfBtn.disabled = false;
-      elements.pdfBtnText.textContent = '📄 Скачати звіт';
+      elements.pdfBtnText.textContent = '📄 Скачать отчёт';
       elements.pdfBtnSpinner.style.display = 'none';
     }
   }
 
   elements.downloadBtn.addEventListener('click', () => {
     if (!currentJobData || !currentJobData.links || currentJobData.links.length === 0) {
-      alert('Дані про справи для скачування не знайдені.');
+      alert('Данные о делах для скачивания не найдены.');
       return;
     }
 
-    let fullText = `ЗВІТ ПО СПРАВАХ\nЗавдання ID: ${jobId}\nДата створення: ${new Date().toLocaleString('uk-UA')}\n\n`;
+    let fullText = `ОТЧЁТ ПО ДЕЛАМ\nЗадание ID: ${jobId}\nДата создания: ${new Date().toLocaleString('ru-RU')}\n\n`;
 
     currentJobData.links.forEach((link) => {
       if (link.status === 'processed' && link.content) {
         const caseIdentifier = link.url.split('/').pop();
         fullText += `==================================================\n`;
-        fullText += ` СПРАВА: ${caseIdentifier} ( ${link.url} )\n`;
+        fullText += ` ДЕЛО: ${caseIdentifier} ( ${link.url} )\n`;
         fullText += `==================================================\n\n`;
         fullText += `${link.content}\n\n\n`;
       }

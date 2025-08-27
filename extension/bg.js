@@ -178,8 +178,8 @@ async function updateBadge(job, oldStatus = null) {
   if (job.status === 'completed' && oldStatus !== 'completed') {
     badgeText = '✓';
     showNotification(
-      '🎉 Аналіз завершено!',
-      `Завдання ${job.id.substring(0, 8)}... успішно завершено.`
+      '🎉 Анализ завершён!',
+      `Задание ${job.id.substring(0, 8)}... успешно завершено.`
     );
     // Notify the specific tab that its job is complete
     const tabId = jobToTabMap.get(job.id);
@@ -197,8 +197,8 @@ async function updateBadge(job, oldStatus = null) {
   } else if (job.status === 'error' && oldStatus !== 'error') {
     badgeText = '❌';
     showNotification(
-      '❌ Помилка аналізу',
-      `Завдання ${job.id.substring(0, 8)}... завершилося з помилкою.`
+      '❌ Ошибка анализа',
+      `Задание ${job.id.substring(0, 8)}... завершилось с ошибкой.`
     );
   } else if (job.status === 'error') {
     badgeText = '❌';
@@ -268,6 +268,20 @@ async function handlePortMessage(message, port, sendResponse) {
         break;
       }
       case 'START_JOB': {
+        // Ensure the user is authenticated when called from content script (no popupPort)
+        const authed = await isAuthenticated();
+        if (!authed) {
+          const msg = 'Требуется вход. Откройте попап расширения и выполните вход.';
+          if (popupPort) {
+            popupPort.postMessage({ type: 'AUTH_REQUIRED' });
+          }
+          if (port) {
+            port.postMessage({ type: 'ERROR', payload: { message: msg } });
+          } else if (typeof sendResponse === 'function') {
+            sendResponse({ success: false, error: msg });
+          }
+          return;
+        }
         // Version Handshake
         let version = '';
         try {
@@ -279,7 +293,7 @@ async function handlePortMessage(message, port, sendResponse) {
 
         if (version !== CURRENT_VERSION) {
           throw new Error(
-            `Версія скрипту на сторінці застаріла. Будь ласка, повністю оновіть сторінку (Ctrl+F5) і спробуйте знову.`
+            `Версия скрипта на странице устарела. Пожалуйста, полностью обновите страницу (Ctrl+F5) и попробуйте снова.`
           );
         }
 
@@ -305,7 +319,7 @@ async function handlePortMessage(message, port, sendResponse) {
         }
 
         if (!Array.isArray(linksToSend) || linksToSend.length === 0) {
-          throw new Error('Немає справ для відправки на аналіз за вибраними фільтрами.');
+          throw new Error('Нет дел для отправки на анализ с выбранными фильтрами.');
         }
 
         const response = await apiFetch(`${API_BASE_URL}/collect`, {
@@ -396,7 +410,7 @@ async function handlePortMessage(message, port, sendResponse) {
           console.error(`[BG] Failed to fetch job status for ${jobId}:`, error);
           port.postMessage({
             type: 'ERROR',
-            payload: { message: `Не вдалося завантажити статус завдання: ${error.message}` },
+            payload: { message: `Не удалось загрузить статус задания: ${error.message}` },
           });
         }
         break;
@@ -452,7 +466,7 @@ async function handlePortMessage(message, port, sendResponse) {
           console.error(`[BG] Failed to fetch job status for ${jobId}:`, error);
           port.postMessage({
             type: 'ERROR',
-            payload: { message: `Не вдалося завантажити дані завдання: ${error.message}` },
+            payload: { message: `Не удалось загрузить данные задания: ${error.message}` },
           });
         }
         break;
@@ -632,6 +646,12 @@ async function handlePortMessage(message, port, sendResponse) {
     console.error(`[HANDLER] Error processing ${type}:`, error);
     if (port) {
       port.postMessage({ type: 'ERROR', payload: { message: error.message } });
+    } else if (typeof sendResponse === 'function') {
+      try {
+        sendResponse({ success: false, error: error.message });
+      } catch (_e) {
+        // ignore sendResponse errors
+      }
     }
   }
 }
@@ -659,7 +679,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const data = await res.json();
         sendResponse(data);
       } catch (e) {
-        sendResponse({ success: false, error: e.message });
+        // If user is not authenticated, degrade gracefully with empty list
+        if (String(e?.message || '') === 'Authentication required') {
+          sendResponse({ success: true, urls: [] });
+        } else {
+          sendResponse({ success: false, error: e.message });
+        }
       }
     })();
     return true; // keep channel open for async response

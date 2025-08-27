@@ -46,7 +46,7 @@ export async function attachUser(req, _res, next) {
 }
 
 export function requireAuth(req, res, next) {
-  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+  if (!req.user) return res.status(401).json({ error: 'Необходима авторизация' });
   return next();
 }
 
@@ -55,7 +55,7 @@ export function requireAuthExcept(publicPaths = []) {
     // Match by path prefix within /api router
     const isPublic = publicPaths.some((p) => req.path === p || req.path.startsWith(p));
     if (isPublic) return next();
-    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+    if (!req.user) return res.status(401).json({ error: 'Необходима авторизация' });
     return next();
   };
 }

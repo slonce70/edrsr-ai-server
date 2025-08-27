@@ -36,11 +36,39 @@ export default [
         setInterval: 'readonly',
         clearInterval: 'readonly',
         URL: 'readonly',
+        AbortController: 'readonly',
       },
     },
     rules: {
       'no-console': 'off', // Console is OK in server code
       'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }], // More lenient for server
+    },
+  },
+  // Browser JS served from server/public (admin UI)
+  {
+    files: ['server/public/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+      globals: {
+        window: 'readonly',
+        document: 'readonly',
+        marked: 'readonly',
+        navigator: 'readonly',
+        alert: 'readonly',
+        confirm: 'readonly',
+        prompt: 'readonly',
+        fetch: 'readonly',
+        localStorage: 'readonly',
+        atob: 'readonly',
+        URLSearchParams: 'readonly',
+        Blob: 'readonly',
+        console: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
+        setInterval: 'readonly',
+        clearInterval: 'readonly',
+      },
     },
   },
   // Extension-specific configuration
@@ -54,6 +82,9 @@ export default [
         marked: 'readonly',
         window: 'readonly',
         document: 'readonly',
+        DOMParser: 'readonly',
+        NodeFilter: 'readonly',
+        location: 'readonly',
         localStorage: 'readonly',
         fetch: 'readonly',
         WebSocket: 'readonly',

@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="uk">
+<html lang="ru">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Результати аналізу - ЄДРСР AI</title>
+    <title>Результаты анализа - ЄДРСР AI</title>
     <style>
       :root {
         --primary-color: #667eea;
@@ -253,21 +253,21 @@
   <body>
     <div class="container">
       <header class="header">
-        <h1 id="jobTitle">Завантаження...</h1>
-        <div id="statusBadge" class="status-badge status-loading">Завантаження...</div>
+        <h1 id="jobTitle">Загрузка...</h1>
+        <div id="statusBadge" class="status-badge status-loading">Загрузка...</div>
       </header>
 
       <main class="main-content">
         <aside class="sidebar">
-          <h3>Метадані Завдання</h3>
+          <h3>Метаданные задания</h3>
           <ul id="jobMetadata">
             <!-- Metadata will be rendered here by JS -->
           </ul>
           <div class="controls">
-            <button id="copyBtn" class="button button-primary">📋 Копіювати звіт</button>
+            <button id="copyBtn" class="button button-primary">📋 Копировать отчёт</button>
             <div class="pdf-download-group" style="margin-top: 10px">
               <button id="downloadPdfBtn" class="button button-primary" disabled>
-                <span class="btn-text">⏳ Завантаження бібліотек...</span>
+                <span class="btn-text">⏳ Загрузка библиотек...</span>
                 <span class="spinner" style="display: none"></span>
               </button>
               <select
@@ -281,8 +281,8 @@
                   border: 1px solid #ccc;
                 "
               >
-                <option value="text">📄 Текстовий файл (TXT, малий розмір)</option>
-                <option value="image">🖼️ PDF зображення (точне форматування)</option>
+                <option value="text">📄 Текстовый файл (TXT, небольшой размер)</option>
+                <option value="image">🖼️ PDF изображение (точное форматирование)</option>
               </select>
             </div>
             <button
@@ -290,43 +290,42 @@
               class="button button-secondary"
               style="margin-top: 10px; display: none"
             >
-              📄 Скачати справи
+              📄 Скачать дела
             </button>
           </div>
         </aside>
         <section class="content-area">
           <div id="analysisResult" class="result-content">
-            <p>Отримання даних від сервіс-воркера...</p>
+            <p>Получение данных от сервис-воркера...</p>
           </div>
         </section>
       </main>
 
       <section id="chatArea" style="display: none">
         <div class="chat-header">
-          <h3>💬 Чат з результатами аналізу</h3>
+          <h3>💬 Чат с результатами анализа</h3>
         </div>
         <div id="chatHistory" class="chat-history"></div>
         <form id="chatForm" class="chat-form">
           <div id="chatThinking" class="chat-thinking" style="display: none">
             <div class="spinner"></div>
-            <span>AI думає...</span>
+            <span>ИИ думает...</span>
           </div>
           <input
             type="text"
             id="chatInput"
-            placeholder="Поставте уточнююче питання..."
+            placeholder="Задайте уточняющий вопрос..."
             autocomplete="off"
             disabled
           />
           <button type="submit" id="chatSendBtn" class="button button-primary" disabled>
-            Надіслати
+            Отправить
           </button>
         </form>
       </section>
     </div>
 
     <script src="html2canvas.min.js"></script>
-    <script src="jspdf.umd.min.js"></script>
     <script src="marked.min.js"></script>
     <script src="results.js" type="module"></script>
   </body>

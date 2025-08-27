@@ -19,7 +19,8 @@
     "quality:fix": "npm run lint:fix && npm run format",
     "apply:rls": "node scripts/apply-rls.js",
     "admin:create": "node server/scripts/create-admin.js",
-    "admin:grant": "node server/scripts/create-admin-simple.js"
+    "admin:grant": "node server/scripts/create-admin-simple.js",
+    "test:selfcheck": "node scripts/selfcheck.js"
   },
   "bin": {},
   "devDependencies": {

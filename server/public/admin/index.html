@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="uk">
+<html lang="ru">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -207,11 +207,13 @@
 
                 <input type="text" id="jobs-email-filter" placeholder="Фильтр по email..." />
                 <input type="text" id="jobs-search" placeholder="Поиск заданий..." />
-                <button id="jobs-search-btn" onclick="searchJobs()"><i class="fas fa-search"></i></button>
+                <button id="jobs-search-btn" onclick="searchJobs()">
+                  <i class="fas fa-search"></i>
+                </button>
                 <button id="jobs-clear-btn" class="btn btn-secondary" onclick="clearJobFilters()">
                   <i class="fas fa-times-circle"></i> Очистить
                 </button>
-                <span id="jobs-filter-loading" class="inline-loading" style="display:none">
+                <span id="jobs-filter-loading" class="inline-loading" style="display: none">
                   <i class="fas fa-circle-notch fa-spin"></i> Поиск...
                 </span>
               </div>
