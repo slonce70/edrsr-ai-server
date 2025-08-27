@@ -19,6 +19,7 @@ const __dirname = path.dirname(__filename);
 
 const router = express.Router();
 const WORKER_ID = process.env.WORKER_ID || uuid();
+const SERVER_STARTED_AT = new Date().toISOString();
 
 // Supabase client for auth
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -570,6 +571,15 @@ function startPeriodicRecovery() {
 // Инициализация всех служб мониторинга
 function initializeMonitoringServices() {
   // Первоначальное восстановление при старте
+  // 1) Вернуть в очередь задания, "зависшие" до рестарта (сервер упал/перезапущен)
+  dbService
+    .recoverJobsAfterServerRestart(SERVER_STARTED_AT)
+    .then((recovered) => {
+      if (recovered > 0) setTimeout(() => processQueue(), 500);
+    })
+    .catch((e) => logger.warn('[RECOVERY] Pre-restart recovery failed:', e.message));
+
+  // 2) Обычная проверка истекших лиз (на случай долгого простоя)
   recoverStuckJobs();
   
   // Запуск служб

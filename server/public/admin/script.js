@@ -694,6 +694,29 @@ async function retryAllFailedJobs() {
   }
 }
 
+async function recoverStuckJobsNow() {
+  if (!confirm('Восстановить зависшие задания (без ожидания lease)?')) return;
+  try {
+    showLoading();
+    const response = await apiCall('/api/admin/jobs/recover-stuck', 'POST', { grace_minutes: 5 });
+    showSuccess(`Восстановлено ${response.recovered || 0} заданий`);
+    await loadDashboard();
+    const currentPage = getCurrentPageName();
+    if (currentPage === 'jobs') {
+      const status = document.getElementById('jobs-status-filter').value;
+      const search = document.getElementById('jobs-search').value;
+      const email = document.getElementById('jobs-email-filter')?.value || '';
+      const activePageBtn = document.querySelector('#jobs-pagination .active');
+      const currentPageNum = activePageBtn ? parseInt(activePageBtn.textContent, 10) || 1 : 1;
+      await loadJobs(currentPageNum, status, search, email);
+    }
+  } catch (error) {
+    showError('Ошибка восстановления: ' + error.message);
+  } finally {
+    hideLoading();
+  }
+}
+
 async function viewErrorJobs() {
   try {
     showLoading();
