@@ -432,6 +432,18 @@ async function processQueue() {
   }
 }
 
+// In‑process fallback trigger: allow other modules to request a queue pump
+try {
+  process.on('edrsr:queue:pump', () => {
+    try {
+      logger.info('[INTERNAL] Queue pump requested via process event');
+      processQueue();
+    } catch (e) {
+      logger.error('[INTERNAL] Queue pump failed:', e.message);
+    }
+  });
+} catch {}
+
 // Автоматическая очистка зависших воркеров
 function startWorkerCleanupService() {
   const CLEANUP_INTERVAL = 30 * 1000; // Проверяем каждые 30 секунд (было 2 минуты)
