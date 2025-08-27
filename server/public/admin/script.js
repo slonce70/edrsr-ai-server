@@ -275,6 +275,8 @@ async function loadDashboard() {
   document.getElementById('total-users').textContent = data.total_users || 0;
   document.getElementById('total-jobs').textContent = data.total_jobs || 0;
   document.getElementById('completed-jobs').textContent = data.completed_jobs || 0;
+  document.getElementById('failed-jobs').textContent = data.failed_jobs || 0;
+  document.getElementById('retryable-jobs').textContent = data.retryable_jobs || 0;
   document.getElementById('memory-usage').textContent = data.memory_usage || 0;
 
   // Update dashboard cards
@@ -404,6 +406,13 @@ async function loadJobs(page = 1, status = '', search = '', email = '') {
                       job.status === 'completed'
                         ? `<button class="btn btn-info btn-sm" onclick="viewJobReport('${job.id}')">
                             <i class="fas fa-file-alt"></i> Отчет
+                        </button>`
+                        : ''
+                    }
+                    ${
+                      job.status === 'error'
+                        ? `<button class="btn btn-warning btn-sm" onclick="retryJob('${job.id}')" title="Перезапустить задание">
+                            <i class="fas fa-redo"></i> Retry
                         </button>`
                         : ''
                     }
@@ -594,6 +603,26 @@ async function deleteJob(jobId) {
   }
 }
 
+async function retryJob(jobId) {
+  if (!confirm('Перезапустить это задание? Оно будет поставлено в очередь на повторное выполнение.')) return;
+
+  try {
+    const response = await apiCall(`/api/admin/jobs/${jobId}/retry`, 'POST');
+    showSuccess(response.message || 'Задание поставлено на повторное выполнение');
+    
+    // Refresh current page to show updated status
+    const status = document.getElementById('jobs-status-filter').value;
+    const search = document.getElementById('jobs-search').value;
+    const email = document.getElementById('jobs-email-filter')?.value || '';
+    const activePageBtn = document.querySelector('#jobs-pagination .active');
+    const currentPage = activePageBtn ? parseInt(activePageBtn.textContent, 10) || 1 : 1;
+
+    await loadJobs(currentPage, status, search, email);
+  } catch (error) {
+    showError('Ошибка перезапуска задания: ' + error.message);
+  }
+}
+
 async function editJobTitle(jobId, currentTitle) {
   const newTitle = prompt('Введите новое название задания:', currentTitle);
   if (!newTitle || newTitle === currentTitle) return;
@@ -637,6 +666,62 @@ async function performCleanup(type) {
   } finally {
     hideLoading();
   }
+}
+
+async function retryAllFailedJobs() {
+  if (!confirm('Перезапустить все задания с временными ошибками? Они будут поставлены в очередь на повторное выполнение.')) return;
+
+  try {
+    showLoading();
+    const response = await apiCall('/api/admin/jobs/retry-failed', 'POST');
+    showSuccess(response.message || `Перезапущено ${response.retried_count || 0} заданий`);
+    
+    // Refresh dashboard stats and current page if we're on jobs page
+    await loadDashboard();
+    const currentPage = getCurrentPageName();
+    if (currentPage === 'jobs') {
+      const status = document.getElementById('jobs-status-filter').value;
+      const search = document.getElementById('jobs-search').value;
+      const email = document.getElementById('jobs-email-filter')?.value || '';
+      const activePageBtn = document.querySelector('#jobs-pagination .active');
+      const currentPageNum = activePageBtn ? parseInt(activePageBtn.textContent, 10) || 1 : 1;
+      await loadJobs(currentPageNum, status, search, email);
+    }
+  } catch (error) {
+    showError('Ошибка массового перезапуска: ' + error.message);
+  } finally {
+    hideLoading();
+  }
+}
+
+async function viewErrorJobs() {
+  try {
+    showLoading();
+    const response = await apiCall('/api/admin/jobs/errors?limit=50');
+    
+    if (response.jobs.length === 0) {
+      showSuccess('Заданий с ошибками не найдено!');
+      return;
+    }
+    
+    // Switch to jobs page and filter by error status
+    switchPage('jobs');
+    document.getElementById('jobs-status-filter').value = 'error';
+    document.getElementById('jobs-search').value = '';
+    document.getElementById('jobs-email-filter').value = '';
+    await loadJobs(1, 'error', '', '');
+    
+    showSuccess(`Найдено ${response.jobs.length} заданий с ошибками`);
+  } catch (error) {
+    showError('Ошибка загрузки заданий с ошибками: ' + error.message);
+  } finally {
+    hideLoading();
+  }
+}
+
+function getCurrentPageName() {
+  const activeMenuItem = document.querySelector('.menu-item.active');
+  return activeMenuItem ? activeMenuItem.dataset.page : 'dashboard';
 }
 
 // Search functions
