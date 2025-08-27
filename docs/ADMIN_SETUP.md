@@ -144,15 +144,12 @@ server/
 └── scripts/create-admin.js # Скрипт создания администратора
 ```
 
-## API Endpoints
+## API Endpoints (админ)
 
-- `GET /api/admin/dashboard` - Статистика дашборда
-- `GET /api/admin/users` - Список пользователей
-- `POST /api/admin/users/:id/make-admin` - Назначить администратора
-- `DELETE /api/admin/users/:id/admin` - Отозвать права
-- `GET /api/admin/jobs` - Список всех заданий
-- `DELETE /api/admin/jobs/:id` - Удалить задание
-- `POST /api/admin/system/cleanup` - Системная очистка
-- `GET /api/admin/audit-log` - Журнал аудита
+- `GET /api/admin/dashboard` — статистика дашборда
+- `GET /api/admin/users` — список пользователей
+- `POST /api/admin/users/:userId/make-admin` — назначить администратора
+- `DELETE /api/admin/users/:userId` — удалить пользователя и его данные
+- `POST /api/admin/jobs/:id/requeue` — перезапустить задание (сбросить lock и вернуть в очередь)
 
-Все endpoints требуют авторизацию с JWT токеном и права администратора.
+Все endpoints требуют JWT и роль администратора.

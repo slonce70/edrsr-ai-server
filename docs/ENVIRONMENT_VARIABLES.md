@@ -113,6 +113,28 @@ CHAT_TTL_MS=14400000
 CHAT_CLEANUP_INTERVAL_MS=300000
 ```
 
+### **Очередь и задания**
+```env
+# Интервал периодического восстановления зависших задач (мс)
+QUEUE_PUMP_INTERVAL_MS=60000
+
+# Идентификатор воркера (опционально, для логирования/кластера)
+WORKER_ID=<uuid-or-name>
+
+# Размер батча ссылок при скачивании
+BATCH_SIZE=25
+
+# Таймауты скачивания
+OVERALL_REQUEST_TIMEOUT_MS=60000
+GOT_REQUEST_TIMEOUT_MS=45000
+
+# Порог памяти для предупреждений (МБ)
+MEMORY_LIMIT_MB=500
+
+# Внешний URL сервиса (для пинга Render keep-alive)
+RENDER_EXTERNAL_URL=https://your-app.onrender.com
+```
+
 ## **🔒 Безопасность**
 
 ### **Rate Limiting**
