@@ -216,20 +216,7 @@ export function calculateOptimalBatchSize(totalCases) {
   return BATCH_SIZE;
 }
 
-/**
- * Перевірка зʼєднання з Gemini – корисно для health‑чеків.
- */
-export async function testGeminiConnection() {
-  const { genAI, modelName } = await import('./config.js');
-
-  try {
-    const model = genAI.getGenerativeModel({ model: modelName });
-    await model.generateContent('ping');
-    return true;
-  } catch {
-    return false;
-  }
-}
+// testGeminiConnection moved to gemini.js to avoid duplication
 
 /**
  * Extracts key aspects from a user's custom prompt to focus the analysis.
@@ -321,6 +308,18 @@ class Logger {
 }
 
 export const logger = new Logger();
+
+// Strict EDRSR URL validation
+export function isValidEDRSRUrl(url) {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return false;
+    if (u.hostname !== 'reyestr.court.gov.ua') return false;
+    return /^\/Review\/\d+/.test(u.pathname);
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Best-effort client IP extraction supporting common proxy headers.

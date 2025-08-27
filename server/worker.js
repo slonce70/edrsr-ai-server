@@ -6,7 +6,7 @@ import { analyzeCases } from './gemini.js';
 // --- Request-Response Mechanism for Main Thread Communication ---
 const pendingAcks = new Map();
 let nextRequestId = 0;
-const abortController = new AbortController();
+const abortController = new globalThis.AbortController();
 let isJobCancelled = false;
 
 parentPort.on('message', (msg) => {
@@ -17,20 +17,20 @@ parentPort.on('message', (msg) => {
       pendingAcks.delete(msg.requestId);
     }
   } else if (msg.type === 'cancelJob') {
-    console.log(`⚠️ [WORKER] Получен сигнал отмены задачи ${msg.jobId}`);
+    console.log(`⚠️ [WORKER] Отримано сигнал скасування завдання ${msg.jobId}`);
     isJobCancelled = true;
     abortController.abort();
 
     // Send cancellation response
     parentPort.postMessage({
       type: 'jobCancelled',
-      payload: { jobId: msg.jobId, message: 'Задача отменена пользователем' },
+      payload: { jobId: msg.jobId, message: 'Задание отменено пользователем' },
     });
   } else if (msg.type === 'healthCheck') {
-    // Отвечаем на проверку здоровья с детальной информацией
+    // Відповідаємо на перевірку здоровʼя з детальною інформацією
     const memUsage = process.memoryUsage();
     const memUsedMB = Math.round(memUsage.heapUsed / 1024 / 1024);
-    
+
     parentPort.postMessage({
       type: 'healthCheckResponse',
       timestamp: msg.timestamp,
@@ -38,12 +38,14 @@ parentPort.on('message', (msg) => {
       memoryUsage: memUsage,
       memoryUsedMB: memUsedMB,
       isHighMemory: memUsedMB > 300,
-      isCriticalMemory: memUsedMB > 400
+      isCriticalMemory: memUsedMB > 400,
     });
-    
-    // Если память критически высокая, принудительно запускаем GC
+
+    // Якщо памʼять критично висока, примусово запускаємо GC
     if (memUsedMB > 350 && global.gc) {
-      console.log(`🗑️ [WORKER] Health check triggered GC due to high memory: ${memUsedMB}MB`);
+      console.log(
+        `🗑️ [WORKER] Health check triggered GC через високе використання памʼяті: ${memUsedMB}MB`
+      );
       global.gc();
     }
   }
@@ -83,25 +85,32 @@ function postStatusUpdate(status, progress, message, extra = {}) {
 async function processJobInWorker(jobId, links, cookie, prompt) {
   const startTime = Date.now();
   // Разрешенное общее время задачи и таймаут отсутствия прогресса (можно переопределить через env)
-  const MAX_JOB_DURATION = parseInt(process.env.MAX_JOB_DURATION_MS, 10) || 25 * 60 * 1000; // по умолчанию 25 минут
-  const MAX_STALL_DURATION = parseInt(process.env.MAX_STALL_DURATION_MS, 10) || 20 * 60 * 1000; // по умолчанию 20 минут без прогресса
-  const MAX_MEMORY_MB = 400; // Максимум памяти в MB (снижено с 500)
-  const MEMORY_WARNING_MB = 300; // Предупреждение о памяти
+  const MAX_JOB_DURATION = parseInt(process.env.MAX_JOB_DURATION_MS, 10) || 25 * 60 * 1000; // за замовчуванням 25 хв
+  const MAX_STALL_DURATION = parseInt(process.env.MAX_STALL_DURATION_MS, 10) || 20 * 60 * 1000; // за замовчуванням 20 хв без прогресу
+  const MAX_MEMORY_MB = 400; // Максимум памʼяті в MB (зменшено з 500)
+  const MEMORY_WARNING_MB = 300; // Попередження про памʼять
 
   let lastProgressTime = Date.now();
   let lastProcessedCount = 0;
+  // Throttle UI/status updates to avoid noisy per‑case flicker in the extension
+  let lastNotifiedProgress = 0;
+  let lastNotifiedProcessed = 0;
+  // Notify roughly every 10% of total or at least every 3 items
+  const NOTIFY_EVERY = Math.max(3, Math.ceil(links.length / 10));
 
   // Глобальный таймаут для всей задачи
   const jobTimeout = setTimeout(() => {
     const maxMins = Math.round(MAX_JOB_DURATION / 60000);
-    console.error(`⏰ [WORKER] Задача ${jobId} превысила максимальное время выполнения (${maxMins} минут)`);
+    console.error(
+      `⏰ [WORKER] Задание ${jobId} превысило максимальное время выполнения (${maxMins} минут)`
+    );
     isJobCancelled = true;
     abortController.abort();
 
     parentPort.postMessage({
       type: 'jobError',
       payload: {
-        errorMessage: 'Задача превысила максимальное время выполнения (30 минут)',
+        errorMessage: 'Задание превысило максимальное время выполнения (30 минут)',
         duration: Math.round((Date.now() - startTime) / 1000),
       },
     });
@@ -114,7 +123,7 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
 
     if (timeSinceLastProgress > MAX_STALL_DURATION && !isJobCancelled) {
       console.error(
-        `⏰ [WORKER] Задача ${jobId} зависла - нет прогресса ${Math.round(timeSinceLastProgress / 1000)} секунд`
+        `⏰ [WORKER] Задание ${jobId} зависло — нет прогресса ${Math.round(timeSinceLastProgress / 1000)} секунд`
       );
       isJobCancelled = true;
       abortController.abort();
@@ -125,7 +134,7 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
       parentPort.postMessage({
         type: 'jobError',
         payload: {
-          errorMessage: `Задача зависла — нет прогресса более ${Math.round(
+          errorMessage: `Задание зависло — нет прогресса более ${Math.round(
             MAX_STALL_DURATION / 60000
           )} минут`,
           duration: Math.round((Date.now() - startTime) / 1000),
@@ -138,13 +147,13 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
     // Check if job was cancelled before starting
     if (isJobCancelled) {
       clearTimeout(jobTimeout);
-      throw new Error('Задача отменена до начала обработки');
+      throw new Error('Задание отменено до начала обработки');
     }
 
     // Log initial memory usage
     const initialMem = process.memoryUsage();
     console.log(
-      `🚀 [WORKER] Starting job ${jobId} with ${links.length} links. Initial memory: ${Math.round(initialMem.heapUsed / 1024 / 1024)}MB`
+      `🚀 [WORKER] Старт завдання ${jobId} з ${links.length} посиланнями. Початкова памʼять: ${Math.round(initialMem.heapUsed / 1024 / 1024)}MB`
     );
 
     await postStatusUpdate('downloading', 10, `Инициализация загрузки ${links.length} дел...`);
@@ -165,7 +174,7 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
       const urlsToDownload = batch.map((link) => link.url);
 
       console.log(
-        `🔄 [WORKER] Обработка пакета ${batchIndex + 1}/${batches.length} (${batch.length} файлов)`
+        `🔄 [WORKER] Обробка пакета ${batchIndex + 1}/${batches.length} (${batch.length} файлів)`
       );
       const memBeforeBatch = process.memoryUsage();
       console.log(
@@ -181,7 +190,7 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
         async (processedCount) => {
           // Check for cancellation during progress updates
           if (isJobCancelled || abortController.signal.aborted) {
-            throw new Error('Задача отменена пользователем');
+            throw new Error('Завдання скасовано користувачем');
           }
 
           // Обновляем информацию о прогрессе для отслеживания зависания
@@ -197,33 +206,46 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
           const memUsage = process.memoryUsage();
           const memUsedMB = Math.round(memUsage.heapUsed / 1024 / 1024);
 
-          await postStatusUpdate(
-            'downloading',
-            progress,
-            `Пакет ${batchIndex + 1}/${batches.length}: ${processedCount}/${batch.length}, всего: ${currentTotalProcessed}/${links.length} (Memory: ${memUsedMB}MB)`,
-            {
-              processed_links: currentTotalProcessed,
-              memory_usage_mb: memUsedMB,
-              current_batch: batchIndex + 1,
-              total_batches: batches.length,
-            }
-          );
+          const progressedEnough = progress >= lastNotifiedProgress + 5; // 5% steps
+          const processedEnough =
+            currentTotalProcessed - lastNotifiedProcessed >= NOTIFY_EVERY ||
+            processedCount === batch.length; // always at batch end
+
+          if (progressedEnough || processedEnough) {
+            await postStatusUpdate(
+              'downloading',
+              progress,
+              `Пакет ${batchIndex + 1}/${batches.length}: ${processedCount}/${batch.length}, всего: ${currentTotalProcessed}/${links.length} (Память: ${memUsedMB}MB)`,
+              {
+                processed_links: currentTotalProcessed,
+                memory_usage_mb: memUsedMB,
+                current_batch: batchIndex + 1,
+                total_batches: batches.length,
+              }
+            );
+            lastNotifiedProgress = progress;
+            lastNotifiedProcessed = currentTotalProcessed;
+          }
 
           // Проактивный мониторинг памяти
           if (memUsedMB > MEMORY_WARNING_MB) {
-            console.warn(`⚠️ [WORKER] High memory usage: ${memUsedMB}MB`);
+            console.warn(`⚠️ [WORKER] Високе використання памʼяті: ${memUsedMB}MB`);
             // Принудительная сборка мусора при превышении предупреждения
             if (global.gc) {
               global.gc();
               const memAfterGC = process.memoryUsage();
               const memAfterGCMB = Math.round(memAfterGC.heapUsed / 1024 / 1024);
-              console.log(`🗑️ [WORKER] Forced GC: ${memUsedMB}MB -> ${memAfterGCMB}MB`);
-              
+              console.log(
+                `🗑️ [WORKER] Примусова збірка сміття: ${memUsedMB}MB -> ${memAfterGCMB}MB`
+              );
+
               if (memAfterGCMB > MAX_MEMORY_MB) {
-                throw new Error(`Memory limit exceeded: ${memAfterGCMB}MB > ${MAX_MEMORY_MB}MB after GC`);
+                throw new Error(
+                  `Перевищено ліміт памʼяті: ${memAfterGCMB}MB > ${MAX_MEMORY_MB}MB після GC`
+                );
               }
             } else if (memUsedMB > MAX_MEMORY_MB) {
-              throw new Error(`Memory limit exceeded: ${memUsedMB}MB > ${MAX_MEMORY_MB}MB`);
+              throw new Error(`Перевищено ліміт памʼяті: ${memUsedMB}MB > ${MAX_MEMORY_MB}MB`);
             }
           }
         },
@@ -265,16 +287,16 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
 
       // Собираем валидные случаи для анализа (сохраняем оригинальную логику)
       const validCasesInBatch = casesWithDates.filter((c) => !c.error);
-      
+
       // Оптимизация памяти: оставляем только нужные поля для AI
-      const optimizedCases = validCasesInBatch.map(caseData => ({
+      const optimizedCases = validCasesInBatch.map((caseData) => ({
         caseNumber: caseData.caseNumber,
         id: caseData.id || caseData.caseNumber,
         url: caseData.url,
         body: caseData.body, // Нужно для AI
-        decisionDate: caseData.decisionDate
+        decisionDate: caseData.decisionDate,
       }));
-      
+
       allValidCasesForAnalysis.push(...optimizedCases);
 
       // Очищаем память после копирования
@@ -292,7 +314,7 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
         global.gc();
         const memAfterGC = process.memoryUsage();
         console.log(
-          `🗑️ [WORKER] Сборка мусора после пакета ${batchIndex + 1}: ${Math.round(memAfterGC.heapUsed / 1024 / 1024)}MB`
+          `🗑️ [WORKER] Збірка сміття після пакета ${batchIndex + 1}: ${Math.round(memAfterGC.heapUsed / 1024 / 1024)}MB`
         );
       }
 
@@ -301,7 +323,7 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
 
     // Выполняем AI анализ всех валидных случаев (оригинальная логика)
     const analysis = await analyzeCases(allValidCasesForAnalysis, prompt, (statusUpdate) =>
-      postStatusUpdate('analyzing', 65, statusUpdate)
+      postStatusUpdate('analyzing', 65, statusUpdate, { processed_links: links.length })
     );
 
     // Очищаем память после завершения AI анализа
@@ -315,15 +337,15 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
       global.gc();
     }
 
-    // Пытаемся сохранить результат анализа
+    // Прагнемо зберегти результат аналізу
     try {
       await dbService.saveJobResult(jobId, analysis);
-      console.log(`[WORKER] ✅ Результат анализа сохранен для задачи ${jobId}`);
+      console.log(`[WORKER] ✅ Результат аналізу збережено для завдання ${jobId}`);
     } catch (error) {
-      // Если задача была удалена, dbService.saveJobResult тихо проигнорирует это
-      // но если произошла другая ошибка, логируем её
+      // Якщо завдання було видалено, dbService.saveJobResult тихо проігнорує це
+      // але якщо сталася інша помилка — логую її
       console.warn(
-        `[WORKER] ⚠️ Предупреждение при сохранении результата для ${jobId}:`,
+        `[WORKER] ⚠️ Попередження під час збереження результату для ${jobId}:`,
         error.message
       );
     }
@@ -338,7 +360,7 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
   } catch (error) {
     clearTimeout(jobTimeout);
     clearInterval(stallCheckInterval);
-    console.error(`❌ Ошибка обработки задания ${jobId} в воркере:`, error.message, error.stack);
+    console.error(`❌ Помилка обробки завдання ${jobId} у воркері:`, error.message, error.stack);
     const duration = Math.round((Date.now() - startTime) / 1000);
     // Convert fatal batch failure into retryable job status by signaling a soft error
     parentPort.postMessage({

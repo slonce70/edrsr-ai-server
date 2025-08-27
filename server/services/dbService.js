@@ -128,6 +128,11 @@ class DatabaseService {
     return row ? row.user_id : null;
   }
 
+  async getJobStatus(jobId) {
+    const row = await database.get('SELECT status FROM jobs WHERE id = $1', [jobId]);
+    return row ? row.status : null;
+  }
+
   async summarizeJobForTitle(jobId, userId = null) {
     // Count total and processed
     const totalRow = await database.get(
@@ -530,7 +535,9 @@ class DatabaseService {
     try {
       const res = await database.run(sql);
       if (res.changes > 0) {
-        logger.info(`🧯 Force-recovered ${res.changes} in-flight job(s) with stale heartbeat (${minutes}m)`);
+        logger.info(
+          `🧯 Force-recovered ${res.changes} in-flight job(s) with stale heartbeat (${minutes}m)`
+        );
       }
       return res.changes || 0;
     } catch (e) {

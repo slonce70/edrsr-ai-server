@@ -132,7 +132,7 @@ export async function recoverPassword(email, redirectTo = null) {
   if (!res.ok) {
     const json = await res.json().catch(() => ({}));
     throw new Error(
-      json.error_description || json.error || 'Не вдалося надіслати лист для відновлення'
+      json.error_description || json.error || 'Не удалось отправить письмо для восстановления'
     );
   }
   return true;

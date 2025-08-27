@@ -52,6 +52,7 @@ async function createFirstAdmin() {
 
     const existingUser = users.users.find((user) => user.email === email);
     let userId;
+    let tempPassword = null;
 
     if (existingUser) {
       userId = existingUser.id;
@@ -60,7 +61,7 @@ async function createFirstAdmin() {
       console.log(`📧 Пользователь ${email} не найден. Создание нового пользователя...`);
 
       // Generate a temporary password
-      const tempPassword = generateTempPassword();
+      tempPassword = generateTempPassword();
 
       const { data: newUser, error: createError } = await supabase.auth.admin.createUser({
         email,
@@ -101,7 +102,7 @@ async function createFirstAdmin() {
     );
     console.log(`📧 Email: ${email}`);
 
-    if (!existingUser) {
+    if (!existingUser && tempPassword) {
       console.log(`🔑 Пароль: ${tempPassword} (смените после первого входа)`);
     }
 

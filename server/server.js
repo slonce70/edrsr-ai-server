@@ -23,6 +23,8 @@ export function createServer() {
   // Middleware
   // If behind a reverse proxy (e.g., Nginx/Render/Heroku), trust proxy to get real client IPs
   app.set('trust proxy', true);
+  // Hide Express signature
+  app.disable('x-powered-by');
   app.use(securityHeaders); // Add security headers first
   app.use(cors());
   app.use(express.json({ limit: '10mb' }));

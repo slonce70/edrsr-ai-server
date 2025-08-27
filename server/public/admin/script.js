@@ -354,7 +354,7 @@ async function loadJobs(page = 1, status = '', search = '', email = '') {
   const response = await apiCall(`/api/admin/jobs?${params}`);
   const tbody = document.getElementById('jobs-table-body');
 
-  let jobs = Array.isArray(response.jobs) ? [...response.jobs] : [];
+  const jobs = Array.isArray(response.jobs) ? [...response.jobs] : [];
 
   // Email filter now handled server-side for full dataset
 
@@ -604,12 +604,15 @@ async function deleteJob(jobId) {
 }
 
 async function retryJob(jobId) {
-  if (!confirm('Перезапустить это задание? Оно будет поставлено в очередь на повторное выполнение.')) return;
+  if (
+    !confirm('Перезапустить это задание? Оно будет поставлено в очередь на повторное выполнение.')
+  )
+    return;
 
   try {
     const response = await apiCall(`/api/admin/jobs/${jobId}/retry`, 'POST');
     showSuccess(response.message || 'Задание поставлено на повторное выполнение');
-    
+
     // Refresh current page to show updated status
     const status = document.getElementById('jobs-status-filter').value;
     const search = document.getElementById('jobs-search').value;
@@ -669,13 +672,18 @@ async function performCleanup(type) {
 }
 
 async function retryAllFailedJobs() {
-  if (!confirm('Перезапустить все задания с временными ошибками? Они будут поставлены в очередь на повторное выполнение.')) return;
+  if (
+    !confirm(
+      'Перезапустить все задания с временными ошибками? Они будут поставлены в очередь на повторное выполнение.'
+    )
+  )
+    return;
 
   try {
     showLoading();
     const response = await apiCall('/api/admin/jobs/retry-failed', 'POST');
     showSuccess(response.message || `Перезапущено ${response.retried_count || 0} заданий`);
-    
+
     // Refresh dashboard stats and current page if we're on jobs page
     await loadDashboard();
     const currentPage = getCurrentPageName();
@@ -721,19 +729,19 @@ async function viewErrorJobs() {
   try {
     showLoading();
     const response = await apiCall('/api/admin/jobs/errors?limit=50');
-    
+
     if (response.jobs.length === 0) {
       showSuccess('Заданий с ошибками не найдено!');
       return;
     }
-    
+
     // Switch to jobs page and filter by error status
-    switchPage('jobs');
+    navigateToPage('jobs');
     document.getElementById('jobs-status-filter').value = 'error';
     document.getElementById('jobs-search').value = '';
     document.getElementById('jobs-email-filter').value = '';
     await loadJobs(1, 'error', '', '');
-    
+
     showSuccess(`Найдено ${response.jobs.length} заданий с ошибками`);
   } catch (error) {
     showError('Ошибка загрузки заданий с ошибками: ' + error.message);
@@ -881,22 +889,26 @@ function updatePagination(type, pagination) {
 
 async function changePage(type, page) {
   switch (type) {
-    case 'users':
+    case 'users': {
       const search = document.getElementById('users-search').value;
       await loadUsers(page, search);
       break;
-    case 'jobs':
+    }
+    case 'jobs': {
       const jobSearch = document.getElementById('jobs-search').value;
       const status = document.getElementById('jobs-status-filter').value;
       const email = document.getElementById('jobs-email-filter')?.value || '';
       await loadJobs(page, status, jobSearch, email);
       break;
-    case 'audit':
+    }
+    case 'audit': {
       await loadAuditLog(page);
       break;
-    case 'security':
+    }
+    case 'security': {
       await loadSecurityStats();
       break;
+    }
   }
 }
 

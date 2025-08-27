@@ -12,6 +12,67 @@ import {
 } from './auth.js';
 
 document.addEventListener('DOMContentLoaded', () => {
+  // --- Minimal HTML sanitizer (for MV3) ---
+  const ALLOWED_TAGS = new Set([
+    'span',
+    'div',
+    'p',
+    'ul',
+    'ol',
+    'li',
+    'strong',
+    'em',
+    'code',
+    'pre',
+    'blockquote',
+    'a',
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+    'hr',
+    'br',
+  ]);
+  const ALLOWED_ATTRS = { a: new Set(['href', 'title']), '*': new Set(['class']) };
+  function isAllowedAttr(tag, attr) {
+    return (ALLOWED_ATTRS[tag] && ALLOWED_ATTRS[tag].has(attr)) || ALLOWED_ATTRS['*'].has(attr);
+  }
+  function sanitizeHtml(html) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(String(html || ''), 'text/html');
+    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_ELEMENT, null, false);
+    const toStrip = [];
+    while (walker.nextNode()) {
+      const el = walker.currentNode;
+      const tag = el.tagName.toLowerCase();
+      if (!ALLOWED_TAGS.has(tag)) {
+        toStrip.push(el);
+        continue;
+      }
+      for (const { name } of Array.from(el.attributes)) {
+        if (!isAllowedAttr(tag, name)) el.removeAttribute(name);
+      }
+      if (tag === 'a') {
+        const href = el.getAttribute('href') || '';
+        try {
+          const u = new URL(href, location.origin);
+          if (u.protocol !== 'http:' && u.protocol !== 'https:') el.removeAttribute('href');
+          else {
+            el.setAttribute('rel', 'noopener noreferrer');
+            el.setAttribute('target', '_blank');
+          }
+        } catch {
+          el.removeAttribute('href');
+        }
+      }
+    }
+    for (const el of toStrip) {
+      const span = doc.createElement('span');
+      span.textContent = el.textContent || '';
+      el.replaceWith(span);
+    }
+    return doc.body.innerHTML;
+  }
   // --- Global State & Port Connection ---
   let port = chrome.runtime.connect({ name: 'popup' });
   let currentJobData = null;
@@ -34,6 +95,7 @@ document.addEventListener('DOMContentLoaded', () => {
     jobStatus: document.getElementById('jobStatus'),
     jobTitle: document.getElementById('jobTitle'),
     jobStatusText: document.getElementById('jobStatusText'),
+    jobStatusRow: document.getElementById('jobStatusText')?.closest('.job-detail'),
     jobProgress: document.getElementById('jobProgress'),
     progressFill: document.getElementById('progressFill'),
     jobLinks: document.getElementById('jobLinks'),
@@ -102,11 +164,11 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log(`[POPUP] Received clientId: ${clientId}`);
         break;
       case 'ERROR':
-        alert(`Помилка: ${payload.message}`);
+        alert(`Ошибка: ${payload.message}`);
         break;
       case 'AUTH_REQUIRED':
         switchTab('auth');
-        elements.authStatus.textContent = 'Потрібен вхід. Будь ласка, увійдіть.';
+        elements.authStatus.textContent = 'Требуется вход. Пожалуйста, войдите.';
         break;
     }
   });
@@ -126,26 +188,31 @@ document.addEventListener('DOMContentLoaded', () => {
     switch (status) {
       case 'connected':
         elements.serverStatus.className = 'status-indicator status-online';
-        elements.serverStatus.innerHTML = `<span><div class="status-dot dot-online"></div>Підключено</span>`;
+        elements.serverStatus.innerHTML = `<span><div class="status-dot dot-online"></div>Подключено</span>`;
         break;
       case 'disconnected':
         elements.serverStatus.className = 'status-indicator status-offline';
-        elements.serverStatus.innerHTML = `<span><div class="status-dot dot-offline"></div>Відключено</span>`;
+        elements.serverStatus.innerHTML = `<span><div class="status-dot dot-offline"></div>Отключено</span>`;
         break;
       case 'reconnecting':
         elements.serverStatus.className = 'status-indicator status-offline';
-        elements.serverStatus.innerHTML = `<span><div class="status-dot dot-offline"></div>Перепідключення...</span>`;
+        elements.serverStatus.innerHTML = `<span><div class="status-dot dot-offline"></div>Переподключение...</span>`;
         break;
     }
   };
 
   const getStatusText = (status) => {
     const map = {
-      queued: '⏳ У черзі',
-      downloading: '📥 Завантаження',
-      analyzing: '🤖 Аналіз',
+      queued: '⏳ В очереди',
+      pending: '⏳ В очереди',
+      downloading: '📥 Загрузка',
+      download: '📥 Загрузка', // legacy/alias
+      processing: '🔄 Обработка',
+      retrying: '🔁 Повтор',
+      warning: '⚠️ Предупреждение',
+      analyzing: '🤖 Анализ',
       completed: '✅ Завершено',
-      error: '❌ Помилка',
+      error: '❌ Ошибка',
     };
     return map[status] || status;
   };
@@ -171,18 +238,45 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.jobIdInput.value = jobData.id;
     elements.jobStatus.classList.remove('hidden');
     // Используем title, если он есть, иначе - ID
-    elements.jobTitle.textContent = jobData.title || `Завдання ${jobData.id.substring(0, 8)}...`;
+    elements.jobTitle.textContent = jobData.title || `Задание ${jobData.id.substring(0, 8)}...`;
 
     // Показываем специальный статус для зависших задач
-    let statusText = jobData.message || getStatusText(jobData.status);
+    let statusText = '';
     if (isStuck) {
-      statusText = '⚠️ Зависло (можна перезапустити)';
+      statusText = '⚠️ Зависло (можно перезапустить)';
+    } else {
+      switch (jobData.status) {
+        case 'queued':
+        case 'pending':
+          statusText = '⏳ В очереди';
+          break;
+        case 'downloading':
+          // Hide row below; keep empty text
+          statusText = '';
+          break;
+        case 'analyzing':
+          // Show detailed progress message from server while AI processes batches
+          statusText = jobData.message ? jobData.message : '🤖 Анализ';
+          break;
+        case 'completed':
+          statusText = '✅ Завершено';
+          break;
+        case 'error':
+          statusText = jobData.message ? `❌ ${jobData.message}` : '❌ Ошибка';
+          break;
+        default:
+          statusText = getStatusText(jobData.status);
+      }
+    }
+    // If downloading, hide the status row; otherwise show with text
+    if (elements.jobStatusRow) {
+      elements.jobStatusRow.classList.toggle('hidden', jobData.status === 'downloading');
     }
     elements.jobStatusText.textContent = statusText;
     elements.jobProgress.textContent = `${jobData.progress || 0}%`;
     elements.progressFill.style.width = `${jobData.progress || 0}%`;
     elements.jobLinks.textContent = `${jobData.processed_links || 0} / ${jobData.total_links || 0}`;
-    elements.jobStartTime.textContent = new Date(jobData.created_at).toLocaleString('uk-UA');
+    elements.jobStartTime.textContent = new Date(jobData.created_at).toLocaleString('ru-RU');
 
     const canRetry = isCompleted || isError || isStuck || isWarning;
     const isActive = ['downloading', 'analyzing', 'queued', 'pending'].includes(jobData.status);
@@ -196,11 +290,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Обновляем текст кнопки в зависимости от статуса
     if (canRetry) {
-      let buttonText = '🔄 Перезапустити завдання';
+      let buttonText = '🔄 Перезапустить задание';
       if (isStuck) {
-        buttonText = '🔄 Перезапустити зависле';
+        buttonText = '🔄 Перезапустить зависшее';
       } else if (isWarning) {
-        buttonText = '🔄 Перезапустити завдання';
+        buttonText = '🔄 Перезапустить задание';
       }
       elements.retryJobBtn.querySelector('span').textContent = buttonText;
     }
@@ -247,13 +341,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const infoContainer = document.createElement('div');
         infoContainer.classList.add('job-info-container');
         const titleText = job.title || `ID: ${job.id.substring(0, 8)}...`;
-        infoContainer.innerHTML = `
+        infoContainer.innerHTML = sanitizeHtml(`
           <div class="job-details">
             <span class="job-id">${titleText}</span>
             <span class="job-status-hist">${getStatusText(job.status)} ${job.progress || ''}%</span>
-            <span class="job-date">${new Date(job.created_at).toLocaleString('uk-UA')}</span>
+            <span class="job-date">${new Date(job.created_at).toLocaleString('ru-RU')}</span>
           </div>
-        `;
+        `);
         infoContainer.addEventListener('click', () => {
           // Check if THIS item's edit container is hidden. This is the fix.
           if (!editContainer.classList.contains('hidden')) return;
@@ -274,12 +368,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const editBtn = document.createElement('button');
         editBtn.className = 'edit-job-btn';
         editBtn.innerHTML = '&#x270E;'; // Pencil icon
-        editBtn.title = 'Редагувати назву';
+        editBtn.title = 'Редактировать название';
 
         const deleteBtn = document.createElement('button');
         deleteBtn.className = 'delete-job-btn';
         deleteBtn.innerHTML = '&#x1F5D1;'; // Trash can icon
-        deleteBtn.title = 'Видалити завдання';
+        deleteBtn.title = 'Удалить задание';
 
         buttonsContainer.appendChild(editBtn);
         buttonsContainer.appendChild(deleteBtn);
@@ -290,7 +384,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const editInput = document.createElement('input');
         editInput.type = 'text';
         editInput.value = job.title || '';
-        editInput.placeholder = 'Введіть нову назву';
+        editInput.placeholder = 'Введите новое название';
         const saveBtn = document.createElement('button');
         saveBtn.textContent = '✔';
         const cancelBtn = document.createElement('button');
@@ -335,7 +429,7 @@ document.addEventListener('DOMContentLoaded', () => {
           e.stopPropagation();
           if (
             confirm(
-              `Ви впевнені, що хочете видалити завдання "${titleText}"? Цю дію неможливо скасувати.`
+              `Вы уверены, что хотите удалить задание "${titleText}"? Это действие нельзя отменить.`
             )
           ) {
             port.postMessage({ type: 'DELETE_JOB', payload: { jobId: job.id } });
@@ -357,7 +451,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       });
     } else {
-      elements.historyList.innerHTML = `<li style="text-align:center;color:#999;">Історія порожня</li>`;
+      elements.historyList.innerHTML = `<li style="text-align:center;color:#999;">История пуста</li>`;
     }
   };
 
@@ -380,9 +474,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const authed = await isAuthenticated();
     if (authed) {
       const session = await getSession();
-      elements.authStatus.textContent = `Ви увійшли як ${session?.user?.email || 'користувач'}`;
+      elements.authStatus.textContent = `Вы вошли как ${session?.user?.email || 'пользователь'}`;
       if (elements.authBadge) {
-        elements.authBadge.textContent = `🔐 ${session?.user?.email || 'Увійшли'}`;
+        elements.authBadge.textContent = `🔐 ${session?.user?.email || 'Вошли'}`;
         elements.authBadge.classList.remove('badge-guest');
         elements.authBadge.classList.add('badge-auth');
       }
@@ -392,9 +486,9 @@ document.addEventListener('DOMContentLoaded', () => {
       elements.logoutBtn.classList.remove('hidden');
       elements.recoverBtn?.classList.add('hidden');
     } else {
-      elements.authStatus.textContent = 'Ви не увійшли.';
+      elements.authStatus.textContent = 'Вы не вошли.';
       if (elements.authBadge) {
-        elements.authBadge.textContent = 'Гість';
+        elements.authBadge.textContent = 'Гость';
         elements.authBadge.classList.remove('badge-auth');
         elements.authBadge.classList.add('badge-guest');
       }
@@ -416,7 +510,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (!links || links.length === 0) {
         throw new Error(
-          'На сторінці не знайдено посилань на справи. Можливо, потрібно оновити сторінку.'
+          'На странице не найдено ссылок на дела. Возможно, нужно обновить страницу.'
         );
       }
 
@@ -429,7 +523,7 @@ document.addEventListener('DOMContentLoaded', () => {
           finalLinks = finalLinks.filter((l) => l && l.url && !processed.has(l.url));
         }
         if (finalLinks.length === 0) {
-          throw new Error('На цій сторінці немає унікальних справ для аналізу.');
+          throw new Error('На этой странице нет уникальных дел для анализа.');
         }
       }
 
@@ -441,7 +535,7 @@ document.addEventListener('DOMContentLoaded', () => {
           finalLinks = finalLinks.filter((l) => l && l.url && !sessionSet.has(l.url));
         }
         if (finalLinks.length === 0) {
-          throw new Error('У цій сесії немає нових справ для аналізу.');
+          throw new Error('В этой сессии нет новых дел для анализа.');
         }
       }
 
@@ -452,7 +546,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const selectedValue = elements.promptTemplate.value;
       if (selectedValue === 'custom') {
         prompt = elements.customPrompt.value.trim();
-        promptLabel = prompt ? prompt.split(/\s+/).slice(0, 6).join(' ') : 'Користувацький';
+        promptLabel = prompt ? prompt.split(/\s+/).slice(0, 6).join(' ') : 'Пользовательский';
       } else if (selectedValue !== 'default') {
         prompt = selectedValue;
         promptLabel = selectedOption?.textContent || null;
@@ -479,9 +573,9 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       switchTab('status');
     } catch (error) {
-      alert(`Помилка: ${error.message}`);
+      alert(`Ошибка: ${error.message}`);
     } finally {
-      elements.collectBtn.innerHTML = '<span>🔍 Зібрати та проаналізувати</span>';
+      elements.collectBtn.innerHTML = '<span>🔍 Собрать и проанализировать</span>';
       updatePageInfo();
     }
   };
@@ -528,11 +622,11 @@ document.addEventListener('DOMContentLoaded', () => {
           finalCount = useUnique
             ? uniqueSession.length
             : urls.filter((u) => !sessionSet.has(u)).length;
-        elements.collectBtn.innerHTML = `<span>🔍 Зібрати та проаналізувати (${finalCount})</span>`;
+        elements.collectBtn.innerHTML = `<span>🔍 Собрать и проанализировать (${finalCount})</span>`;
         elements.collectInfo.style.display = 'block';
         elements.collectBtn.disabled = false;
       } else {
-        elements.currentPage.textContent = 'Не сторінка ЄДРСР';
+        elements.currentPage.textContent = 'Не страница ЄДРСР';
         elements.collectInfo.style.display = 'none';
         elements.collectBtn.disabled = true;
       }
@@ -546,7 +640,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const name = elements.promptName.value.trim();
     const content = elements.customPrompt.value.trim();
     if (!name || !content) {
-      alert('Назва та текст промпту не можуть бути порожніми.');
+      alert('Название и текст промпта не могут быть пустыми.');
       return;
     }
     const savedPrompts = await getSavedPrompts();
@@ -556,7 +650,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     elements.promptName.value = '';
     elements.customPrompt.value = content; // Keep content in textarea
-    alert(`Промпт "${name}" збережено!`);
+    alert(`Промпт "${name}" сохранён!`);
 
     await populatePromptTemplates();
     elements.promptTemplate.value = content; // Select the newly saved prompt
@@ -569,18 +663,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (
       selectedOption.parentElement.tagName !== 'OPTGROUP' ||
-      selectedOption.parentElement.label !== 'Збережені промпти'
+      selectedOption.parentElement.label !== 'Сохраненные промпты'
     ) {
-      alert('Будь ласка, виберіть збережений промпт для видалення.');
+      alert('Пожалуйста, выберите сохранённый промпт для удаления.');
       return;
     }
 
     const promptName = selectedOption.textContent;
-    if (confirm(`Ви впевнені, що хочете видалити промпт "${promptName}"?`)) {
+    if (confirm(`Вы уверены, что хотите удалить промпт "${promptName}"?`)) {
       const savedPrompts = await getSavedPrompts();
       const newPrompts = savedPrompts.filter((p) => p.name !== promptName);
       await chrome.storage.local.set({ savedPrompts: newPrompts });
-      alert(`Промпт "${promptName}" видалено.`);
+      alert(`Промпт "${promptName}" удалён.`);
       await populatePromptTemplates();
       await updatePromptDescription();
     }
@@ -615,7 +709,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (savedPrompts.length > 0) {
       const optgroup = document.createElement('optgroup');
-      optgroup.label = 'Збережені промпти';
+      optgroup.label = 'Сохраненные промпты';
       savedPrompts.forEach((prompt) => {
         const option = document.createElement('option');
         // We no longer need a special prefix; the prompt content is sent directly.
@@ -636,12 +730,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (PROMPT_DESCRIPTIONS[selectedValue]) {
       elements.promptDescription.textContent = PROMPT_DESCRIPTIONS[selectedValue];
     }
-    // Check if it's from the "Збережені промпти" optgroup
+    // Check if it's from the "Сохраненные промпты" optgroup
     else if (
       selectedOption.parentElement.tagName === 'OPTGROUP' &&
-      selectedOption.parentElement.label === 'Збережені промпти'
+      selectedOption.parentElement.label === 'Сохраненные промпты'
     ) {
-      elements.promptDescription.textContent = `Ваш збережений промпт: "${selectedValue.substring(0, 70)}..."`;
+      elements.promptDescription.textContent = `Ваш сохранённый промпт: "${selectedValue.substring(0, 70)}..."`;
     } else {
       elements.promptDescription.textContent = '';
     }
@@ -669,8 +763,8 @@ document.addEventListener('DOMContentLoaded', () => {
         Date.now() - new Date(currentJobData.created_at).getTime() > 10 * 60 * 1000;
 
       const message = isStuck
-        ? 'Це завдання зависло. Перезапустити його? Буде створено нове завдання з тими ж параметрами.'
-        : 'Перезапустити це завдання? Буде створено нове завдання з тими ж параметрами.';
+        ? 'Это задание зависло. Перезапустить его? Будет создано новое задание с теми же параметрами.'
+        : 'Перезапустить это задание? Будет создано новое задание с теми же параметрами.';
 
       if (confirm(message)) {
         port.postMessage({
@@ -684,7 +778,7 @@ document.addEventListener('DOMContentLoaded', () => {
   elements.forceRetryJobBtn.addEventListener('click', () => {
     if (currentJobData?.id && clientId) {
       const message =
-        'УВАГА! Примусово перезапустити активне завдання? Поточний прогрес буде втрачено, і буде створено нове завдання.';
+        'ВНИМАНИЕ! Принудительно перезапустить активное задание? Текущий прогресс будет потерян, и будет создано новое задание.';
 
       if (confirm(message)) {
         port.postMessage({
@@ -703,7 +797,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   elements.showResultBtn.addEventListener('click', () => {
     if (currentJobData?.analysis) {
-      elements.resultArea.innerHTML = marked.parse(currentJobData.analysis);
+      elements.resultArea.innerHTML = sanitizeHtml(marked.parse(currentJobData.analysis));
       elements.resultArea.classList.remove('hidden');
       elements.copyResultBtn.classList.remove('hidden');
     }
@@ -712,9 +806,9 @@ document.addEventListener('DOMContentLoaded', () => {
   elements.copyResultBtn.addEventListener('click', async () => {
     if (!currentJobData?.analysis) return;
     await navigator.clipboard.writeText(currentJobData.analysis);
-    elements.copyResultBtn.textContent = '✅ Скопійовано!';
+    elements.copyResultBtn.textContent = '✅ Скопировано!';
     setTimeout(() => {
-      elements.copyResultBtn.textContent = '📋 Копіювати';
+      elements.copyResultBtn.textContent = '📋 Копировать';
     }, 2000);
   });
 
@@ -740,13 +834,13 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       const email = elements.authEmail.value.trim();
       const password = elements.authPassword.value;
-      if (!email || !password) return alert('Вкажіть email і пароль');
-      elements.authStatus.textContent = 'Вхід...';
+      if (!email || !password) return alert('Укажите email и пароль');
+      elements.authStatus.textContent = 'Вход...';
       await signInWithPassword(email, password);
-      elements.authStatus.textContent = 'Успішний вхід.';
+      elements.authStatus.textContent = 'Успешный вход.';
       port.postMessage({ type: 'AUTH_CHANGED' });
     } catch (e) {
-      elements.authStatus.textContent = `Помилка: ${e.message}`;
+      elements.authStatus.textContent = `Ошибка: ${e.message}`;
     } finally {
       updateAuthUI();
     }
@@ -755,26 +849,26 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       const email = elements.authEmail.value.trim();
       const password = elements.authPassword.value;
-      if (!email || !password) return alert('Вкажіть email і пароль');
-      elements.authStatus.textContent = 'Реєстрація...';
+      if (!email || !password) return alert('Укажите email и пароль');
+      elements.authStatus.textContent = 'Регистрация...';
       const result = await signUpWithPassword(email, password);
       if (result.status === 'signed_in') {
-        elements.authStatus.textContent = 'Акаунт створено та вхід виконано.';
+        elements.authStatus.textContent = 'Аккаунт создан и выполнен вход.';
         port.postMessage({ type: 'AUTH_CHANGED' });
         await updateAuthUI();
       } else {
-        // Email підтвердження увімкнено — не намагаємося входити автоматично
+        // Email подтверждения включён — не пытаемся входить автоматически
         elements.authStatus.textContent =
-          'Акаунт створено. Підтвердіть пошту за посиланням у листі, потім увійдіть.';
+          'Аккаунт создан. Подтвердите почту по ссылке в письме, затем войдите.';
         // Залишаємо поля видимими, щоб користувач міг увійти після підтвердження
       }
     } catch (e) {
-      elements.authStatus.textContent = `Помилка: ${e.message}`;
+      elements.authStatus.textContent = `Ошибка: ${e.message}`;
     }
   });
   elements.logoutBtn?.addEventListener('click', async () => {
     await signOut();
-    elements.authStatus.textContent = 'Ви вийшли.';
+    elements.authStatus.textContent = 'Вы вышли.';
     updateAuthUI();
   });
 
@@ -783,19 +877,20 @@ document.addEventListener('DOMContentLoaded', () => {
     const input = elements.authPassword;
     const isPwd = input.type === 'password';
     input.type = isPwd ? 'text' : 'password';
-    elements.togglePwdBtn.textContent = isPwd ? 'Сховати' : 'Показати';
+    elements.togglePwdBtn.textContent = isPwd ? 'Скрыть' : 'Показать';
   });
 
   elements.recoverBtn?.addEventListener('click', async () => {
     try {
       const email = elements.authEmail.value.trim();
-      if (!email) return alert('Вкажіть email для відновлення паролю.');
-      elements.authStatus.textContent = 'Надсилаю лист для відновлення...';
+      if (!email) return alert('Укажите email для восстановления пароля.');
+      elements.authStatus.textContent = 'Отправляю письмо для восстановления...';
       const { recoverPassword } = await import('./auth.js');
       await recoverPassword(email, SUPABASE_REDIRECT_TO);
-      elements.authStatus.textContent = 'Лист для відновлення паролю надіслано. Перевірте пошту.';
+      elements.authStatus.textContent =
+        'Письмо для восстановления пароля отправлено. Проверьте почту.';
     } catch (e) {
-      elements.authStatus.textContent = `Помилка: ${e.message}`;
+      elements.authStatus.textContent = `Ошибка: ${e.message}`;
     }
   });
 

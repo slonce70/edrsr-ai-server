@@ -2,6 +2,7 @@ import got from 'got';
 import * as cheerio from 'cheerio';
 import 'dotenv/config';
 import dbService from './services/dbService.js'; // Import the dbService
+import { isValidEDRSRUrl } from './utils.js';
 
 // const limit = pLimit(parseInt(process.env.MAX_CONCURRENT_REQUESTS) || 1); // Removed for sequential processing
 const requestDelay = parseInt(process.env.REQUEST_DELAY_MS) || 1000;
@@ -459,6 +460,18 @@ export async function fetchCase(url, cookie = '', signal = null) {
     return { ...cachedCase, fromCache: true };
   }
 
+  // Строгая проверка URL до сетевых запросов
+  if (!isValidEDRSRUrl(url)) {
+    return {
+      url,
+      id: url.match(/\/Review\/(\d+)/)?.[1] || url,
+      body: 'Пропущено: недопустимый URL (ожидается reyestr.court.gov.ua/Review/<id>)',
+      error: 'invalid_url',
+      errorType: 'invalid_url',
+      skipped: true,
+    };
+  }
+
   // Abort controller for centralized timeout management
   const controller = new AbortController();
   const { signal: abortSignal } = controller;
@@ -698,7 +711,8 @@ ${caseData.body}
 export async function downloadAll(urls, cookie = '', onProgress = () => {}, abortSignal = null) {
   console.log(`🚀 Початок завантаження ${urls.length} судових рішень...`);
   if (!urls || urls.length === 0) throw new Error('Список URL порожній');
-  const validUrls = urls.filter((url) => url.includes('reyestr.court.gov.ua'));
+  // Строгая валидация домена/пути, вместо includes(...)
+  const validUrls = urls.filter((url) => isValidEDRSRUrl(url));
   if (validUrls.length === 0) throw new Error('Не знайдено валідних URL ЄДРСР');
 
   const results = [];
@@ -708,12 +722,12 @@ export async function downloadAll(urls, cookie = '', onProgress = () => {}, abor
   for (const url of validUrls) {
     // Check if operation was cancelled
     if (abortSignal && abortSignal.aborted) {
-      console.log(`⚠️ Операция отменена пользователем на ${processedCount}/${validUrls.length}`);
-      throw new Error('Операция отменена пользователем');
+      console.log(`⚠️ Операцію скасовано користувачем на ${processedCount}/${validUrls.length}`);
+      throw new Error('Операцію скасовано користувачем');
     }
 
     try {
-      console.log(`📥 [${processedCount + 1}/${validUrls.length}] Обрабатываю: ${url}`);
+      console.log(`📥 [${processedCount + 1}/${validUrls.length}] Обробляю: ${url}`);
 
       const result = await fetchCase(url, cookie, abortSignal);
 
@@ -726,10 +740,11 @@ export async function downloadAll(urls, cookie = '', onProgress = () => {}, abor
           result.errorType === 'too_large' ||
           result.errorType === 'bad_content' ||
           result.error.includes('отменена') ||
+          result.error.includes('скасовано') ||
           result.error.includes('abort');
 
         if (isSkippableError) {
-          console.warn(`⚠️ Пропускаю проблемную ссылку: ${url} (${result.error})`);
+          console.warn(`⚠️ Пропускаю проблемне посилання: ${url} (${result.error})`);
           skippedCount++;
           results.push({ ...result, skipped: true });
         } else {
@@ -762,7 +777,9 @@ export async function downloadAll(urls, cookie = '', onProgress = () => {}, abor
       console.error(`❌ CRITICAL Error during processing ${url}:`, error.message);
 
       const isCancelledError =
-        error.message.includes('отменена') || error.message.includes('abort');
+        error.message.includes('отменена') ||
+        error.message.includes('скасовано') ||
+        error.message.includes('abort');
       if (isCancelledError) {
         throw error; // Propagate cancellation to stop the entire process
       }
@@ -789,13 +806,7 @@ export async function downloadAll(urls, cookie = '', onProgress = () => {}, abor
   return results;
 }
 
-export function isValidEDRSRUrl(url) {
-  try {
-    return new URL(url).hostname === 'reyestr.court.gov.ua' && url.includes('/Review/');
-  } catch {
-    return false;
-  }
-}
+// isValidEDRSRUrl moved to utils.js
 
 export function getDownloadStats(results) {
   const total = results.length;

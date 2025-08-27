@@ -15,10 +15,10 @@ function createModal() {
   const modalHTML = `
     <div id="edrsr-ai-modal-backdrop" class="edrsr-ai-fade-in" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 99998; display: flex; align-items: center; justify-content: center; font-family: 'Segoe UI', 'Roboto', sans-serif;">
         <div id="edrsr-ai-modal-content" class="edrsr-ai-slide-in" style="background: #fcfcfc; padding: 25px; border-radius: 16px; width: 550px; max-width: 90%; max-height: 90vh; overflow-y: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.2); border: 1px solid #e0e0e0;">
-            <h2 style="text-align: center; margin-top: 0; margin-bottom: 25px; color: #333; font-weight: 600;">⚖️ Налаштування аналізу AI</h2>
+            <h2 style="text-align: center; margin-top: 0; margin-bottom: 25px; color: #333; font-weight: 600;">⚖️ Настройки анализа ИИ</h2>
             
             <div style="margin-bottom: 20px;">
-                <label for="edrsr-prompt-template" style="display: block; margin-bottom: 8px; font-weight: 500; font-size: 14px; color: #555;">Оберіть тип аналізу:</label>
+                <label for="edrsr-prompt-template" style="display: block; margin-bottom: 8px; font-weight: 500; font-size: 14px; color: #555;">Выберите тип анализа:</label>
                 <select id="edrsr-prompt-template" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #ccc; font-size: 15px; background: #fff;">
                     <!-- Options populated by script -->
                 </select>
@@ -26,29 +26,29 @@ function createModal() {
             </div>
 
             <div id="edrsr-custom-prompt-container" style="display: none; margin-bottom: 20px;">
-                <label for="edrsr-custom-prompt" style="display: block; margin-bottom: 8px; font-weight: 500; font-size: 14px; color: #555;">Ваш індивідуальний запит:</label>
-                <textarea id="edrsr-custom-prompt" rows="4" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #ccc; font-size: 14px; resize: vertical;" placeholder="Наприклад: 'Знайди всі згадки про нерухоме майно та вкажи його статус...'"></textarea>
+                <label for="edrsr-custom-prompt" style="display: block; margin-bottom: 8px; font-weight: 500; font-size: 14px; color: #555;">Ваш индивидуальный запрос:</label>
+                <textarea id="edrsr-custom-prompt" rows="4" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #ccc; font-size: 14px; resize: vertical;" placeholder="Например: 'Найди все упоминания о недвижимости и укажи её статус...'"></textarea>
                 
                 <div style="margin-top: 15px; display: flex; gap: 10px; align-items: flex-end;">
                   <div style="flex-grow: 1;">
-                      <label for="edrsr-prompt-name" style="display: block; margin-bottom: 5px; font-weight: 500; font-size: 12px; color: #555;">Назва для збереження:</label>
-                      <input type="text" id="edrsr-prompt-name" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #ccc; font-size: 13px;" placeholder="Коротка назва промпту">
+                      <label for="edrsr-prompt-name" style="display: block; margin-bottom: 5px; font-weight: 500; font-size: 12px; color: #555;">Имя для сохранения:</label>
+                      <input type="text" id="edrsr-prompt-name" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #ccc; font-size: 13px;" placeholder="Короткое название промпта">
                   </div>
-                  <button id="edrsr-save-prompt" style="padding: 8px 15px; border: none; background: #6c757d; color: white; border-radius: 6px; font-size: 13px; cursor: pointer;">Зберегти</button>
-                </div>
+                  <button id="edrsr-save-prompt" style="padding: 8px 15px; border: none; background: #6c757d; color: white; border-radius: 6px; font-size: 13px; cursor: pointer;">Сохранить</button>
+            </div>
             </div>
 
              <div style="margin-bottom: 20px;">
-                <label for="edrsr-saved-prompts" style="display: block; margin-bottom: 8px; font-weight: 500; font-size: 14px; color: #555;">Збережені промпти:</label>
+                <label for="edrsr-saved-prompts" style="display: block; margin-bottom: 8px; font-weight: 500; font-size: 14px; color: #555;">Сохраненные промпты:</label>
                 <div style="display: flex; gap: 10px;">
                     <select id="edrsr-saved-prompts" style="flex-grow: 1; width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #ccc; font-size: 15px; background: #fff;">
-                        <option value="">-- Виберіть збережений --</option>
+                        <option value="">-- Выберите сохранённый --</option>
                     </select>
-                    <button id="edrsr-delete-prompt" style="padding: 8px 12px; border: none; background: #dc3545; color: white; border-radius: 8px; font-size: 14px; cursor: pointer;" title="Видалити вибраний промпт">🗑️</button>
+                    <button id="edrsr-delete-prompt" style="padding: 8px 12px; border: none; background: #dc3545; color: white; border-radius: 8px; font-size: 14px; cursor: pointer;" title="Удалить выбранный промпт">🗑️</button>
                 </div>
             </div>
             
-            <button id="edrsr-start-analysis" style="width: 100%; padding: 15px; border: none; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 10px; font-size: 16px; font-weight: bold; cursor: pointer; transition: all 0.3s ease;">🚀 Почати аналіз</button>
+            <button id="edrsr-start-analysis" style="width: 100%; padding: 15px; border: none; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 10px; font-size: 16px; font-weight: bold; cursor: pointer; transition: all 0.3s ease;">🚀 Начать анализ</button>
         </div>
     </div>
     <style>
@@ -85,11 +85,11 @@ function createModal() {
       <div class="edrsr-checks">
         <label class="edrsr-check">
           <input id="edrsr-unique-only" type="checkbox" checked />
-          <span class="edrsr-check-text">Тільки унікальні справи</span>
+          <span class="edrsr-check-text">Только уникальные дела</span>
         </label>
         <label class="edrsr-check">
           <input id="edrsr-ignore-session" type="checkbox" />
-          <span class="edrsr-check-text">Ігнорувати у цій сесії</span>
+          <span class="edrsr-check-text">Игнорировать в этой сессии</span>
         </label>
       </div>
     `;
@@ -109,7 +109,7 @@ function createModal() {
 
   const populateSavedPrompts = async () => {
     const savedPrompts = await getSavedPrompts();
-    savedPromptsSelect.innerHTML = '<option value="">-- Виберіть збережений --</option>'; // Reset
+    savedPromptsSelect.innerHTML = '<option value="">-- Выберите сохранённый --</option>'; // Reset
     savedPrompts.forEach((p) => {
       const option = document.createElement('option');
       option.value = p.name;
@@ -122,7 +122,7 @@ function createModal() {
     const name = promptNameInput.value.trim();
     const content = customPromptTextarea.value.trim();
     if (!name || !content) {
-      showMessage('Назва та текст промпту не можуть бути порожніми.', 'warning');
+      showMessage('Название и текст промпта не могут быть пустыми.', 'warning');
       return;
     }
     const savedPrompts = await getSavedPrompts();
@@ -131,21 +131,21 @@ function createModal() {
     newPrompts.push({ name, content });
     await chrome.storage.local.set({ savedPrompts: newPrompts });
     promptNameInput.value = '';
-    showMessage(`Промпт "${name}" збережено!`, 'success');
+    showMessage(`Промпт "${name}" сохранён!`, 'success');
     await populateSavedPrompts();
   });
 
   deletePromptBtn.addEventListener('click', async () => {
     const selectedName = savedPromptsSelect.value;
     if (!selectedName) {
-      showMessage('Оберіть промпт для видалення.', 'warning');
+      showMessage('Выберите промпт для удаления.', 'warning');
       return;
     }
-    if (confirm(`Ви впевнені, що хочете видалити промпт "${selectedName}"?`)) {
+    if (confirm(`Вы уверены, что хотите удалить промпт "${selectedName}"?`)) {
       const savedPrompts = await getSavedPrompts();
       const newPrompts = savedPrompts.filter((p) => p.name !== selectedName);
       await chrome.storage.local.set({ savedPrompts: newPrompts });
-      showMessage(`Промпт "${selectedName}" видалено.`, 'success');
+      showMessage(`Промпт "${selectedName}" удалён.`, 'success');
       await populateSavedPrompts();
     }
   });
@@ -206,7 +206,7 @@ function createModal() {
     if (prompt === 'custom') {
       prompt = document.getElementById('edrsr-custom-prompt').value.trim();
       if (!prompt) {
-        showMessage('Власний промпт не може бути порожнім.', 'warning');
+        showMessage('Собственный промпт не может быть пустым.', 'warning');
         return;
       }
     }
@@ -216,7 +216,6 @@ function createModal() {
     const uniqueOnly = !!document.getElementById('edrsr-unique-only')?.checked;
     const ignoreSessionVisited = !!document.getElementById('edrsr-ignore-session')?.checked;
     // Get a label from the selected option or snippet of custom prompt
-    const templateSelect = document.getElementById('edrsr-prompt-template');
     const selectedIndex = templateSelect.selectedIndex;
     const selectedOption = templateSelect.options[selectedIndex];
     const promptLabel =
@@ -241,7 +240,7 @@ function addCollectButton() {
   if (document.getElementById('edrsr-ai-collect-btn')) return;
   const button = document.createElement('button');
   button.id = 'edrsr-ai-collect-btn';
-  button.textContent = '🤖 Проаналізувати з AI';
+  button.textContent = '🤖 Проанализировать с ИИ';
   button.style.cssText = `
         position: fixed; bottom: 20px; right: 20px; z-index: 10000; padding: 12px 20px;
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none;
@@ -258,7 +257,7 @@ function showCompletionButton(jobId) {
   removeCompletionButton();
   const resultButton = document.createElement('a');
   resultButton.id = 'edrsr-ai-result-btn';
-  resultButton.textContent = '✅ Аналіз готовий! Відкрити звіт';
+  resultButton.textContent = '✅ Анализ готов! Открыть отчёт';
   resultButton.href = chrome.runtime.getURL(`results.html?jobId=${encodeURIComponent(jobId)}`);
   resultButton.target = '_blank';
   resultButton.style.cssText = `
@@ -281,7 +280,7 @@ function removeCompletionButton() {
 
 async function markProcessedLinksAsVisited() {
   try {
-    console.log('EDRSR-AI: Запрашиваю список обработанных URL...');
+    console.log('EDRSR-AI: Запитую список оброблених URL...');
 
     // Get API URL from background script
     const apiUrl = await chrome.runtime.sendMessage({ type: 'GET_API_URL' });
@@ -290,20 +289,20 @@ async function markProcessedLinksAsVisited() {
     const response = await chrome.runtime.sendMessage({ type: 'API_GET_PROCESSED_URLS' });
 
     if (!response || response.success === false) {
-      console.warn('EDRSR-AI: Не удалось получить обработанные URL:', response?.error);
+      console.warn('EDRSR-AI: Не вдалося отримати оброблені URL:', response?.error);
       return;
     }
 
     const data = response;
-    console.log('EDRSR-AI: Данные с сервера:', data);
+    console.log('EDRSR-AI: Дані з сервера:', data);
 
     if (!data.success || !Array.isArray(data.urls)) {
-      console.warn('EDRSR-AI: Неверный формат ответа сервера:', data);
+      console.warn('EDRSR-AI: Невірний формат відповіді сервера:', data);
       return;
     }
 
     console.log(
-      `EDRSR-AI: Найдено ${data.urls.length} обработанных URL для визуального отображения`
+      `EDRSR-AI: Знайдено ${data.urls.length} оброблених URL для візуального відображення`
     );
 
     // Создаем Set для быстрого поиска обработанных URL
@@ -337,10 +336,10 @@ async function markProcessedLinksAsVisited() {
     }
 
     console.log(
-      `EDRSR-AI: Успешно отмечено ${markedCount} из ${data.urls.length} обработанных ссылок как посещенные`
+      `EDRSR-AI: Успішно позначено ${markedCount} із ${data.urls.length} оброблених посилань як відвідані`
     );
   } catch (error) {
-    console.error('EDRSR-AI: Ошибка при получении обработанных URL:', error);
+    console.error('EDRSR-AI: Помилка отримання оброблених URL:', error);
   }
 }
 
@@ -398,14 +397,14 @@ function showMessage(message, type = 'info') {
 
 async function collectAndSend(options) {
   if (isProcessing) {
-    showMessage('⏳ Попередній запит ще виконується.', 'warning');
+    showMessage('⏳ Предыдущий запрос ещё выполняется.', 'warning');
     return;
   }
   isProcessing = true;
   removeCompletionButton();
   try {
     let decisions = collectDecisionLinks();
-    if (decisions.length === 0) throw new Error('Не знайдено посилань на судові рішення.');
+    if (decisions.length === 0) throw new Error('Не найдено ссылок на судебные решения.');
 
     // Filter to only unique decisions for this user if requested
     if (options?.uniqueOnly) {
@@ -416,10 +415,10 @@ async function collectAndSend(options) {
         decisions = decisions.filter((d) => d && d.url && !processed.has(d.url));
         const removed = before - decisions.length;
         if (decisions.length === 0) {
-          showMessage('На цій сторінці немає унікальних справ для аналізу.', 'warning');
+          showMessage('На этой странице нет уникальных дел для анализа.', 'warning');
           return;
         }
-        showMessage(`📤 Знайдено ${before}. -${removed} (історія) → ${decisions.length}.`, 'info');
+        showMessage(`📤 Найдено ${before}. -${removed} (история) → ${decisions.length}.`, 'info');
       }
     }
 
@@ -432,15 +431,15 @@ async function collectAndSend(options) {
         decisions = decisions.filter((d) => d && d.url && !sessionSet.has(d.url));
         const removed = before - decisions.length;
         if (decisions.length === 0) {
-          showMessage('У цій сесії немає нових справ для аналізу.', 'warning');
+          showMessage('В этой сессии нет новых дел для анализа.', 'warning');
           return;
         }
-        showMessage(`📤 Фільтр сесії: -${removed} → ${decisions.length}.`, 'info');
+        showMessage(`📤 Фильтр сессии: -${removed} → ${decisions.length}.`, 'info');
       }
     }
 
     if (!options?.uniqueOnly && !options?.ignoreSessionVisited) {
-      showMessage(`📤 Знайдено ${decisions.length} посилань. Надсилаю на сервер...`, 'info');
+      showMessage(`📤 Найдено ${decisions.length} ссылок. Отправляю на сервер...`, 'info');
     }
 
     const cookies = await chrome.runtime.sendMessage({ type: 'GET_COOKIES' });
@@ -463,13 +462,13 @@ async function collectAndSend(options) {
     });
 
     if (!response || !response.success) {
-      throw new Error(response?.error || 'Помилка при створенні завдання');
+      throw new Error(response?.error || 'Ошибка при создании задания');
     }
 
-    showMessage(`✅ Завдання створено. Відстежуйте прогрес у розширенні.`, 'success');
+    showMessage(`✅ Задание создано. Отслеживайте прогресс в расширении.`, 'success');
     pageActiveJobId = response.jobId;
   } catch (error) {
-    showMessage(`❌ Помилка: ${error.message}`, 'error');
+    showMessage(`❌ Ошибка: ${error.message}`, 'error');
   } finally {
     isProcessing = false;
   }

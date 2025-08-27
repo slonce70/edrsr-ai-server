@@ -143,7 +143,7 @@ export function checkBlocked(req, res, next) {
     const emailBlock = blockedIPs.get(`email:${email}`);
     if (emailBlock && Date.now() < emailBlock.blockedUntil) {
       const remainingTime = Math.ceil((emailBlock.blockedUntil - Date.now()) / 60000);
-    logger.warn(`[SECURITY] Blocked email ${email} attempted access from ${ip}`);
+      logger.warn(`[SECURITY] Blocked email ${email} attempted access from ${ip}`);
       return res.status(429).json({
         error: `Аккаунт временно заблокирован за множественные неудачные попытки входа. Попробуйте через ${remainingTime} минут.`,
         retryAfter: remainingTime * 60,

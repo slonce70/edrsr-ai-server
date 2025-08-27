@@ -7,12 +7,14 @@ import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
 import dbService from '../services/dbService.js';
 import { attachUser, requireAuthExcept } from '../middleware/auth.js';
-import { limitCollect, limitRetry } from '../middleware/rateLimit.js';
+import { requireAdmin } from '../middleware/adminAuth.js';
+import { limitCollect, limitRetry, limitHealthLight } from '../middleware/rateLimit.js';
+import { validateCollectRequest, validateChatMessage } from '../middleware/validators.js';
 import { adminLoginRateLimit, checkBlocked, trackFailedLogin } from '../middleware/security.js';
 import { answerChatQuestion, testGeminiConnection } from '../gemini.js';
 import jobQueue from '../queue.js';
 import { sendUpdateToJobOwner } from '../websocket.js';
-import { logger } from '../utils.js';
+import { logger, isValidEDRSRUrl } from '../utils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -74,7 +76,8 @@ router.post(
 
 // Attach user (if any) and require auth for all routes except auth and health endpoints
 router.use(attachUser);
-router.use(requireAuthExcept(['/health/light', '/health/full', '/auth/signin']));
+// Убираем /health/full из публичных маршрутов, оставляем только /health/light и /auth/signin
+router.use(requireAuthExcept(['/health/light', '/auth/signin']));
 // Чат‑сессии и их метаданные (LRU + TTL)
 const chatSessions = new Map(); // jobId -> ChatSession
 const chatMeta = new Map(); // jobId -> { createdAt: number, lastUsed: number }
@@ -96,8 +99,8 @@ function truncate(str, max = 70) {
 
 function generateInitialTitle({ linksCount = 0, prompt = null, promptLabel = null }) {
   const n = linksCount || 0;
-  const suffix = n > 0 ? ` — ${n} справ` : '';
-  if (promptLabel && promptLabel.trim()) return `Аналіз: «${truncate(promptLabel, 40)}»${suffix}`;
+  const suffix = n > 0 ? ` — ${n} дел` : '';
+  if (promptLabel && promptLabel.trim()) return `Анализ: «${truncate(promptLabel, 40)}»${suffix}`;
   if (prompt && typeof prompt === 'string' && prompt.trim()) {
     const words = prompt
       .toLowerCase()
@@ -106,10 +109,10 @@ function generateInitialTitle({ linksCount = 0, prompt = null, promptLabel = nul
       .filter((w) => w.length > 3)
       .slice(0, 5)
       .join(' ');
-    if (words) return `Запит: ${truncate(words, 40)}${suffix}`;
+    if (words) return `Запрос: ${truncate(words, 40)}${suffix}`;
   }
-  const today = new Date().toLocaleDateString('uk-UA');
-  return `Аналіз від ${today}${suffix}`;
+  const today = new Date().toLocaleDateString('ru-RU');
+  return `Анализ от ${today}${suffix}`;
 }
 
 async function refreshHeuristicTitle(jobId) {
@@ -117,12 +120,16 @@ async function refreshHeuristicTitle(jobId) {
     const userId = await dbService.getJobOwnerId(jobId);
     const summary = await dbService.summarizeJobForTitle(jobId, userId || null);
     const { processed, total, topArticle, topCaseType } = summary;
+    const status = await dbService.getJobStatus(jobId);
     if (!total || total < 1) return false;
     let base = '';
     if (topArticle) base = `Ст. ${topArticle}`;
     else if (topCaseType) base = `${topCaseType}`;
-    else base = 'Аналіз';
-    const suffix = processed ? ` — ${processed} з ${total}` : ` — ${total}`;
+    else base = 'Анализ';
+    // During processing, avoid confusing partial counters in the title.
+    // Show counts only after completion; otherwise show stable total count.
+    const suffix =
+      status === 'completed' ? (processed ? ` — ${processed} из ${total}` : '') : ` — ${total}`;
     const title = truncate(`${base}${suffix}`, 70);
     const ok = await dbService.updateAutoTitleIfAllowed(jobId, title, 'heuristic');
     if (ok) {
@@ -198,10 +205,8 @@ function startWorker({ jobId, links, cookie, prompt, claimed = false }) {
     if (msg.type === 'statusUpdate') {
       const { status, progress, message, extra } = msg.payload;
       await updateStatus(status, progress, message, extra);
-      // Try early title refinement once some links processed
-      if (extra?.processed_links && extra.processed_links >= 3) {
-        refreshHeuristicTitle(jobId);
-      }
+      // Do NOT update title mid-process to avoid confusing partial counters.
+      // Title will be refined only after completion (see jobSuccess handler).
       // Acknowledge the update so the worker can proceed
       const workerInfo = activeWorkers.get(jobId);
       if (workerInfo) {
@@ -215,11 +220,11 @@ function startWorker({ jobId, links, cookie, prompt, claimed = false }) {
         workerInfo.memoryUsedMB = msg.memoryUsedMB;
         workerInfo.isHighMemory = msg.isHighMemory;
         workerInfo.isCriticalMemory = msg.isCriticalMemory;
-        
+
         logger.debug(
           `[HEALTH_CHECK] Воркер ${jobId}: ${msg.memoryUsedMB}MB${msg.isHighMemory ? ' (HIGH)' : ''}${msg.isCriticalMemory ? ' (CRITICAL)' : ''}`
         );
-        
+
         // Если память критически высокая, предупреждаем и готовимся к принудительному завершению
         if (msg.isCriticalMemory) {
           logger.warn(
@@ -229,8 +234,8 @@ function startWorker({ jobId, links, cookie, prompt, claimed = false }) {
         }
       }
     } else if (msg.type === 'jobSuccess') {
-      await updateStatus('analyzing', 95, 'Контроль якості...');
-      await updateStatus('completed', 100, 'Анализ успешно завершен!', msg.payload);
+      await updateStatus('analyzing', 95, 'Контроль качества...');
+      await updateStatus('completed', 100, 'Анализ успешно завершён!', msg.payload);
       await dbService.clearJobLock(jobId);
       // Удаляем воркер из отслеживания
       const workerInfo = activeWorkers.get(jobId);
@@ -242,7 +247,7 @@ function startWorker({ jobId, links, cookie, prompt, claimed = false }) {
       refreshHeuristicTitle(jobId);
       // Освобождаем обработчик и запускаем следующую задачу
       jobQueue.endProcessing();
-      logger.info(`[${jobId}] Задача завершена успешно. Проверяю очередь...`);
+      logger.info(`[${jobId}] Задание завершено успешно. Проверяю очередь...`);
 
       processQueue();
     } else if (msg.type === 'jobError') {
@@ -260,7 +265,7 @@ function startWorker({ jobId, links, cookie, prompt, claimed = false }) {
       }
       // Освобождаем обработчик и запускаем следующую задачу
       jobQueue.endProcessing();
-      logger.info(`[${jobId}] Задача завершена с ошибкой. Проверяю очередь...`);
+      logger.info(`[${jobId}] Задание завершено с ошибкой. Проверяю очередь...`);
 
       processQueue();
     } else if (msg.type === 'jobCancelled') {
@@ -373,15 +378,21 @@ function forceTerminateWorker(jobId, reason = 'Принудительное за
         try {
           stillActive.worker.terminate();
         } catch (termError) {
-          logger.error(`[FORCE_TERMINATE] Ошибка при завершении воркера ${jobId}:`, termError.message);
+          logger.error(
+            `[FORCE_TERMINATE] Ошибка при завершении воркера ${jobId}:`,
+            termError.message
+          );
         }
-        
+
         stillActive.status = 'force_terminated';
         activeWorkers.delete(jobId);
 
         // Освобождаем блокировку в БД
-        dbService.clearJobLock(jobId).catch(err => {
-          logger.error(`[FORCE_TERMINATE] Ошибка очистки блокировки в БД для ${jobId}:`, err.message);
+        dbService.clearJobLock(jobId).catch((err) => {
+          logger.error(
+            `[FORCE_TERMINATE] Ошибка очистки блокировки в БД для ${jobId}:`,
+            err.message
+          );
         });
 
         // Освобождаем очередь если этот воркер блокировал её
@@ -447,7 +458,9 @@ try {
       logger.error('[INTERNAL] Queue pump failed:', e.message);
     }
   });
-} catch {}
+} catch (_e) {
+  // noop
+}
 
 // Автоматическая очистка зависших воркеров
 function startWorkerCleanupService() {
@@ -535,24 +548,24 @@ async function recoverStuckJobs() {
   try {
     const [stuckCount, failedCount] = await Promise.all([
       dbService.recoverStuckJobs(),
-      dbService.retryFailedJobs()
+      dbService.retryFailedJobs(),
     ]);
-    
+
     const totalRecovered = stuckCount + failedCount;
-    
+
     if (stuckCount > 0) {
       logger.info(`🔄 [RECOVERY] Восстановлено ${stuckCount} зависших заданий в БД`);
     }
-    
+
     if (failedCount > 0) {
       logger.info(`🔄 [RETRY] Повторяется ${failedCount} заданий с временными ошибками`);
     }
-    
+
     if (totalRecovered > 0) {
       // После восстановления пытаемся запустить обработку очереди
       setTimeout(() => processQueue(), 1000);
     }
-    
+
     return totalRecovered;
   } catch (error) {
     logger.error('[RECOVERY] Ошибка восстановления заданий:', error.message);
@@ -564,11 +577,11 @@ async function recoverStuckJobs() {
 function startPeriodicRecovery() {
   // Запускаем восстановление каждые 5 минут
   const RECOVERY_INTERVAL = 5 * 60 * 1000;
-  
+
   setInterval(() => {
     recoverStuckJobs();
   }, RECOVERY_INTERVAL);
-  
+
   logger.info('[RECOVERY] Периодическое восстановление зависших заданий запущено (каждые 5 минут)');
 }
 
@@ -585,11 +598,11 @@ function initializeMonitoringServices() {
 
   // 2) Обычная проверка истекших лиз (на случай долгого простоя)
   recoverStuckJobs();
-  
+
   // Запуск служб
   startWorkerCleanupService();
   startPeriodicRecovery();
-  
+
   logger.info('🔧 [MONITORING] Все службы мониторинга и восстановления запущены');
 }
 
@@ -661,12 +674,14 @@ export default function (clients) {
       if (recovered > 0) {
         processQueue();
       }
-    } catch {}
+    } catch (_e) {
+      // noop
+    }
   }, PUMP_INTERVAL);
   // Kick the queue once on startup (handles already queued jobs)
   setTimeout(() => processQueue(), 2000);
 
-  router.post('/collect', limitCollect, async (req, res, next) => {
+  router.post('/collect', limitCollect, validateCollectRequest, async (req, res, next) => {
     try {
       const { links, cookie = '', prompt = null, clientId } = req.body;
       const autoTitleEnabled =
@@ -674,6 +689,11 @@ export default function (clients) {
       const promptLabel = req.body.prompt_label || null;
       if (!links || !Array.isArray(links) || links.length === 0) {
         return res.status(400).json({ error: 'Массив ссылок "links" не может быть пустым' });
+      }
+      // Лимит на количество ссылок в одном запросе (конфигурируемый)
+      const MAX_LINKS = parseInt(process.env.MAX_LINKS_PER_REQUEST || '300', 10);
+      if (links.length > MAX_LINKS) {
+        return res.status(422).json({ error: `Слишком много ссылок: максимум ${MAX_LINKS}` });
       }
       if (!clientId || !clients.has(clientId)) {
         return res.status(400).json({ error: 'Неверный или отсутствующий clientId' });
@@ -686,7 +706,25 @@ export default function (clients) {
           `[VALIDATION] Получен некорректный массив ссылок. Отфильтровано ${links.length - validLinks.length} невалидных элементов.`
         );
       }
-      if (validLinks.length === 0) {
+      // Строгая проверка домена/пути (только EDRSR /Review/<id>)
+      const strictlyValid = validLinks.filter(
+        (l) => typeof l.url === 'string' && isValidEDRSRUrl(l.url)
+      );
+      // Ограничение длины URL и полей
+      const MAX_URL_LEN = parseInt(process.env.MAX_URL_LENGTH || '2048', 10);
+      const MAX_PROMPT_LEN = parseInt(process.env.MAX_PROMPT_LENGTH || '4000', 10);
+      if (prompt && typeof prompt === 'string' && prompt.length > MAX_PROMPT_LEN) {
+        return res.status(422).json({ error: `Слишком длинный prompt (> ${MAX_PROMPT_LEN})` });
+      }
+      const tooLongUrls = strictlyValid.filter((l) => l.url.length > MAX_URL_LEN).length;
+      if (tooLongUrls > 0) {
+        logger.warn(
+          `[VALIDATION] Отфильтровано ${tooLongUrls} слишком длинных URL (> ${MAX_URL_LEN})`
+        );
+      }
+      const safeLinks = strictlyValid.filter((l) => l.url.length <= MAX_URL_LEN);
+
+      if (safeLinks.length === 0) {
         return res
           .status(400)
           .json({ error: 'Не найдено ни одной валидной ссылки для обработки.' });
@@ -694,7 +732,7 @@ export default function (clients) {
 
       const jobId = uuid();
       const defaultTitle = generateInitialTitle({
-        linksCount: validLinks.length,
+        linksCount: safeLinks.length,
         prompt,
         promptLabel,
       });
@@ -703,8 +741,8 @@ export default function (clients) {
         id: jobId,
         title: defaultTitle,
         status: 'queued',
-        totalLinks: validLinks.length,
-        links: validLinks,
+        totalLinks: safeLinks.length,
+        links: safeLinks,
         prompt,
         titleSource: 'heuristic',
         autoTitleEnabled,
@@ -755,7 +793,7 @@ export default function (clients) {
 
       // 2. Create a new job ID and data object
       const newJobId = uuid();
-      const today = new Date().toLocaleDateString('uk-UA');
+      const today = new Date().toLocaleDateString('ru-RU');
       const defaultTitle = `Повторный анализ от ${today}`;
 
       const jobData = {
@@ -885,7 +923,7 @@ export default function (clients) {
   });
 
   // Endpoint для просмотра активных воркеров
-  router.get('/workers/active', (req, res) => {
+  router.get('/workers/active', requireAdmin, (req, res) => {
     try {
       const workersInfo = getActiveWorkersInfo();
       res.json({
@@ -903,7 +941,7 @@ export default function (clients) {
   });
 
   // Endpoint для принудительного завершения воркера
-  router.post('/workers/:jobId/terminate', (req, res) => {
+  router.post('/workers/:jobId/terminate', requireAdmin, (req, res) => {
     try {
       const { jobId } = req.params;
       const { reason } = req.body;
@@ -932,7 +970,7 @@ export default function (clients) {
   });
 
   // Endpoint для принудительного завершения всех активных воркеров
-  router.post('/workers/terminate-all', (req, res) => {
+  router.post('/workers/terminate-all', requireAdmin, (req, res) => {
     try {
       const { reason } = req.body;
       const workersInfo = getActiveWorkersInfo();
@@ -970,7 +1008,7 @@ export default function (clients) {
   });
 
   // Endpoint для получения статистики системы
-  router.get('/system/stats', (req, res) => {
+  router.get('/system/stats', requireAdmin, (req, res) => {
     try {
       const workersInfo = getActiveWorkersInfo();
       const queueStatus = jobQueue.getQueueStatus();
@@ -1009,7 +1047,7 @@ export default function (clients) {
   });
 
   // Debug endpoint for chat-session state (requires auth)
-  router.get('/system/chat-sessions', (req, res) => {
+  router.get('/system/chat-sessions', requireAdmin, (req, res) => {
     try {
       const now = Date.now();
       const items = Array.from(chatMeta.entries()).map(([jobId, meta]) => ({
@@ -1044,7 +1082,7 @@ export default function (clients) {
   });
 
   // Endpoint для очистки очереди
-  router.post('/queue/clear', (req, res) => {
+  router.post('/queue/clear', requireAdmin, (req, res) => {
     try {
       const queueLength = jobQueue.getQueueStatus().length;
 
@@ -1067,16 +1105,15 @@ export default function (clients) {
     }
   });
 
-  router.post('/chat/:jobId', async (req, res, next) => {
+  router.post('/chat/:jobId', validateChatMessage, async (req, res, next) => {
     try {
       const { jobId } = req.params;
       const { message } = req.body;
-      if (!message) return res.status(400).json({ error: 'Повідомлення не може бути порожнім' });
+      if (!message) return res.status(400).json({ error: 'Сообщение не может быть пустым' });
 
       // 1. Получаем необходимый контекст (только при первом сообщении)
       const analysis = await dbService.getJobResult(jobId, req.user?.id || null);
-      if (!analysis)
-        return res.status(404).json({ error: 'Аналіз для цього завдання не знайдено.' });
+      if (!analysis) return res.status(404).json({ error: 'Анализ для этого задания не найден.' });
 
       // 2. Обновляем историю в БД
       await dbService.addChatMessage(jobId, 'user', message, req.user?.id || null);
@@ -1128,36 +1165,43 @@ export default function (clients) {
     }
   });
 
-  router.get('/health/light', (req, res) => {
+  router.get('/health/light', limitHealthLight, (req, res) => {
     res.status(200).json({ status: 'ok' });
   });
 
-  router.get('/health/full', async (req, res, next) => {
+  // Кэш состояния health/full, чтобы не дергать дорогие проверки слишком часто
+  const HEALTH_TTL = parseInt(process.env.HEALTH_FULL_TTL_MS || '60000', 10);
+  let healthCache = { data: null, ts: 0 };
+
+  router.get('/health/full', requireAdmin, async (req, res, next) => {
     try {
+      const now = Date.now();
+      if (healthCache.data && now - healthCache.ts < HEALTH_TTL) {
+        return res.json(healthCache.data);
+      }
+
       const [geminiStatus, activeJobs] = await Promise.all([
         testGeminiConnection(),
         dbService.getActiveJobsCount(),
       ]);
-      res.json({
+      const payload = {
         status: 'healthy',
         services: { gemini: geminiStatus ? 'online' : 'offline' },
         activeJobs,
         version: '1.1.0',
-      });
+        cachedAt: new Date().toISOString(),
+        ttlMs: HEALTH_TTL,
+      };
+      healthCache = { data: payload, ts: now };
+      res.json(payload);
     } catch (error) {
       next(error);
     }
   });
 
   // Внутренний endpoint для запуска обработки очереди
-  router.post('/internal/process-queue', async (req, res) => {
+  router.post('/internal/process-queue', requireAdmin, async (req, res) => {
     try {
-      // Простая защита - только для локальных запросов
-      const clientIP = req.ip || req.connection.remoteAddress;
-      if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(clientIP) && !req.headers['x-internal-request']) {
-        return res.status(403).json({ error: 'Forbidden - internal endpoint' });
-      }
-      
       logger.info('[INTERNAL] Запуск обработки очереди по внутреннему запросу');
       processQueue();
       res.json({ success: true, message: 'Queue processing triggered' });

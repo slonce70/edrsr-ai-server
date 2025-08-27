@@ -17,3 +17,13 @@ export const limitRetry = rateLimit({
   message: { error: 'Занадто багато запитів. Повторіть спробу пізніше.' },
   keyGenerator: (req) => req.user?.id || req.ip,
 });
+
+// Lightweight limiter for public health check
+export const limitHealthLight = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  limit: 30, // per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Занадто багато перевірок здоров’я. Спробуйте пізніше.' },
+  keyGenerator: (req) => req.ip,
+});
