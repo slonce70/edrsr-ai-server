@@ -36,6 +36,13 @@ class JobQueue {
   isIdle() {
     return !this.isProcessing;
   }
+
+  // Atomically reserve processing slot to avoid races between concurrent triggers
+  tryReserve() {
+    if (this.isProcessing) return false;
+    this.isProcessing = true;
+    return true;
+  }
 }
 
 const jobQueue = new JobQueue();

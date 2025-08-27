@@ -403,7 +403,8 @@ function forceTerminateWorker(jobId, reason = 'Принудительное за
 }
 
 async function processQueue() {
-  if (!jobQueue.isIdle()) {
+  // Reserve processing slot immediately to prevent race across concurrent triggers
+  if (!jobQueue.tryReserve()) {
     logger.debug('[QUEUE] Обработчик занят.');
     return;
   }
@@ -412,7 +413,7 @@ async function processQueue() {
   const memJob = jobQueue.dequeue();
   if (memJob) {
     logger.info(`[QUEUE] Запускаю задание ${memJob.jobId} из памяти.`);
-    jobQueue.startProcessing();
+    // already reserved via tryReserve; start worker
     startWorker({ ...memJob, claimed: false });
     return;
   }
@@ -423,13 +424,16 @@ async function processQueue() {
     if (claimed && claimed.id) {
       const links = await dbService.getJobLinks(claimed.id, claimed.user_id || null);
       logger.info(`[QUEUE/DB] Запускаю задание ${claimed.id} из БД.`);
-      jobQueue.startProcessing();
+      // already reserved via tryReserve; start worker
       startWorker({ jobId: claimed.id, links, cookie: '', prompt: claimed.prompt, claimed: true });
     } else {
       logger.debug('[QUEUE] Очередь пуста.');
+      // release reservation since nothing to do
+      jobQueue.endProcessing();
     }
   } catch (e) {
     logger.error('[QUEUE] Ошибка обработки очереди:', e.message);
+    jobQueue.endProcessing();
   }
 }
 
