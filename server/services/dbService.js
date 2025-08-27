@@ -615,19 +615,29 @@ class DatabaseService {
   }
 
   async claimNextJob(workerId) {
-    // Atomically claim the next queued/retrying job
+    // Atomically claim the next queued/retrying job with a global advisory xact lock (single active job across processes)
+    // Uses pg_try_advisory_xact_lock which releases automatically at end of transaction
     const sql = `
-      UPDATE jobs
-      SET status = 'processing', locked_by = $1, locked_at = NOW(), lease_until = NOW() + INTERVAL '30 minutes',
-          attempt = COALESCE(attempt,0) + 1, updated_at = CURRENT_TIMESTAMP
-      WHERE id = (
-        SELECT id FROM jobs
+      WITH lock AS (
+        SELECT pg_try_advisory_xact_lock(42424242) AS ok
+      ), next AS (
+        SELECT id, prompt, user_id
+        FROM jobs
         WHERE status IN ('queued','retrying')
         ORDER BY priority DESC, created_at ASC
         FOR UPDATE SKIP LOCKED
         LIMIT 1
       )
-      RETURNING id, prompt, user_id
+      UPDATE jobs j
+      SET status = 'processing',
+          locked_by = $1,
+          locked_at = NOW(),
+          lease_until = NOW() + INTERVAL '30 minutes',
+          attempt = COALESCE(attempt,0) + 1,
+          updated_at = CURRENT_TIMESTAMP
+      FROM lock, next
+      WHERE j.id = next.id AND lock.ok
+      RETURNING j.id, next.prompt, next.user_id
     `;
     try {
       const row = await database.get(sql, [workerId]);
