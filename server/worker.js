@@ -82,8 +82,9 @@ function postStatusUpdate(status, progress, message, extra = {}) {
  */
 async function processJobInWorker(jobId, links, cookie, prompt) {
   const startTime = Date.now();
-  const MAX_JOB_DURATION = 25 * 60 * 1000; // 25 минут максимум на задачу (сокращено)
-  const MAX_STALL_DURATION = 8 * 60 * 1000; // 8 минут без прогресса (сокращено)
+  // Разрешенное общее время задачи и таймаут отсутствия прогресса (можно переопределить через env)
+  const MAX_JOB_DURATION = parseInt(process.env.MAX_JOB_DURATION_MS, 10) || 25 * 60 * 1000; // по умолчанию 25 минут
+  const MAX_STALL_DURATION = parseInt(process.env.MAX_STALL_DURATION_MS, 10) || 20 * 60 * 1000; // по умолчанию 20 минут без прогресса
   const MAX_MEMORY_MB = 400; // Максимум памяти в MB (снижено с 500)
   const MEMORY_WARNING_MB = 300; // Предупреждение о памяти
 
@@ -92,7 +93,8 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
 
   // Глобальный таймаут для всей задачи
   const jobTimeout = setTimeout(() => {
-    console.error(`⏰ [WORKER] Задача ${jobId} превысила максимальное время выполнения (30 минут)`);
+    const maxMins = Math.round(MAX_JOB_DURATION / 60000);
+    console.error(`⏰ [WORKER] Задача ${jobId} превысила максимальное время выполнения (${maxMins} минут)`);
     isJobCancelled = true;
     abortController.abort();
 
@@ -123,7 +125,9 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
       parentPort.postMessage({
         type: 'jobError',
         payload: {
-          errorMessage: `Задача зависла - нет прогресса более ${Math.round(MAX_STALL_DURATION / 1000)} секунд`,
+          errorMessage: `Задача зависла — нет прогресса более ${Math.round(
+            MAX_STALL_DURATION / 60000
+          )} минут`,
           duration: Math.round((Date.now() - startTime) / 1000),
         },
       });
