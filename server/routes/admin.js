@@ -16,6 +16,7 @@ import {
 } from '../middleware/security.js';
 import { logger } from '../utils.js';
 import dbService from '../services/dbService.js';
+import got from 'got';
 
 const router = express.Router();
 
@@ -610,6 +611,22 @@ router.post('/jobs/:jobId/retry', async (req, res) => {
         req
       );
       
+      // ВАЖНО: Запускаем обработку очереди после retry!
+      setTimeout(async () => {
+        try {
+          await got.post(`${process.env.API_BASE_URL || 'http://localhost:4000'}/api/internal/process-queue`, {
+            headers: {
+              'Content-Type': 'application/json',
+              'x-internal-request': 'true'
+            },
+            timeout: 2000
+          });
+          logger.info(`[ADMIN_RETRY] Очередь запущена после retry задания ${jobId}`);
+        } catch (error) {
+          logger.warn(`[ADMIN_RETRY] Не удалось запустить очередь: ${error.message}`);
+        }
+      }, 500);
+      
       res.json({ success: true, message: 'Задание поставлено на повторное выполнение' });
     } else {
       res.status(400).json({ error: 'Не удалось перезапустить задание' });
@@ -633,6 +650,24 @@ router.post('/jobs/retry-failed', async (req, res) => {
       { retried_count: retriedCount },
       req
     );
+    
+    // Запускаем обработку очереди если есть восстановленные задания
+    if (retriedCount > 0) {
+      setTimeout(async () => {
+        try {
+          await got.post(`${process.env.API_BASE_URL || 'http://localhost:4000'}/api/internal/process-queue`, {
+            headers: {
+              'Content-Type': 'application/json',
+              'x-internal-request': 'true'
+            },
+            timeout: 2000
+          });
+          logger.info(`[ADMIN_RETRY] Очередь запущена после массового retry (${retriedCount} заданий)`);
+        } catch (error) {
+          logger.warn(`[ADMIN_RETRY] Не удалось запустить очередь: ${error.message}`);
+        }
+      }, 500);
+    }
     
     res.json({ 
       success: true, 
