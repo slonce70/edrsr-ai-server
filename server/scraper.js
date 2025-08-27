@@ -6,6 +6,12 @@ import dbService from './services/dbService.js'; // Import the dbService
 // const limit = pLimit(parseInt(process.env.MAX_CONCURRENT_REQUESTS) || 1); // Removed for sequential processing
 const requestDelay = parseInt(process.env.REQUEST_DELAY_MS) || 1000;
 
+// Defensive guards against bad/huge pages
+const MAX_HTML_BYTES = parseInt(process.env.MAX_HTML_BYTES, 10) || 1_500_000; // ~1.5 MB
+const MAX_SCRIPT_TAGS = parseInt(process.env.MAX_SCRIPT_TAGS, 10) || 200;
+const MAX_HTML_LINE_LENGTH = parseInt(process.env.MAX_HTML_LINE_LENGTH, 10) || 200_000;
+const MAX_JS_KEYWORDS = parseInt(process.env.MAX_JS_KEYWORDS, 10) || 1500; // occurrences of "function("
+
 // Предкомпилированные регулярные выражения для производительности
 const COMPILED_REGEX = {
   // Case metadata
@@ -44,6 +50,68 @@ const COMPILED_REGEX = {
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function safeByteLength(str) {
+  try {
+    return Buffer.byteLength(str, 'utf8');
+  } catch {
+    return str?.length || 0;
+  }
+}
+
+// Heuristic checks to skip obviously broken or hazardous pages
+function analyzeRawHtmlForHazards(rawHtml) {
+  // 1) Quick size check
+  const bytes = safeByteLength(rawHtml);
+  if (bytes > MAX_HTML_BYTES) {
+    return { skip: true, reason: `HTML too large: ${bytes} bytes > ${MAX_HTML_BYTES}` };
+  }
+
+  // 2) Count <script> occurrences without allocating huge arrays
+  let scriptCount = 0;
+  {
+    const re = /<script\b/gi;
+    while (re.exec(rawHtml)) {
+      scriptCount++;
+      if (scriptCount > MAX_SCRIPT_TAGS) {
+        return { skip: true, reason: `Too many <script> tags: ${scriptCount}` };
+      }
+    }
+  }
+
+  // 3) Max line length check to catch minified/bad pages
+  // Scan manually to avoid splitting into an array of lines
+  let currentLineLen = 0;
+  for (let i = 0; i < rawHtml.length; i++) {
+    const ch = rawHtml.charCodeAt(i);
+    if (ch === 10 /* \n */ || ch === 13 /* \r */) {
+      if (currentLineLen > MAX_HTML_LINE_LENGTH) {
+        return { skip: true, reason: `Overlong HTML line: ${currentLineLen} chars` };
+      }
+      currentLineLen = 0;
+    } else {
+      currentLineLen++;
+      if (currentLineLen > MAX_HTML_LINE_LENGTH) {
+        return { skip: true, reason: `Overlong HTML line: ${currentLineLen} chars` };
+      }
+    }
+  }
+
+  // 4) Excessive JS keyword density
+  let funcCount = 0;
+  {
+    const reFunc = /function\s*\(/gi;
+    let m;
+    while ((m = reFunc.exec(rawHtml))) {
+      funcCount++;
+      if (funcCount > MAX_JS_KEYWORDS) {
+        return { skip: true, reason: `Too many JS functions: ${funcCount}` };
+      }
+    }
+  }
+
+  return { skip: false };
 }
 
 /**
@@ -428,9 +496,45 @@ export async function fetchCase(url, cookie = '', signal = null) {
       timeout: {
         request: parseInt(process.env.GOT_REQUEST_TIMEOUT_MS) || 45000, // 45s per request attempt
       },
+      // Avoid auto-parsing non-2xx into throw; we handle errors via catch
+      throwHttpErrors: true,
     });
 
-    // Load HTML into cheerio
+    // Content-Type sanity check
+    const contentType = (response.headers['content-type'] || '').toLowerCase();
+    if (contentType && !contentType.includes('text/html')) {
+      const errMsg = `Non-HTML content-type: ${contentType}`;
+      console.warn(`🚫 [SKIP] ${url} -> ${errMsg}`);
+      const skipped = {
+        url,
+        id: url.match(/\/Review\/(\d+)/)?.[1] || url,
+        body: `Пропущено: ${errMsg}`,
+        error: errMsg,
+        errorType: 'non_html',
+        skipped: true,
+      };
+      await dbService.saveCaseToCache(skipped);
+      return skipped;
+    }
+
+    // Analyze raw HTML for hazards before parsing
+    const hazard = analyzeRawHtmlForHazards(response.body || '');
+    if (hazard.skip) {
+      console.warn(`🚫 [SKIP] ${url} -> ${hazard.reason}`);
+      const skipped = {
+        url,
+        id: url.match(/\/Review\/(\d+)/)?.[1] || url,
+        body: `Пропущено: ${hazard.reason}`,
+        error: hazard.reason,
+        errorType: hazard.reason.includes('large') ? 'too_large' : 'bad_content',
+        skipped: true,
+      };
+      // Cache this decision to avoid repeated heavy attempts
+      await dbService.saveCaseToCache(skipped);
+      return skipped;
+    }
+
+    // Load HTML into cheerio only after passing guards
     let $ = cheerio.load(response.body);
 
     // Clear response body from memory immediately after loading
@@ -456,7 +560,7 @@ export async function fetchCase(url, cookie = '', signal = null) {
     // Explicitly release Cheerio reference after extraction
     $ = null;
 
-    // Keep full case text - no size limitations
+    // Keep full case text - no size limitations (already gated by MAX_HTML_BYTES)
 
     // УМНАЯ ПРОВЕРКА: определяем тип контента на основе множественных критериев
     const bodyLength = caseData.body.length;
@@ -617,9 +721,12 @@ export async function downloadAll(urls, cookie = '', onProgress = () => {}, abor
         // Check if the error is due to a timeout, cancellation, or network issue
         const isSkippableError =
           result.errorType === 'timeout' ||
+          result.errorType === 'network' ||
+          result.errorType === 'non_html' ||
+          result.errorType === 'too_large' ||
+          result.errorType === 'bad_content' ||
           result.error.includes('отменена') ||
-          result.error.includes('abort') ||
-          result.errorType === 'network';
+          result.error.includes('abort');
 
         if (isSkippableError) {
           console.warn(`⚠️ Пропускаю проблемную ссылку: ${url} (${result.error})`);
