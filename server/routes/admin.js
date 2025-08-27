@@ -261,6 +261,22 @@ router.post('/jobs/:id/requeue', async (req, res) => {
     // Логируем админ-действие
     await logAdminAction(req.user.id, 'REQUEUE_JOB', 'job', id, { reset_links: !!reset_links }, req);
 
+    // Запускаем обработку очереди после requeue
+    setTimeout(async () => {
+      try {
+        await got.post(`${process.env.API_BASE_URL || 'http://localhost:4000'}/api/internal/process-queue`, {
+          headers: {
+            'Content-Type': 'application/json',
+            'x-internal-request': 'true',
+          },
+          timeout: { request: 2000 },
+        });
+        logger.info(`[ADMIN_RETRY] Очередь запущена после requeue задания ${id}`);
+      } catch (error) {
+        logger.warn(`[ADMIN_RETRY] Не удалось запустить очередь: ${error.message}`);
+      }
+    }, 500);
+
     res.json({ success: true, message: `Задание ${id} поставлено в очередь на повтор` });
   } catch (error) {
     logger.error('Admin requeue error:', error);
@@ -619,7 +635,7 @@ router.post('/jobs/:jobId/retry', async (req, res) => {
               'Content-Type': 'application/json',
               'x-internal-request': 'true'
             },
-            timeout: 2000
+            timeout: { request: 2000 }
           });
           logger.info(`[ADMIN_RETRY] Очередь запущена после retry задания ${jobId}`);
         } catch (error) {
@@ -660,7 +676,7 @@ router.post('/jobs/retry-failed', async (req, res) => {
               'Content-Type': 'application/json',
               'x-internal-request': 'true'
             },
-            timeout: 2000
+            timeout: { request: 2000 }
           });
           logger.info(`[ADMIN_RETRY] Очередь запущена после массового retry (${retriedCount} заданий)`);
         } catch (error) {
