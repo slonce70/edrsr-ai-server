@@ -492,6 +492,53 @@ class DatabaseService {
     }
   }
 
+  async recoverJobsAfterServerRestart(serverStartedAtIso) {
+    // On startup, convert any in-progress jobs whose last heartbeat predates server start into 'retrying'
+    // This avoids 30-minute waits due to stale leases after a crash/restart.
+    const sql = `
+      UPDATE jobs
+      SET status = 'retrying', locked_by = NULL, locked_at = NULL, lease_until = NULL, heartbeat_at = NULL,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE status NOT IN ('completed','error','queued','retrying')
+        AND (locked_by IS NOT NULL OR lease_until IS NOT NULL OR heartbeat_at IS NOT NULL)
+        AND (heartbeat_at IS NULL OR heartbeat_at < $1)
+    `;
+    try {
+      const res = await database.run(sql, [serverStartedAtIso]);
+      if (res.changes > 0) {
+        logger.info(`🩺 Recovered ${res.changes} pre-restart in-progress job(s) to 'retrying'`);
+      }
+      return res.changes || 0;
+    } catch (e) {
+      logger.error('[DB] recoverJobsAfterServerRestart error:', e.message);
+      return 0;
+    }
+  }
+
+  async recoverJobsWithStaleHeartbeat(graceMinutes = 5) {
+    // Force-recover in-progress jobs that haven't heartbeated recently
+    const minutes = Math.max(1, parseInt(graceMinutes, 10) || 5);
+    const sql = `
+      UPDATE jobs
+      SET status = 'retrying', locked_by = NULL, locked_at = NULL, lease_until = NULL, heartbeat_at = NULL,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE status NOT IN ('completed','error','queued','retrying')
+        AND (
+          heartbeat_at IS NULL OR heartbeat_at < NOW() - INTERVAL '${minutes} minutes'
+        )
+    `;
+    try {
+      const res = await database.run(sql);
+      if (res.changes > 0) {
+        logger.info(`🧯 Force-recovered ${res.changes} in-flight job(s) with stale heartbeat (${minutes}m)`);
+      }
+      return res.changes || 0;
+    } catch (e) {
+      logger.error('[DB] recoverJobsWithStaleHeartbeat error:', e.message);
+      return 0;
+    }
+  }
+
   async retryFailedJobs() {
     // Retry jobs that failed with temporary/retryable errors
     // Only retry jobs that are not too old and haven't been retried too many times

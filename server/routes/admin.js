@@ -702,6 +702,51 @@ router.post('/jobs/retry-failed', async (req, res) => {
   }
 });
 
+// Ручное восстановление зависших заданий (без ожидания lease)
+router.post('/jobs/recover-stuck', async (req, res) => {
+  try {
+    const { grace_minutes = 5 } = req.body || {};
+    const minutes = Math.max(1, parseInt(grace_minutes, 10) || 5);
+
+    const recovered = await dbService.recoverJobsWithStaleHeartbeat(minutes);
+
+    await logAdminAction(
+      req.user.id,
+      'RECOVER_STUCK_JOBS',
+      'system',
+      'N/A',
+      { recovered, grace_minutes: minutes },
+      req
+    );
+
+    if (recovered > 0) {
+      setTimeout(() => {
+        const url = `${process.env.API_BASE_URL || 'http://localhost:4000'}/api/internal/process-queue`;
+        got
+          .post(url, {
+            headers: {
+              'Content-Type': 'application/json',
+              'x-internal-request': 'true',
+            },
+            timeout: { request: 2000 },
+          })
+          .then(() => logger.info(`[ADMIN_RETRY] Очередь запущена после ручного recovery (${recovered})`))
+          .catch((error) => {
+            logger.warn(`[ADMIN_RETRY] Не удалось запустить очередь: ${error?.message || 'unknown error'} (${url})`);
+            try {
+              process.emit('edrsr:queue:pump');
+            } catch {}
+          });
+      }, 300);
+    }
+
+    res.json({ success: true, recovered, grace_minutes: minutes });
+  } catch (error) {
+    logger.error('Recover stuck jobs error:', error);
+    res.status(500).json({ error: 'Ошибка ручного восстановления' });
+  }
+});
+
 // =====================
 // СИСТЕМНЫЕ ОПЕРАЦИИ
 // =====================
