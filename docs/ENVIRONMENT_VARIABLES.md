@@ -48,9 +48,6 @@ MAX_CONCURRENT_REQUESTS=1
 
 # Задержка между запросами (миллисекунды)
 REQUEST_DELAY_MS=1000
-
-# Максимальное количество одновременных AI запросов
-MAX_CONCURRENT_AI_REQUESTS=3
 ```
 
 ## **🤖 AI Model Configuration**
@@ -93,6 +90,54 @@ BATCH_THRESHOLD=15
 BATCH_DELAY=1000
 ```
 
+## **🧵 Очередь и воркер**
+
+### **Таймауты заданий**
+```env
+# Максимальная длительность одного задания (по умолчанию 25 минут)
+MAX_JOB_DURATION_MS=1500000
+
+# Максимальное время без прогресса до принудительного завершения (по умолчанию 20 минут)
+MAX_STALL_DURATION_MS=1200000
+```
+
+### **Сетевые таймауты скачивания**
+```env
+# Общий таймаут на загрузку одной страницы (AbortController)
+OVERALL_REQUEST_TIMEOUT_MS=60000
+
+# Таймаут одного HTTP‑запроса got (на попытку)
+GOT_REQUEST_TIMEOUT_MS=45000
+```
+
+### **Размеры батчей и память**
+```env
+# Размер батча ссылок в воркере (по умолчанию 25)
+BATCH_SIZE=25
+
+# Порог памяти для предупреждений/замедления (MB)
+MEMORY_LIMIT_MB=500
+```
+
+### **Безопасность скрейпера (пропуск проблемных страниц)**
+```env
+# Максимальный размер HTML для парсинга (байты), по умолчанию ~2 MB
+MAX_HTML_BYTES=2000000
+
+# Защита от "тяжелых" страниц: слишком много <script> или сверхдлинные строки
+MAX_SCRIPT_TAGS=200
+MAX_HTML_LINE_LENGTH=200000
+
+# Порог плотности JS (вхождений "function(")
+MAX_JS_KEYWORDS=1500
+```
+
+### **Прочее**
+```env
+# Базовый URL сервера для внутренних self‑calls (опционально)
+API_BASE_URL=http://localhost:4000
+```
+
 ## **📝 Логирование и мониторинг**
 
 ### **Настройки логов**
@@ -115,23 +160,13 @@ CHAT_CLEANUP_INTERVAL_MS=300000
 
 ### **Очередь и задания**
 ```env
-# Интервал периодического восстановления зависших задач (мс)
+# Интервал периодических внутренних операций (если используется планировщик)
 QUEUE_PUMP_INTERVAL_MS=60000
 
 # Идентификатор воркера (опционально, для логирования/кластера)
 WORKER_ID=<uuid-or-name>
 
-# Размер батча ссылок при скачивании
-BATCH_SIZE=25
-
-# Таймауты скачивания
-OVERALL_REQUEST_TIMEOUT_MS=60000
-GOT_REQUEST_TIMEOUT_MS=45000
-
-# Порог памяти для предупреждений (МБ)
-MEMORY_LIMIT_MB=500
-
-# Внешний URL сервиса (для пинга Render keep-alive)
+# Внешний URL сервиса (для keep‑alive на Render)
 RENDER_EXTERNAL_URL=https://your-app.onrender.com
 ```
 
@@ -199,6 +234,23 @@ FALLBACK_MODEL_NAME=gemini-2.5-flash
 OPTIMAL_BATCH_SIZE=10
 BATCH_THRESHOLD=15
 BATCH_DELAY=1000
+
+# =============================================================================
+# WORKER / QUEUE
+# =============================================================================
+MAX_JOB_DURATION_MS=1500000
+MAX_STALL_DURATION_MS=1200000
+OVERALL_REQUEST_TIMEOUT_MS=60000
+GOT_REQUEST_TIMEOUT_MS=45000
+BATCH_SIZE=25
+MEMORY_LIMIT_MB=500
+API_BASE_URL=http://localhost:4000
+
+# Scraper Safety
+MAX_HTML_BYTES=2000000
+MAX_SCRIPT_TAGS=200
+MAX_HTML_LINE_LENGTH=200000
+MAX_JS_KEYWORDS=1500
 
 # =============================================================================
 # LOGGING AND MONITORING
