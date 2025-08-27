@@ -8,14 +8,18 @@
 import { execSync, spawn } from 'child_process';
 import { logger } from './utils.js';
 
-// Memory optimization flags for Node.js
+// Memory optimization flags for Node.js (render.com compatible)
 const NODE_OPTIONS = [
-  '--max-old-space-size=1024',        // Limit heap to 1GB (default on most servers)
+  '--max-old-space-size=2048',        // Limit heap to 2GB (render.com has plenty of memory)
   '--expose-gc',                      // Enable global.gc() for manual garbage collection
-  '--optimize-for-size',              // Optimize for memory usage over speed
-  '--experimental-worker',            // Improve worker thread performance
   '--trace-warnings',                 // Show deprecation warnings for debugging
   '--enable-source-maps'              // Better error stack traces
+];
+
+// Render.com forbidden flags (moved to spawn args if needed)
+const RENDER_INCOMPATIBLE_FLAGS = [
+  '--optimize-for-size',              // Not allowed in NODE_OPTIONS on render.com
+  '--experimental-worker'             // Not allowed in NODE_OPTIONS on render.com
 ];
 
 // Environment variables for memory optimization
@@ -45,8 +49,12 @@ function checkSystemMemory() {
       }
       
       if (totalMem < 1024) {
-        ENV_VARS.NODE_OPTIONS = ENV_VARS.NODE_OPTIONS.replace('--max-old-space-size=1024', '--max-old-space-size=512');
+        ENV_VARS.NODE_OPTIONS = ENV_VARS.NODE_OPTIONS.replace('--max-old-space-size=2048', '--max-old-space-size=512');
         logger.info('🔧 Reduced heap size for low-memory system');
+      } else if (totalMem > 16384) {
+        // Render.com or high-memory systems - increase heap size
+        ENV_VARS.NODE_OPTIONS = ENV_VARS.NODE_OPTIONS.replace('--max-old-space-size=2048', '--max-old-space-size=3072');
+        logger.info('🚀 Increased heap size for high-memory system (3GB)');
       }
     }
   } catch (error) {
@@ -60,8 +68,17 @@ function startServer() {
   
   checkSystemMemory();
   
+  // Additional args for spawn (not in NODE_OPTIONS due to render.com restrictions)
+  const spawnArgs = ['index.js'];
+  
+  // Detect if running on render.com
+  const isRenderCom = process.env.RENDER || process.env.RENDER_SERVICE_NAME;
+  if (isRenderCom) {
+    logger.info('🌐 Detected Render.com environment - using compatible flags');
+  }
+  
   // Start the server with optimized settings
-  const server = spawn('node', ['index.js'], {
+  const server = spawn('node', spawnArgs, {
     env: ENV_VARS,
     stdio: 'inherit',
     cwd: process.cwd()
@@ -86,6 +103,10 @@ function startServer() {
         setTimeout(() => {
           startServer();
         }, 5000);
+      } else if (code === 9) { // Invalid command line arguments
+        logger.error('❌ Invalid Node.js command line arguments detected.');
+        logger.error('This usually happens when using incompatible flags with the hosting platform.');
+        logger.info('💡 Try using npm run start:basic for fallback startup');
       }
     }
   });
