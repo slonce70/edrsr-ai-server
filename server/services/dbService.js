@@ -492,6 +492,81 @@ class DatabaseService {
     }
   }
 
+  async retryFailedJobs() {
+    // Retry jobs that failed with temporary/retryable errors
+    // Only retry jobs that are not too old and haven't been retried too many times
+    const sql = `
+      UPDATE jobs
+      SET status = 'retrying', locked_by = NULL, locked_at = NULL, lease_until = NULL, heartbeat_at = NULL, 
+          attempt = COALESCE(attempt, 0), updated_at = CURRENT_TIMESTAMP
+      WHERE status = 'error'
+        AND COALESCE(attempt, 0) < 3
+        AND (
+          error_message LIKE '%Memory limit exceeded%'
+          OR error_message LIKE '%Worker terminated due to reaching memory limit%'
+          OR error_message LIKE '%зависла%'
+          OR error_message LIKE '%timeout%'
+          OR error_message LIKE '%превысил%'
+          OR error_message LIKE '%network%'
+          OR error_message LIKE '%ENET%'
+          OR error_message LIKE '%ECONN%'
+          OR error_message LIKE '%503%'
+          OR error_message LIKE '%502%'
+          OR error_message LIKE '%fetch failed%'
+        )
+        AND updated_at > NOW() - INTERVAL '24 hours'
+    `;
+    try {
+      const res = await database.run(sql);
+      if (res.changes > 0) {
+        logger.info(`🔄 Retrying ${res.changes} failed job(s) with temporary errors`);
+      }
+      return res.changes || 0;
+    } catch (e) {
+      logger.error('[DB] retryFailedJobs error:', e.message);
+      return 0;
+    }
+  }
+
+  async getJobsWithErrors(limit = 10) {
+    // Get jobs that are in error state for admin review
+    const sql = `
+      SELECT id, status, error_message, attempt, updated_at, created_at
+      FROM jobs 
+      WHERE status = 'error' 
+      ORDER BY updated_at DESC 
+      LIMIT $1
+    `;
+    try {
+      return await database.all(sql, [limit]);
+    } catch (e) {
+      logger.error('[DB] getJobsWithErrors error:', e.message);
+      return [];
+    }
+  }
+
+  async manualRetryJob(jobId) {
+    // Manual retry for a specific job (admin action)
+    const sql = `
+      UPDATE jobs
+      SET status = 'retrying', locked_by = NULL, locked_at = NULL, lease_until = NULL, heartbeat_at = NULL, 
+          error_message = NULL, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1 AND status = 'error'
+      RETURNING id
+    `;
+    try {
+      const result = await database.get(sql, [jobId]);
+      if (result) {
+        logger.info(`🔧 Manual retry initiated for job ${jobId}`);
+        return true;
+      }
+      return false;
+    } catch (e) {
+      logger.error('[DB] manualRetryJob error:', e.message);
+      return false;
+    }
+  }
+
   async claimNextJob(workerId) {
     // Atomically claim the next queued/retrying job
     const sql = `

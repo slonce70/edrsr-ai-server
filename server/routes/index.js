@@ -516,14 +516,30 @@ function startWorkerCleanupService() {
 // Функция восстановления зависших заданий в БД
 async function recoverStuckJobs() {
   try {
-    const recoveredCount = await dbService.recoverStuckJobs();
-    if (recoveredCount > 0) {
-      logger.info(`🔄 [RECOVERY] Восстановлено ${recoveredCount} зависших заданий в БД`);
+    const [stuckCount, failedCount] = await Promise.all([
+      dbService.recoverStuckJobs(),
+      dbService.retryFailedJobs()
+    ]);
+    
+    const totalRecovered = stuckCount + failedCount;
+    
+    if (stuckCount > 0) {
+      logger.info(`🔄 [RECOVERY] Восстановлено ${stuckCount} зависших заданий в БД`);
+    }
+    
+    if (failedCount > 0) {
+      logger.info(`🔄 [RETRY] Повторяется ${failedCount} заданий с временными ошибками`);
+    }
+    
+    if (totalRecovered > 0) {
       // После восстановления пытаемся запустить обработку очереди
       setTimeout(() => processQueue(), 1000);
     }
+    
+    return totalRecovered;
   } catch (error) {
-    logger.error('[RECOVERY] Ошибка восстановления зависших заданий:', error.message);
+    logger.error('[RECOVERY] Ошибка восстановления заданий:', error.message);
+    return 0;
   }
 }
 

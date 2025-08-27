@@ -113,6 +113,26 @@
               </div>
 
               <div class="stat-card">
+                <div class="stat-icon error">
+                  <i class="fas fa-exclamation-triangle"></i>
+                </div>
+                <div class="stat-info">
+                  <h3 id="failed-jobs">-</h3>
+                  <p>С ошибками</p>
+                </div>
+              </div>
+
+              <div class="stat-card">
+                <div class="stat-icon retry">
+                  <i class="fas fa-redo"></i>
+                </div>
+                <div class="stat-info">
+                  <h3 id="retryable-jobs">-</h3>
+                  <p>Можно повторить</p>
+                </div>
+              </div>
+
+              <div class="stat-card">
                 <div class="stat-icon memory">
                   <i class="fas fa-memory"></i>
                 </div>
@@ -239,6 +259,21 @@
 
                   <button class="btn btn-warning" onclick="performCleanup('old_cache')">
                     <i class="fas fa-database"></i> Старый кеш (30+ дней)
+                  </button>
+                </div>
+              </div>
+
+              <div class="system-card">
+                <h3>Восстановление заданий</h3>
+                <p>Автоматическое восстановление и повторный запуск проблемных заданий</p>
+
+                <div class="cleanup-options">
+                  <button class="btn btn-success" onclick="retryAllFailedJobs()">
+                    <i class="fas fa-redo"></i> Retry всех failed заданий
+                  </button>
+
+                  <button class="btn btn-info" onclick="viewErrorJobs()">
+                    <i class="fas fa-exclamation-circle"></i> Просмотр заданий с ошибками
                   </button>
                 </div>
               </div>

@@ -47,6 +47,7 @@ router.get('/dashboard', async (req, res) => {
         (SELECT COUNT(*) FROM jobs) as total_jobs,
         (SELECT COUNT(*) FROM jobs WHERE status = 'completed') as completed_jobs,
         (SELECT COUNT(*) FROM jobs WHERE status = 'error') as failed_jobs,
+        (SELECT COUNT(*) FROM jobs WHERE status = 'error' AND COALESCE(attempt, 0) < 3) as retryable_jobs,
         (SELECT COUNT(*) FROM jobs WHERE created_at > now() - interval '24 hours') as jobs_24h,
         (SELECT COUNT(*) FROM job_links) as total_links_processed,
         (SELECT ROUND(AVG(duration)) FROM jobs WHERE status = 'completed' AND duration IS NOT NULL) as avg_job_duration,
@@ -548,6 +549,99 @@ router.delete('/jobs/:jobId', async (req, res) => {
   } catch (error) {
     logger.error('Delete job error:', error);
     res.status(500).json({ error: 'Ошибка удаления задания' });
+  }
+});
+
+// =====================
+// УПРАВЛЕНИЕ ОШИБКАМИ
+// =====================
+
+// Получить список заданий с ошибками
+router.get('/jobs/errors', async (req, res) => {
+  try {
+    const { limit = 20 } = req.query;
+    const errorJobs = await dbService.getJobsWithErrors(parseInt(limit));
+    
+    await logAdminAction(
+      req.user.id,
+      'VIEW_ERROR_JOBS',
+      'system',
+      'N/A',
+      { limit },
+      req
+    );
+    
+    res.json({ success: true, jobs: errorJobs });
+  } catch (error) {
+    logger.error('Get error jobs error:', error);
+    res.status(500).json({ error: 'Ошибка получения заданий с ошибками' });
+  }
+});
+
+// Перезапустить задание с ошибкой
+router.post('/jobs/:jobId/retry', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    
+    // Получаем информацию о задании
+    const job = await database.get('SELECT id, status, error_message, attempt FROM jobs WHERE id = $1', [jobId]);
+    
+    if (!job) {
+      return res.status(404).json({ error: 'Задание не найдено' });
+    }
+    
+    if (job.status !== 'error') {
+      return res.status(400).json({ error: `Задание не в статусе ошибки (текущий статус: ${job.status})` });
+    }
+    
+    const success = await dbService.manualRetryJob(jobId);
+    
+    if (success) {
+      await logAdminAction(
+        req.user.id,
+        'RETRY_JOB',
+        'job',
+        jobId,
+        {
+          old_status: job.status,
+          error_message: job.error_message,
+          attempt: job.attempt
+        },
+        req
+      );
+      
+      res.json({ success: true, message: 'Задание поставлено на повторное выполнение' });
+    } else {
+      res.status(400).json({ error: 'Не удалось перезапустить задание' });
+    }
+  } catch (error) {
+    logger.error('Retry job error:', error);
+    res.status(500).json({ error: 'Ошибка перезапуска задания' });
+  }
+});
+
+// Автоматическое восстановление заданий с временными ошибками
+router.post('/jobs/retry-failed', async (req, res) => {
+  try {
+    const retriedCount = await dbService.retryFailedJobs();
+    
+    await logAdminAction(
+      req.user.id,
+      'RETRY_FAILED_JOBS',
+      'system',
+      'N/A',
+      { retried_count: retriedCount },
+      req
+    );
+    
+    res.json({ 
+      success: true, 
+      message: `Перезапущено ${retriedCount} заданий с временными ошибками`,
+      retried_count: retriedCount
+    });
+  } catch (error) {
+    logger.error('Retry failed jobs error:', error);
+    res.status(500).json({ error: 'Ошибка автоматического восстановления заданий' });
   }
 });
 
