@@ -7,7 +7,7 @@ import dbService from './services/dbService.js'; // Import the dbService
 const requestDelay = parseInt(process.env.REQUEST_DELAY_MS) || 1000;
 
 // Defensive guards against bad/huge pages
-const MAX_HTML_BYTES = parseInt(process.env.MAX_HTML_BYTES, 10) || 1_500_000; // ~1.5 MB
+const MAX_HTML_BYTES = parseInt(process.env.MAX_HTML_BYTES, 10) || 2_000_000; // ~2.0 MB
 const MAX_SCRIPT_TAGS = parseInt(process.env.MAX_SCRIPT_TAGS, 10) || 200;
 const MAX_HTML_LINE_LENGTH = parseInt(process.env.MAX_HTML_LINE_LENGTH, 10) || 200_000;
 const MAX_JS_KEYWORDS = parseInt(process.env.MAX_JS_KEYWORDS, 10) || 1500; // occurrences of "function("
