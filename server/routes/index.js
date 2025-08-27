@@ -1123,6 +1123,24 @@ export default function (clients) {
     }
   });
 
+  // Внутренний endpoint для запуска обработки очереди
+  router.post('/internal/process-queue', async (req, res) => {
+    try {
+      // Простая защита - только для локальных запросов
+      const clientIP = req.ip || req.connection.remoteAddress;
+      if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(clientIP) && !req.headers['x-internal-request']) {
+        return res.status(403).json({ error: 'Forbidden - internal endpoint' });
+      }
+      
+      logger.info('[INTERNAL] Запуск обработки очереди по внутреннему запросу');
+      processQueue();
+      res.json({ success: true, message: 'Queue processing triggered' });
+    } catch (error) {
+      logger.error('[INTERNAL] Ошибка запуска очереди:', error.message);
+      res.status(500).json({ error: 'Failed to process queue' });
+    }
+  });
+
   router.get('/processed-urls', async (req, res, next) => {
     try {
       const processedUrls = await dbService.getProcessedUrls(req.user?.id || null);
