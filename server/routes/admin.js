@@ -263,8 +263,9 @@ router.post('/jobs/:id/requeue', async (req, res) => {
 
     // Запускаем обработку очереди после requeue
     setTimeout(async () => {
+      const url = `${process.env.API_BASE_URL || 'http://localhost:4000'}/api/internal/process-queue`;
       try {
-        await got.post(`${process.env.API_BASE_URL || 'http://localhost:4000'}/api/internal/process-queue`, {
+        await got.post(url, {
           headers: {
             'Content-Type': 'application/json',
             'x-internal-request': 'true',
@@ -273,7 +274,8 @@ router.post('/jobs/:id/requeue', async (req, res) => {
         });
         logger.info(`[ADMIN_RETRY] Очередь запущена после requeue задания ${id}`);
       } catch (error) {
-        logger.warn(`[ADMIN_RETRY] Не удалось запустить очередь: ${error.message}`);
+        logger.warn(`[ADMIN_RETRY] Не удалось запустить очередь: ${error?.message || 'unknown error'} (${url})`);
+        try { process.emit('edrsr:queue:pump'); } catch {}
       }
     }, 500);
 
@@ -629,8 +631,9 @@ router.post('/jobs/:jobId/retry', async (req, res) => {
       
       // ВАЖНО: Запускаем обработку очереди после retry!
       setTimeout(async () => {
+        const url = `${process.env.API_BASE_URL || 'http://localhost:4000'}/api/internal/process-queue`;
         try {
-          await got.post(`${process.env.API_BASE_URL || 'http://localhost:4000'}/api/internal/process-queue`, {
+          await got.post(url, {
             headers: {
               'Content-Type': 'application/json',
               'x-internal-request': 'true'
@@ -639,7 +642,8 @@ router.post('/jobs/:jobId/retry', async (req, res) => {
           });
           logger.info(`[ADMIN_RETRY] Очередь запущена после retry задания ${jobId}`);
         } catch (error) {
-          logger.warn(`[ADMIN_RETRY] Не удалось запустить очередь: ${error.message}`);
+          logger.warn(`[ADMIN_RETRY] Не удалось запустить очередь: ${error?.message || 'unknown error'} (${url})`);
+          try { process.emit('edrsr:queue:pump'); } catch {}
         }
       }, 500);
       
@@ -670,8 +674,9 @@ router.post('/jobs/retry-failed', async (req, res) => {
     // Запускаем обработку очереди если есть восстановленные задания
     if (retriedCount > 0) {
       setTimeout(async () => {
+        const url = `${process.env.API_BASE_URL || 'http://localhost:4000'}/api/internal/process-queue`;
         try {
-          await got.post(`${process.env.API_BASE_URL || 'http://localhost:4000'}/api/internal/process-queue`, {
+          await got.post(url, {
             headers: {
               'Content-Type': 'application/json',
               'x-internal-request': 'true'
@@ -680,7 +685,8 @@ router.post('/jobs/retry-failed', async (req, res) => {
           });
           logger.info(`[ADMIN_RETRY] Очередь запущена после массового retry (${retriedCount} заданий)`);
         } catch (error) {
-          logger.warn(`[ADMIN_RETRY] Не удалось запустить очередь: ${error.message}`);
+          logger.warn(`[ADMIN_RETRY] Не удалось запустить очередь: ${error?.message || 'unknown error'} (${url})`);
+          try { process.emit('edrsr:queue:pump'); } catch {}
         }
       }, 500);
     }
