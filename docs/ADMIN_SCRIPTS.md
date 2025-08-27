@@ -14,8 +14,7 @@ server/scripts/
 ├── transfer-jobs-to-user.sql    # SQL скрипт для переноса данных
 └── (root)/scripts/apply-rls.js  # Применение Row Level Security
 ├── memory-load-test.js          # Тест нагрузки памяти
-├── test-race-condition-fix.js   # Тест race conditions
-└── reset-user-password.js       # Сброс пароля пользователя
+└── test-race-condition-fix.js   # Тест race conditions
 ```
 
 ## **🔐 Управление администраторами**
@@ -198,21 +197,6 @@ node scripts/test-race-condition-fix.js
 
 ## **🔧 Утилиты**
 
-### **8. Сброс пароля пользователя**
-
-**Файл:** `server/scripts/reset-user-password.js`
-
-**Команда:**
-```bash
-cd server
-node scripts/reset-user-password.js user@example.com
-```
-
-**Что делает:**
-- Сбрасывает пароль пользователя
-- Генерирует новый временный пароль
-- Отправляет уведомление (если настроено)
-
 ## **📋 Полный список npm команд**
 
 ### **Корневые команды:**
@@ -238,8 +222,7 @@ node scripts/apply-rls.js
 node scripts/memory-load-test.js
 node scripts/test-race-condition-fix.js
 
-# Утилиты
-node scripts/reset-user-password.js user@example.com
+# Утилиты (пусто)
 ```
 
 ## **⚙️ Конфигурация скриптов**
@@ -357,7 +340,5 @@ env | grep -E "(DATABASE_URL|SUPABASE)"
 
 ## **📚 Дополнительные ресурсы**
 
-- [PROJECT_COMMANDS.md](./PROJECT_COMMANDS.md) - Полное руководство по командам
-- [NPM_SCRIPTS.md](./NPM_SCRIPTS.md) - Справочник по npm скриптам
 - [API_REFERENCE.md](./API_REFERENCE.md) - Документация API
 - [ENVIRONMENT_VARIABLES.md](./ENVIRONMENT_VARIABLES.md) - Переменные окружения

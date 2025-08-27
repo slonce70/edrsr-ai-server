@@ -54,6 +54,13 @@ curl http://localhost:4000/api/health/full
 
 # Проверить статистику админки
 curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:4000/api/admin/dashboard
+
+# Ручное восстановление зависших заданий (админ)
+curl -X POST \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"grace_minutes": 10}' \
+  http://localhost:4000/api/admin/jobs/recover-stuck
 ```
 
 ## **Deployment**
@@ -104,4 +111,4 @@ npm run admin:grant
 - **Админка:** http://localhost:4000/admin
 - **Supabase:** https://supabase.com/dashboard
 - **Render:** https://dashboard.render.com
-- **Индекс документации:** [DOCUMENTATION_INDEX.md](./DOCUMENTATION_INDEX.md)
+*Полезно:* см. также `docs/API_REFERENCE.md` и `docs/ENVIRONMENT_VARIABLES.md`.

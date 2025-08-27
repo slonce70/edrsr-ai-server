@@ -164,7 +164,8 @@ Rate limit: 5 попыток/15 минут.
 Удалить пользователя и его данные.
 
 #### POST `/api/admin/jobs/:id/requeue`
-Перезапустить задание (сбросить lock и вернуть в очередь). Тело: `{ reset_links?: boolean }`.
+Перезапустить задание: сбрасывает блокировки и переводит задание в `retrying`/очередь. Тело: `{ reset_links?: boolean }`.
+После успешного запроса очередь автоматически запускается (внутренний self‑call `/api/internal/process-queue` с локальным fallback при ошибке HTTP).
 
 **Response (200):**
 ```json
@@ -198,7 +199,7 @@ Rate limit: 5 попыток/15 минут.
 **Query Parameters:**
 - `page` (optional): Номер страницы (default: 1)
 - `limit` (optional): Количество заданий на странице (default: 20)
-- `status` (optional): Фильтр по статусу (`pending`, `processing`, `completed`, `failed`)
+- `status` (optional): Фильтр по статусу (`pending`, `queued`, `retrying`, `processing`, `completed`, `error`)
 - `user_id` (optional): Фильтр по пользователю
 
 **Response (200):**
@@ -254,6 +255,18 @@ Rate limit: 5 попыток/15 минут.
 #### **PUT /api/admin/jobs/:jobId/title**
 Изменение названия задания.
 
+#### **GET /api/admin/jobs/errors**
+Список последних заданий в статусе `error`.
+
+#### **POST /api/admin/jobs/:jobId/retry**
+Перезапустить конкретное задание из статуса `error` в `retrying`. После запроса очередь автоматически запускается (self‑call + fallback).
+
+#### **POST /api/admin/jobs/retry-failed**
+Массовый перезапуск всех заданий с временными ошибками. Автоматически запускает очередь при наличии перезапущенных заданий.
+
+#### **POST /api/admin/jobs/recover-stuck**
+Ручное восстановление зависших заданий (без heartbeat дольше порога). Тело: `{ grace_minutes?: number }` (по умолчанию 5). Все подходящие задания переводятся в `retrying` и запускается очередь.
+
 **Request Body:**
 ```json
 {
@@ -276,57 +289,6 @@ Rate limit: 5 попыток/15 минут.
 
 #### **DELETE /api/admin/jobs/:jobId**
 Удаление задания и всех связанных данных.
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "message": "Job and all associated data deleted",
-  "deleted": {
-    "cases": 25,
-    "chatMessages": 10,
-    "results": 1
-  }
-}
-```
-
-> Прочие ранее задокументированные эндпоинты (jobs list/report, cleanup, audit‑log) удалены из документации, так как сейчас не реализованы в коде.
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "stats": {
-    "system": {
-      "uptime": 3600,
-      "memory": {
-        "heapUsed": "45.2 MB",
-        "heapTotal": "67.8 MB",
-        "rss": "89.1 MB"
-      },
-      "node_version": "18.17.0",
-      "platform": "linux"
-    },
-    "database": {
-      "connections": 5,
-      "size": "125.7 MB",
-      "tables": {
-        "jobs": 150,
-        "job_links": 1250,
-        "job_results": 150,
-        "chat_messages": 450,
-        "parsed_cases": 1250
-      }
-    },
-    "ai": {
-      "total_requests": 1250,
-      "successful_requests": 1200,
-      "failed_requests": 50,
-      "average_response_time": 2.5
-    }
-  }
-}
-```
 
 
 #### **GET /api/admin/security/stats**
@@ -410,6 +372,14 @@ Rate limit: 5 попыток/15 минут.
 curl -X POST http://localhost:4000/api/auth/signin \
   -H "Content-Type: application/json" \
   -d '{"email": "admin@example.com", "password": "password123"}'
+```
+
+#### **Ручное восстановление зависших заданий**
+```bash
+curl -X POST http://localhost:4000/api/admin/jobs/recover-stuck \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"grace_minutes": 10}'
 ```
 
 #### **Получение списка пользователей:**
