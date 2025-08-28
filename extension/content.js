@@ -285,8 +285,14 @@ async function markProcessedLinksAsVisited() {
     // Get API URL from background script
     const apiUrl = await chrome.runtime.sendMessage({ type: 'GET_API_URL' });
 
-    // Получаем список обработанных URL с сервера через background (добавит Authorization)
-    const response = await chrome.runtime.sendMessage({ type: 'API_GET_PROCESSED_URLS' });
+    // Получаем только обработанные URL из текущего набора ссылок
+    const pageLinks = Array.from(document.querySelectorAll('a.doc_text2[href^="/Review/"]')).map(
+      (link) => 'https://reyestr.court.gov.ua' + link.getAttribute('href')
+    );
+    const response = await chrome.runtime.sendMessage({
+      type: 'API_CHECK_PROCESSED',
+      urls: pageLinks,
+    });
 
     if (!response || response.success === false) {
       console.warn('EDRSR-AI: Не вдалося отримати оброблені URL:', response?.error);
@@ -301,9 +307,7 @@ async function markProcessedLinksAsVisited() {
       return;
     }
 
-    console.log(
-      `EDRSR-AI: Знайдено ${data.urls.length} оброблених URL для візуального відображення`
-    );
+    console.log(`EDRSR-AI: Обработано (на странице): ${data.urls.length} URL`);
 
     // Создаем Set для быстрого поиска обработанных URL
     const processedUrls = new Set(data.urls);
@@ -335,9 +339,7 @@ async function markProcessedLinksAsVisited() {
       document.head.appendChild(style);
     }
 
-    console.log(
-      `EDRSR-AI: Успішно позначено ${markedCount} із ${data.urls.length} оброблених посилань як відвідані`
-    );
+    console.log(`EDRSR-AI: Позначено ${markedCount} обработанных ссылок на странице`);
   } catch (error) {
     console.error('EDRSR-AI: Помилка отримання оброблених URL:', error);
   }
@@ -408,7 +410,10 @@ async function collectAndSend(options) {
 
     // Filter to only unique decisions for this user if requested
     if (options?.uniqueOnly) {
-      const res = await chrome.runtime.sendMessage({ type: 'API_GET_PROCESSED_URLS' });
+      const res = await chrome.runtime.sendMessage({
+        type: 'API_CHECK_PROCESSED',
+        urls: decisions.map((d) => d.url),
+      });
       if (res && res.success && Array.isArray(res.urls)) {
         const processed = new Set(res.urls);
         const before = decisions.length;

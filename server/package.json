@@ -15,6 +15,7 @@
     "transfer:jobs": "node scripts/transfer-jobs-to-user.js"
   },
   "dependencies": {
+    "compression": "^1.7.4",
     "@supabase/supabase-js": "^2.45.4",
     "express-rate-limit": "^7.3.1",
     "@google/generative-ai": "^0.24.1",

@@ -660,34 +660,41 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   elements.downloadBtn.addEventListener('click', () => {
-    if (!currentJobData || !currentJobData.links || currentJobData.links.length === 0) {
-      alert('Данные о делах для скачивания не найдены.');
-      return;
-    }
+    // Ask service worker to fetch processed links' content on demand
+    elements.downloadBtn.disabled = true;
+    const handler = (message) => {
+      if (message.type === 'LINKS_CONTENT') {
+        const { links } = message.payload || { links: [] };
+        let fullText = `ОТЧЁТ ПО ДЕЛАМ\nЗадание ID: ${jobId}\nДата создания: ${new Date().toLocaleString('ru-RU')}\n\n`;
+        links.forEach((link) => {
+          if (link && link.url && link.content) {
+            const caseIdentifier = link.url.split('/').pop();
+            fullText += `==================================================\n`;
+            fullText += ` ДЕЛО: ${caseIdentifier} ( ${link.url} )\n`;
+            fullText += `==================================================\n\n`;
+            fullText += `${link.content}\n\n\n`;
+          }
+        });
 
-    let fullText = `ОТЧЁТ ПО ДЕЛАМ\nЗадание ID: ${jobId}\nДата создания: ${new Date().toLocaleString('ru-RU')}\n\n`;
-
-    currentJobData.links.forEach((link) => {
-      if (link.status === 'processed' && link.content) {
-        const caseIdentifier = link.url.split('/').pop();
-        fullText += `==================================================\n`;
-        fullText += ` ДЕЛО: ${caseIdentifier} ( ${link.url} )\n`;
-        fullText += `==================================================\n\n`;
-        fullText += `${link.content}\n\n\n`;
+        const blob = new Blob([fullText], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `job_${jobId}_cases.txt`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        elements.downloadBtn.disabled = false;
+        port.onMessage.removeListener(handler);
+      } else if (message.type === 'ERROR') {
+        alert(message.payload?.message || 'Ошибка загрузки контента дел');
+        elements.downloadBtn.disabled = false;
+        port.onMessage.removeListener(handler);
       }
-    });
-
-    const blob = new Blob([fullText], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-
-    a.href = url;
-    a.download = `job_${jobId}_cases.txt`;
-    document.body.appendChild(a);
-    a.click();
-
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    };
+    port.onMessage.addListener(handler);
+    port.postMessage({ type: 'GET_LINKS_CONTENT', payload: { jobId } });
   });
 
   // Initial render

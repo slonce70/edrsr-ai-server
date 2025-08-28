@@ -70,7 +70,18 @@ function connectWebSocket() {
       console.log('[WS] Received message:', message);
 
       if (message.type === 'JOB_UPDATE') {
-        const jobData = message.payload;
+        let jobData = message.payload;
+        try {
+          if (jobData && jobData.id && jobData.status === 'completed' && !jobData.analysis) {
+            const res = await apiFetch(`${API_BASE_URL}/jobs/${jobData.id}/analysis`);
+            if (res.ok) {
+              const { analysis } = await res.json();
+              if (analysis) jobData = { ...jobData, analysis };
+            }
+          }
+        } catch (_e) {
+          // best-effort enrichment; ignore fetch errors here
+        }
         const storageKey = `job_status_${jobData.id}`;
 
         // Get the previous state BEFORE updating storage and the badge
@@ -389,7 +400,7 @@ async function handlePortMessage(message, port, sendResponse) {
           const oldData = await chrome.storage.local.get(storageKey);
           const oldStatus = oldData[storageKey]?.status;
 
-          const response = await apiFetch(`${API_BASE_URL}/status/${jobId}`);
+          const response = await apiFetch(`${API_BASE_URL}/status/${jobId}?light=true`);
           if (!response.ok) {
             const errorData = await response.json();
             throw new Error(errorData.error || `HTTP ${response.status}`);
@@ -440,27 +451,35 @@ async function handlePortMessage(message, port, sendResponse) {
           // But we don't stop here, we always fetch the full data for the results page.
         }
 
-        // Fetch from the server to get the absolute latest state,
-        // especially if it wasn't in local storage or is still active.
-        console.log(
-          `[BG] Fetching latest full job data for ${jobId} from server for results page...`
-        );
+        // Fetch latest light job and analysis separately to reduce payload
+        console.log(`[BG] Fetching latest light job data and analysis for ${jobId}...`);
         try {
-          const response = await apiFetch(`${API_BASE_URL}/status/${jobId}`);
-          if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || `HTTP ${response.status}`);
+          const [lightRes, analRes] = await Promise.all([
+            apiFetch(`${API_BASE_URL}/status/${jobId}?light=true`),
+            apiFetch(`${API_BASE_URL}/jobs/${jobId}/analysis`),
+          ]);
+          if (!lightRes.ok) {
+            const errorData = await lightRes.json();
+            throw new Error(errorData.error || `HTTP ${lightRes.status}`);
           }
-          const jobData = await response.json();
+          const lightJob = await lightRes.json();
+          let analysis = null;
+          try {
+            if (analRes.ok) {
+              const analJson = await analRes.json();
+              analysis = analJson.analysis || null;
+            }
+          } catch (_e) {
+            // analysis may be absent while job is still in progress; ignore
+          }
 
-          // Send the full data to the results page that requested it.
+          const jobData = analysis ? { ...lightJob, analysis } : lightJob;
+
+          // Send to the results page
           port.postMessage({ type: 'JOB_UPDATE', payload: jobData });
 
-          // Create a "light" version for storage to avoid exceeding quota.
-          // The analysis and links content are the largest parts.
-          const { analysis, links, ...jobDataForStorage } = jobData;
-
-          // Store the light version. This is used for badge updates and popup UI.
+          // Store light version for badge/popup
+          const { analysis: _a, links, ...jobDataForStorage } = jobData;
           await chrome.storage.local.set({ [storageKey]: jobDataForStorage });
         } catch (error) {
           console.error(`[BG] Failed to fetch job status for ${jobId}:`, error);
@@ -528,7 +547,7 @@ async function handlePortMessage(message, port, sendResponse) {
           const storageKey = `job_status_${jobId}`;
 
           // Fetch current status to get oldStatus
-          const statusResponse = await apiFetch(`${API_BASE_URL}/status/${jobId}`);
+          const statusResponse = await apiFetch(`${API_BASE_URL}/status/${jobId}?light=true`);
           if (!statusResponse.ok) {
             const errorData = await statusResponse.json();
             throw new Error(
@@ -621,6 +640,18 @@ async function handlePortMessage(message, port, sendResponse) {
         }
         break;
       }
+      case 'GET_LINKS_CONTENT': {
+        const { jobId } = payload;
+        try {
+          const res = await apiFetch(`${API_BASE_URL}/jobs/${jobId}/links-content`);
+          const json = await res.json();
+          if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+          if (port) port.postMessage({ type: 'LINKS_CONTENT', payload: json });
+        } catch (error) {
+          if (port) port.postMessage({ type: 'ERROR', payload: { message: error.message } });
+        }
+        break;
+      }
       case 'GET_COOKIES': {
         const cookies = await chrome.cookies.getAll({ domain: 'reyestr.court.gov.ua' });
         const cookieString = cookies.map((c) => `${c.name}=${c.value}`).join('; ');
@@ -688,6 +719,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
     })();
     return true; // keep channel open for async response
+  }
+  if (message.type === 'API_CHECK_PROCESSED') {
+    (async () => {
+      try {
+        const urls = Array.isArray(message.urls) ? message.urls.filter(Boolean) : [];
+        const res = await apiFetch(`${API_BASE_URL}/urls/processed-check`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ urls }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        // Backward-compatible shape: return as { urls }
+        sendResponse({ success: true, urls: data.processed || [] });
+      } catch (e) {
+        sendResponse({ success: false, error: e.message });
+      }
+    })();
+    return true;
   }
   // Handle other messages
   if (

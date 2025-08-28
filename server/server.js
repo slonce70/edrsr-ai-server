@@ -1,4 +1,5 @@
 import express from 'express';
+import compression from 'compression';
 import cors from 'cors';
 import http from 'http';
 import path from 'path';
@@ -26,6 +27,11 @@ export function createServer() {
   // Hide Express signature
   app.disable('x-powered-by');
   app.use(securityHeaders); // Add security headers first
+  app.use(
+    compression({
+      threshold: 1024, // compress payloads >1KB
+    })
+  );
   app.use(cors());
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
