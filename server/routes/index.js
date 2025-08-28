@@ -181,21 +181,18 @@ function startWorker({ jobId, links, cookie, prompt, claimed = false }) {
     dbService.heartbeatJob(jobId, WORKER_ID).catch(() => {});
 
     // Send light updates during progress to reduce payload; full data only on completion
-    const wsData =
-      status === 'completed'
-        ? { ...updatedJob, status, progress, message }
-        : {
-            id: updatedJob.id,
-            title: updatedJob.title,
-            status,
-            progress,
-            message,
-            processed_links: updatedJob.processed_links,
-            total_links: updatedJob.total_links,
-            created_at: updatedJob.created_at,
-            updated_at: updatedJob.updated_at,
-            prompt: updatedJob.prompt,
-          };
+    const wsData = {
+      id: updatedJob.id,
+      title: updatedJob.title,
+      status,
+      progress,
+      message,
+      processed_links: updatedJob.processed_links,
+      total_links: updatedJob.total_links,
+      created_at: updatedJob.created_at,
+      updated_at: updatedJob.updated_at,
+      prompt: updatedJob.prompt,
+    };
 
     sendUpdateToJobOwner(jobId, wsData);
     logger.info(`[${jobId}] Status: ${status}, Progress: ${progress}%, Message: ${message}`);
@@ -879,7 +876,9 @@ export default function (clients) {
   router.get('/jobs', async (req, res, next) => {
     try {
       const { limit } = req.query;
-      const finalLimit = limit === 'all' ? 'all' : parseInt(limit, 10) || null;
+      const maxLimit = parseInt(process.env.JOBS_MAX_LIMIT || '100', 10);
+      const finalLimit =
+        limit === 'all' ? maxLimit : Math.min(parseInt(limit, 10) || maxLimit, maxLimit);
       const jobs = await dbService.getRecentJobs(finalLimit, req.user?.id || null);
       res.json({ success: true, jobs });
     } catch (error) {
@@ -914,9 +913,48 @@ export default function (clients) {
 
   router.get('/status/:id', async (req, res, next) => {
     try {
-      const job = await dbService.getJob(req.params.id, req.user?.id || null);
-      if (!job) return res.status(404).json({ error: 'Задание не найдено' });
-      res.json(job);
+      const include = []
+        .concat(req.query.include || [])
+        .flat()
+        .map((s) => String(s).toLowerCase());
+      const wantAnalysis = include.includes('analysis');
+      const wantLinks = include.includes('links');
+
+      const userId = req.user?.id || null;
+      const base = await dbService.getJobLight(req.params.id, userId);
+      if (!base) return res.status(404).json({ error: 'Задание не найдено' });
+
+      if (wantAnalysis) {
+        base.analysis = await dbService.getJobResult(req.params.id, userId);
+      }
+      if (wantLinks) {
+        base.links = await dbService.getJobLinksLight(req.params.id, userId);
+      }
+
+      res.json(base);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Analysis-only endpoint
+  router.get('/jobs/:jobId/analysis', async (req, res, next) => {
+    try {
+      const { jobId } = req.params;
+      const analysis = await dbService.getJobResult(jobId, req.user?.id || null);
+      if (!analysis) return res.status(404).json({ error: 'Анализ для этого задания не найден.' });
+      res.json({ success: true, jobId, analysis });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Links content-only endpoint (for TXT download on demand)
+  router.get('/jobs/:jobId/links-content', async (req, res, next) => {
+    try {
+      const { jobId } = req.params;
+      const links = await dbService.getLinksContent(jobId, req.user?.id || null);
+      res.json({ success: true, jobId, links });
     } catch (error) {
       next(error);
     }
@@ -1215,6 +1253,18 @@ export default function (clients) {
     try {
       const processedUrls = await dbService.getProcessedUrls(req.user?.id || null);
       res.json({ success: true, urls: processedUrls });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Membership check for processed URLs on the current page
+  router.post('/urls/processed-check', async (req, res, next) => {
+    try {
+      const urls = Array.isArray(req.body?.urls) ? req.body.urls.filter(Boolean) : [];
+      if (urls.length === 0) return res.json({ success: true, processed: [] });
+      const processed = await dbService.getProcessedMembership(urls, req.user?.id || null);
+      res.json({ success: true, processed });
     } catch (error) {
       next(error);
     }

@@ -83,13 +83,21 @@ class DatabaseService {
     return await database.all(`${base} ORDER BY created_at DESC LIMIT $1`, [limit]);
   }
 
+  async getJobLight(jobId, userId = null) {
+    const sql = userId
+      ? `SELECT id, title, status, progress, processed_links, total_links, prompt, created_at, updated_at FROM jobs WHERE id = $1 AND user_id = $2`
+      : `SELECT id, title, status, progress, processed_links, total_links, prompt, created_at, updated_at FROM jobs WHERE id = $1`;
+    const params = userId ? [jobId, userId] : [jobId];
+    return await database.get(sql, params);
+  }
+
   async updateJobTitle(jobId, title, userId = null) {
     const sql = userId
-      ? `UPDATE jobs SET title = $1, user_edited = true, title_source = 'user', updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND user_id = $3`
-      : `UPDATE jobs SET title = $1, user_edited = true, title_source = 'user', updated_at = CURRENT_TIMESTAMP WHERE id = $2`;
+      ? `UPDATE jobs SET title = $1, user_edited = true, title_source = 'user', updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND user_id = $3 RETURNING id, title, status, progress, processed_links, total_links, prompt, created_at, updated_at`
+      : `UPDATE jobs SET title = $1, user_edited = true, title_source = 'user', updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING id, title, status, progress, processed_links, total_links, prompt, created_at, updated_at`;
     const params = userId ? [title, jobId, userId] : [title, jobId];
-    await database.run(sql, params);
-    return await this.getJob(jobId, userId);
+    const updated = await database.get(sql, params);
+    return updated;
   }
 
   async updateJobStatus(jobId, status, additionalData = {}) {
@@ -108,10 +116,16 @@ class DatabaseService {
     }
 
     params.push(jobId);
-    const sql = `UPDATE jobs SET ${setClauses} WHERE id = $${paramIndex}`;
+    // Return only lightweight fields to avoid heavy reads during progress updates
+    const sql = `
+      UPDATE jobs
+      SET ${setClauses}
+      WHERE id = $${paramIndex}
+      RETURNING id, title, status, progress, processed_links, total_links, prompt, created_at, updated_at
+    `;
 
-    await database.run(sql, params);
-    return await this.getJob(jobId);
+    const updated = await database.get(sql, params);
+    return updated;
   }
 
   async updateAutoTitleIfAllowed(jobId, newTitle, source = 'heuristic') {
@@ -226,6 +240,14 @@ class DatabaseService {
     return await database.all(sql, params);
   }
 
+  async getJobLinksLight(jobId, userId = null) {
+    const sql = userId
+      ? `SELECT url, status, decision_date FROM job_links WHERE job_id = $1 AND user_id = $2 ORDER BY id`
+      : `SELECT url, status, decision_date FROM job_links WHERE job_id = $1 ORDER BY id`;
+    const params = userId ? [jobId, userId] : [jobId];
+    return await database.all(sql, params);
+  }
+
   async updateLinkStatus(jobId, url, status, content = null, errorMessage = null, metadata = null) {
     let sql, params;
 
@@ -297,6 +319,14 @@ class DatabaseService {
     const params = userId ? [jobId, userId] : [jobId];
     const result = await database.get(sql, params);
     return result ? result.analysis_text : null;
+  }
+
+  async getLinksContent(jobId, userId = null) {
+    const sql = userId
+      ? `SELECT url, content FROM job_links WHERE job_id = $1 AND user_id = $2 AND status = 'processed' ORDER BY id`
+      : `SELECT url, content FROM job_links WHERE job_id = $1 AND status = 'processed' ORDER BY id`;
+    const params = userId ? [jobId, userId] : [jobId];
+    return await database.all(sql, params);
   }
 
   async addChatMessage(jobId, role, content, userId = null) {
@@ -473,6 +503,16 @@ class DatabaseService {
     `;
     const results = await database.all(sql, userId ? [userId] : []);
     return results.map((row) => row.url);
+  }
+
+  async getProcessedMembership(urls = [], userId = null) {
+    if (!Array.isArray(urls) || urls.length === 0) return [];
+    const sql = userId
+      ? `SELECT url FROM job_links WHERE status = 'processed' AND user_id = $2 AND url = ANY($1)`
+      : `SELECT url FROM job_links WHERE status = 'processed' AND url = ANY($1)`;
+    const params = userId ? [urls, userId] : [urls];
+    const rows = await database.all(sql, params);
+    return rows.map((r) => r.url);
   }
 
   // ---- QUEUE/LEASING OPERATIONS ----

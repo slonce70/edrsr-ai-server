@@ -517,7 +517,10 @@ document.addEventListener('DOMContentLoaded', () => {
       // Optionally filter only unique (not in user's job history)
       let finalLinks = links;
       if (elements.uniqueOnlyToggle?.checked) {
-        const res = await chrome.runtime.sendMessage({ type: 'API_GET_PROCESSED_URLS' });
+        const res = await chrome.runtime.sendMessage({
+          type: 'API_CHECK_PROCESSED',
+          urls: finalLinks.map((l) => l.url),
+        });
         if (res && res.success && Array.isArray(res.urls)) {
           const processed = new Set(res.urls);
           finalLinks = finalLinks.filter((l) => l && l.url && !processed.has(l.url));
@@ -591,7 +594,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         let processedSet = new Set();
         try {
-          const res = await chrome.runtime.sendMessage({ type: 'API_GET_PROCESSED_URLS' });
+          const res = await chrome.runtime.sendMessage({
+            type: 'API_CHECK_PROCESSED',
+            urls,
+          });
           if (res?.success && Array.isArray(res.urls)) processedSet = new Set(res.urls);
         } catch (_) {
           // ignore processed URLs retrieval failure

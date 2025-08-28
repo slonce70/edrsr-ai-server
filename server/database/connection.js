@@ -227,6 +227,7 @@ class Database {
       'CREATE INDEX IF NOT EXISTS idx_job_links_job_id ON job_links(job_id)',
       'CREATE INDEX IF NOT EXISTS idx_job_links_status ON job_links(status)',
       'CREATE INDEX IF NOT EXISTS idx_job_links_job_status ON job_links(job_id, status)',
+      'CREATE INDEX IF NOT EXISTS idx_job_links_url ON job_links(url)',
       'CREATE INDEX IF NOT EXISTS idx_job_links_user_id ON job_links(user_id)',
 
       // Job_results table indexes

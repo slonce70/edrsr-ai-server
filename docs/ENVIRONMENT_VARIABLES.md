@@ -39,6 +39,9 @@ PORT=4000
 
 # Режим работы (development/production)
 NODE_ENV=production
+ 
+# Максимальное количество задач в ответе /api/jobs (cap)
+JOBS_MAX_LIMIT=100
 ```
 
 ### **Ограничения и производительность**
