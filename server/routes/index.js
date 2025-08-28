@@ -134,16 +134,20 @@ async function refreshHeuristicTitle(jobId) {
     const ok = await dbService.updateAutoTitleIfAllowed(jobId, title, 'heuristic');
     if (ok) {
       const updatedJob = await dbService.getJob(jobId, userId || null);
-      // Send light update to clients
-      sendUpdateToJobOwner(jobId, {
-        id: updatedJob.id,
-        title: updatedJob.title,
-        status: updatedJob.status,
-        progress: updatedJob.progress,
-        processed_links: updatedJob.processed_links,
-        total_links: updatedJob.total_links,
-        updated_at: updatedJob.updated_at,
-      });
+      // Send light update to clients if job still exists
+      if (updatedJob) {
+        sendUpdateToJobOwner(jobId, {
+          id: updatedJob.id,
+          title: updatedJob.title,
+          status: updatedJob.status,
+          progress: updatedJob.progress,
+          processed_links: updatedJob.processed_links,
+          total_links: updatedJob.total_links,
+          updated_at: updatedJob.updated_at,
+        });
+      } else {
+        logger.debug(`[TITLE] Job ${jobId} disappeared before title update broadcast`);
+      }
     }
     return ok;
   } catch (e) {
@@ -176,25 +180,38 @@ function startWorker({ jobId, links, cookie, prompt, claimed = false }) {
 
   const updateStatus = async (status, progress, message, extra = {}) => {
     const jobDataToUpdate = { progress, ...extra };
-    const updatedJob = await dbService.updateJobStatus(jobId, status, jobDataToUpdate);
+    let updatedJob = null;
+    try {
+      updatedJob = await dbService.updateJobStatus(jobId, status, jobDataToUpdate);
+    } catch (e) {
+      logger.warn(`[${jobId}] updateStatus DB error: ${e.message}`);
+    }
     // Heartbeat to extend lease while processing
     dbService.heartbeatJob(jobId, WORKER_ID).catch(() => {});
 
-    // Send light updates during progress to reduce payload; full data only on completion
-    const wsData = {
-      id: updatedJob.id,
-      title: updatedJob.title,
-      status,
-      progress,
-      message,
-      processed_links: updatedJob.processed_links,
-      total_links: updatedJob.total_links,
-      created_at: updatedJob.created_at,
-      updated_at: updatedJob.updated_at,
-      prompt: updatedJob.prompt,
-    };
+    if (updatedJob) {
+      // Send light updates during progress to reduce payload; full data only on completion
+      const wsData = {
+        id: updatedJob.id,
+        title: updatedJob.title,
+        status,
+        progress,
+        message,
+        processed_links: updatedJob.processed_links,
+        total_links: updatedJob.total_links,
+        created_at: updatedJob.created_at,
+        updated_at: updatedJob.updated_at,
+        prompt: updatedJob.prompt,
+      };
 
-    sendUpdateToJobOwner(jobId, wsData);
+      sendUpdateToJobOwner(jobId, wsData);
+    } else {
+      // Job might have been deleted mid-process; avoid throwing and keep worker flowing
+      logger.warn(
+        `[${jobId}] updateStatus: job not found (probably deleted). Skipping WS update for status '${status}'.`
+      );
+    }
+
     logger.info(`[${jobId}] Status: ${status}, Progress: ${progress}%, Message: ${message}`);
   };
 
