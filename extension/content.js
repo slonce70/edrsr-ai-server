@@ -447,8 +447,6 @@ async function collectAndSend(options) {
       showMessage(`📤 Найдено ${decisions.length} ссылок. Отправляю на сервер...`, 'info');
     }
 
-    const cookies = await chrome.runtime.sendMessage({ type: 'GET_COOKIES' });
-
     // Send job to service worker
     const tab = await chrome.runtime.sendMessage({ type: 'GET_ACTIVE_TAB' });
 
@@ -456,7 +454,7 @@ async function collectAndSend(options) {
       type: 'START_JOB',
       payload: {
         links: decisions,
-        cookie: cookies,
+        cookie: '',
         prompt: options.prompt,
         promptLabel: options.promptLabel || null,
         autoTitleEnabled: options.autoTitleEnabled !== false,

@@ -92,6 +92,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let librariesLoaded = false; // for image PDF path (jsPDF)
   let imageLibsLoading = false;
   let reportRendered = false;
+  let unicodeFontReady = false;
 
   const elements = {
     jobTitle: document.getElementById('jobTitle'),
@@ -134,7 +135,7 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
     imageLibsLoading = true;
-    // Load jsPDF only on demand (html2canvas already loaded by HTML)
+    // Load jsPDF only on demand (local packaged file)
     await new Promise((resolve, reject) => {
       const s = document.createElement('script');
       s.src = chrome.runtime.getURL('jspdf.umd.min.js');
@@ -145,6 +146,52 @@ document.addEventListener('DOMContentLoaded', () => {
     librariesLoaded = true;
     imageLibsLoading = false;
     return true;
+  }
+
+  async function ensureUnicodeFontRegistered(pdf) {
+    if (unicodeFontReady) return true;
+    try {
+      const regularUrl = chrome.runtime.getURL('fonts/NotoSans-Regular.ttf');
+      const boldUrl = chrome.runtime.getURL('fonts/NotoSans-Bold.ttf');
+
+      const [regResp, boldResp] = await Promise.all([
+        fetch(regularUrl).catch(() => null),
+        fetch(boldUrl).catch(() => null),
+      ]);
+      if (!regResp || !regResp.ok || !boldResp || !boldResp.ok) {
+        throw new Error('Packaged fonts not found');
+      }
+
+      const [regBuf, boldBuf] = await Promise.all([
+        regResp.arrayBuffer(),
+        boldResp.arrayBuffer(),
+      ]);
+
+      const toBase64 = (buffer) => {
+        const bytes = new Uint8Array(buffer);
+        const chunkSize = 0x8000;
+        let binary = '';
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+          binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+        }
+        return btoa(binary);
+      };
+
+      const regBase64 = toBase64(regBuf);
+      const boldBase64 = toBase64(boldBuf);
+
+      pdf.addFileToVFS('NotoSans-Regular.ttf', regBase64);
+      pdf.addFileToVFS('NotoSans-Bold.ttf', boldBase64);
+      pdf.addFont('NotoSans-Regular.ttf', 'NotoSans', 'normal');
+      pdf.addFont('NotoSans-Bold.ttf', 'NotoSans', 'bold');
+
+      unicodeFontReady = true;
+      return true;
+    } catch (e) {
+      console.error('Failed to load/register Noto Sans font:', e);
+      unicodeFontReady = false;
+      return false;
+    }
   }
 
   const urlParams = new URLSearchParams(window.location.search);
@@ -389,14 +436,16 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.pdfBtnSpinner.style.display = 'inline-block';
 
     if (pdfType === 'text') {
+      // Keep TXT download as before
       generateTextPDF();
     } else {
+      // Generate a text-based PDF (not image), with basic formatting and clickable links
       try {
-        await ensureImageLibsLoaded();
-        generateImagePDF();
+        await ensureImageLibsLoaded(); // loads jsPDF on demand
+        await generateRichTextPDF();
       } catch (e) {
-        console.error('Error loading PDF libraries:', e);
-        alert('Не удалось загрузить библиотеку для PDF.');
+        console.error('Error generating text PDF:', e);
+        alert('Не удалось создать PDF. Проверьте консоль для деталей.');
         elements.downloadPdfBtn.disabled = false;
         elements.pdfBtnText.textContent = '📄 Скачать отчёт';
         elements.pdfBtnSpinner.style.display = 'none';
@@ -484,6 +533,215 @@ document.addEventListener('DOMContentLoaded', () => {
         .replace(/\n{3,}/g, '\n\n')
         .trim()
     );
+  }
+
+  // --- Text-based PDF (with formatting + clickable links) ---
+  async function generateRichTextPDF() {
+    const jsPDF = window.jspdf?.jsPDF;
+    if (!jsPDF) throw new Error('jsPDF is not loaded');
+
+    const pdf = new jsPDF('p', 'mm', 'a4');
+    await ensureUnicodeFontRegistered(pdf);
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const margin = 15;
+    const contentWidth = pageWidth - margin * 2;
+    let y = margin;
+
+    // Styles
+    const headingColor = [38, 70, 167]; // blue-ish
+    const textColor = [0, 0, 0];
+    const linkColor = [35, 99, 173];
+
+    const baseFontSize = 11;
+    const lineHeight = 5.5; // mm
+
+    const checkPageBreak = (extraHeight = lineHeight) => {
+      if (y + extraHeight > pageHeight - margin) {
+        pdf.addPage();
+        y = margin;
+      }
+    };
+
+    const addHeading = (text, level = 2) => {
+      const sizes = { 1: 16, 2: 14, 3: 12 };
+      pdf.setFont(unicodeFontReady ? 'NotoSans' : 'helvetica', 'bold');
+      pdf.setTextColor(...headingColor);
+      pdf.setFontSize(sizes[level] || 12);
+      const lines = pdf.splitTextToSize(text, contentWidth);
+      lines.forEach((ln) => {
+        checkPageBreak();
+        pdf.text(ln, margin, y);
+        y += lineHeight;
+      });
+      y += 1.5;
+      pdf.setTextColor(...textColor);
+      pdf.setFontSize(baseFontSize);
+      pdf.setFont(unicodeFontReady ? 'NotoSans' : 'helvetica', 'normal');
+    };
+
+    const addLabelValue = (label, value) => {
+      checkPageBreak();
+      pdf.setFont(unicodeFontReady ? 'NotoSans' : 'helvetica', 'bold');
+      const labelText = `${label}:`;
+      pdf.text(labelText, margin, y);
+      const x2 = margin + pdf.getTextWidth(labelText + ' ');
+      pdf.setFont(unicodeFontReady ? 'NotoSans' : 'helvetica', 'normal');
+      pdf.text(String(value || ''), x2, y);
+      y += lineHeight;
+    };
+
+    const renderParagraphWithLinks = (text, opts = {}) => {
+      const indent = opts.indent || 0; // in mm
+      const xStart = margin + indent;
+      const xMax = pageWidth - margin;
+      let x = xStart;
+
+      // Tokenize text for [label](url) and raw URLs
+      const tokens = [];
+      const regex = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s]+)/g;
+      let last = 0;
+      let m;
+      while ((m = regex.exec(text)) !== null) {
+        if (m.index > last) tokens.push({ type: 'text', text: text.slice(last, m.index) });
+        if (m[2]) tokens.push({ type: 'link', text: m[1], url: m[2] });
+        else tokens.push({ type: 'link', text: m[3], url: m[3] });
+        last = regex.lastIndex;
+      }
+      if (last < text.length) tokens.push({ type: 'text', text: text.slice(last) });
+
+      // Split tokens into words while preserving link grouping
+      const words = [];
+      tokens.forEach((t) => {
+        if (t.type === 'link') {
+          const parts = t.text.split(/(\s+)/);
+          for (const p of parts) {
+            if (!p) continue;
+            words.push({ type: /\s+/.test(p) ? 'space' : 'link', text: p, url: t.url });
+          }
+        } else {
+          const parts = t.text.split(/(\s+)/);
+          for (const p of parts) {
+            if (!p) continue;
+            words.push({ type: /\s+/.test(p) ? 'space' : 'text', text: p });
+          }
+        }
+      });
+
+      pdf.setFont(unicodeFontReady ? 'NotoSans' : 'helvetica', 'normal');
+      pdf.setFontSize(baseFontSize);
+      pdf.setTextColor(...textColor);
+
+      checkPageBreak();
+      y = y; // ensure y defined
+
+      for (const w of words) {
+        const wText = w.text;
+        const wWidth = pdf.getTextWidth(wText);
+
+        if (x + wWidth > xMax) {
+          // New line
+          y += lineHeight;
+          checkPageBreak();
+          x = xStart;
+          // Skip spaces at line start
+          if (w.type === 'space') continue;
+        }
+
+        if (w.type === 'link') {
+          pdf.setTextColor(...linkColor);
+          pdf.textWithLink(wText, x, y, { url: w.url });
+          pdf.setTextColor(...textColor);
+        } else if (w.type === 'text') {
+          pdf.text(wText, x, y);
+        } else if (w.type === 'space') {
+          // draw a space as normal text to advance x
+          pdf.text(wText, x, y);
+        }
+        x += wWidth;
+      }
+      y += lineHeight;
+    };
+
+    const addBulletPoint = (text) => {
+      // Bullet • with small indent
+      checkPageBreak();
+      pdf.setFont(unicodeFontReady ? 'NotoSans' : 'helvetica', 'normal');
+      pdf.text('•', margin, y);
+      renderParagraphWithLinks(cleanMarkdownText(text), { indent: 4 });
+    };
+
+    const addWrappedText = (text) => {
+      renderParagraphWithLinks(text);
+    };
+
+    // Title
+    const title = currentJobData?.title || `Отчёт анализа задания: ${jobId}`;
+    addHeading(title, 1);
+
+    // Divider
+    pdf.setDrawColor(102, 126, 234);
+    pdf.setLineWidth(0.5);
+    checkPageBreak(2);
+    pdf.line(margin, y, pageWidth - margin, y);
+    y += 4;
+
+    // Metadata
+    if (currentJobData) {
+      addHeading('МЕТАДАННЫЕ', 3);
+      pdf.setFontSize(baseFontSize);
+      addLabelValue('Статус', currentJobData.status);
+      addLabelValue('Создано', new Date(currentJobData.created_at).toLocaleString('ru-RU'));
+      addLabelValue('Всего ссылок', currentJobData.total_links);
+      addLabelValue('Обработано', currentJobData.processed_links || 0);
+      addLabelValue('Длительность', `${currentJobData.duration || 'N/A'} сек.`);
+      y += 2;
+    }
+
+    // Prompt
+    if (currentJobData?.prompt && currentJobData.prompt.trim() !== '') {
+      addHeading('ПОЛЬЗОВАТЕЛЬСКИЙ ЗАПРОС', 3);
+      addWrappedText(currentJobData.prompt.trim());
+      y += 2;
+    }
+
+    // Analysis
+    if (currentJobData?.analysis) {
+      addHeading('РЕЗУЛЬТАТЫ АНАЛИЗА', 2);
+      parseAndRenderMarkdown(
+        currentJobData.analysis,
+        pdf,
+        margin,
+        contentWidth,
+        lineHeight,
+        checkPageBreak,
+        addHeading,
+        addWrappedText,
+        addBulletPoint
+      );
+    }
+
+    // Footer page numbers
+    const pageCount = pdf.getNumberOfPages();
+    for (let p = 1; p <= pageCount; p++) {
+      pdf.setPage(p);
+      pdf.setFont(unicodeFontReady ? 'NotoSans' : 'helvetica', 'normal');
+      pdf.setFontSize(9);
+      pdf.setTextColor(120);
+      const footer = `Стр. ${p} из ${pageCount}`;
+      const w = pdf.getTextWidth(footer);
+      pdf.text(footer, pageWidth - margin - w, pageHeight - 8);
+      pdf.setTextColor(0, 0, 0);
+    }
+
+    // Save
+    const safeTitle = (currentJobData?.title || 'report').replace(/[^\w\-]+/g, '_');
+    pdf.save(`${safeTitle}_${jobId}.pdf`);
+
+    // UI restore
+    elements.downloadPdfBtn.disabled = false;
+    elements.pdfBtnText.textContent = '📄 Скачать отчёт';
+    elements.pdfBtnSpinner.style.display = 'none';
   }
 
   // Enhanced markdown parser for PDF generation

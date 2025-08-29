@@ -652,12 +652,6 @@ async function handlePortMessage(message, port, sendResponse) {
         }
         break;
       }
-      case 'GET_COOKIES': {
-        const cookies = await chrome.cookies.getAll({ domain: 'reyestr.court.gov.ua' });
-        const cookieString = cookies.map((c) => `${c.name}=${c.value}`).join('; ');
-        sendResponse(cookieString);
-        return; // Return because we used sendResponse
-      }
       case 'GET_CLIENT_ID': {
         if (port) {
           port.postMessage({ type: 'CLIENT_ID', payload: clientId });
@@ -740,11 +734,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   // Handle other messages
-  if (
-    message.type === 'GET_COOKIES' ||
-    message.type === 'START_JOB' ||
-    message.type === 'GET_CLIENT_ID'
-  ) {
+  if (message.type === 'START_JOB' || message.type === 'GET_CLIENT_ID') {
     handlePortMessage(message, null, sendResponse);
     return true;
   }
