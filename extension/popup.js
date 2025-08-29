@@ -558,13 +558,11 @@ document.addEventListener('DOMContentLoaded', () => {
         promptLabel = null;
       }
 
-      const cookies = await chrome.cookies.getAll({ domain: 'reyestr.court.gov.ua' });
-
       port.postMessage({
         type: 'START_JOB',
         payload: {
           links: finalLinks,
-          cookie: cookies.map((c) => `${c.name}=${c.value}`).join('; '),
+          cookie: '',
           prompt,
           promptLabel,
           autoTitleEnabled: !!elements.autoTitleToggle?.checked,

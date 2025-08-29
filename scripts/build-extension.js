@@ -78,20 +78,56 @@ async function build() {
       }
     }
 
-    // 5. Patch manifest.json
-    console.log('🔄 Patching manifest.json for production permissions');
-    const manifestPath = path.join(buildDir, 'manifest.json');
-    const manifestContent = await fs.readFile(manifestPath, 'utf-8');
-    const manifestJson = JSON.parse(manifestContent);
+  // 5. Patch manifest.json
+  console.log('🔄 Patching manifest.json for production permissions');
+  const manifestPath = path.join(buildDir, 'manifest.json');
+  const manifestContent = await fs.readFile(manifestPath, 'utf-8');
+  const manifestJson = JSON.parse(manifestContent);
 
-    // Remove localhost and add production host permission
-    manifestJson.host_permissions = manifestJson.host_permissions.filter(
-      (p) => !p.includes('localhost')
+  // Remove localhost and add production host permission
+  manifestJson.host_permissions = manifestJson.host_permissions.filter(
+      (p) => !p.includes('localhost') && !p.includes('raw.githubusercontent.com')
+  );
+  manifestJson.host_permissions.push(PROD_API_URL + '/*');
+
+    // Drop unnecessary permissions (lean for review)
+    if (Array.isArray(manifestJson.permissions)) {
+      manifestJson.permissions = manifestJson.permissions.filter(
+        (p) => p !== 'cookies' && p !== 'scripting'
+      );
+    }
+
+  await fs.writeFile(manifestPath, JSON.stringify(manifestJson, null, 2), 'utf-8');
+  console.log('   ✅ Patched manifest.json');
+
+    // 5.1. Download packaged fonts for Unicode PDF
+    console.log('🔤 Downloading Noto Sans fonts into build...');
+    const fontsDir = path.join(buildDir, 'fonts');
+    await fs.ensureDir(fontsDir);
+    const { get } = await import('https');
+    const fetchAndSave = (url, out) =>
+      new Promise((resolve, reject) => {
+        get(url, (res) => {
+          if (res.statusCode !== 200) {
+            reject(new Error(`Failed to download ${url}: HTTP ${res.statusCode}`));
+            res.resume();
+            return;
+          }
+          const file = fs.createWriteStream(out);
+          res.pipe(file);
+          file.on('finish', () => file.close(resolve));
+          file.on('error', reject);
+        }).on('error', reject);
+      });
+    await fetchAndSave(
+      'https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSans/NotoSans-Regular.ttf',
+      path.join(fontsDir, 'NotoSans-Regular.ttf')
     );
-    manifestJson.host_permissions.push(PROD_API_URL + '/*');
-
-    await fs.writeFile(manifestPath, JSON.stringify(manifestJson, null, 2), 'utf-8');
-    console.log('   ✅ Patched manifest.json');
+    await fetchAndSave(
+      'https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSans/NotoSans-Bold.ttf',
+      path.join(fontsDir, 'NotoSans-Bold.ttf')
+    );
+    console.log('   ✅ Fonts packaged');
 
     // 6. Create a zip archive for the store
     console.log(`📦 Creating zip archive for Chrome Web Store...`);
