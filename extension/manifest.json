@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "EDRSR AI Помощник",
-  "version": "1.0.2",
+  "version": "1.0.4",
   "description": "Помощник на базе ИИ для анализа судебных решений из ЄДРСР",
   "icons": {
     "16": "icon16.png",
@@ -9,10 +9,7 @@
     "128": "icon128.png"
   },
   "permissions": ["storage", "activeTab", "notifications"],
-  "host_permissions": [
-    "https://reyestr.court.gov.ua/*",
-    "https://*.supabase.co/*"
-  ],
+  "host_permissions": ["https://reyestr.court.gov.ua/*", "https://*.supabase.co/*"],
   "background": {
     "service_worker": "bg.js",
     "type": "module"
@@ -35,10 +32,8 @@
   },
   "web_accessible_resources": [
     {
-      "resources": [
-        "results.html"
-      ],
-      "matches": ["https://reyestr.court.gov.ua/*", "chrome-extension://*/*"]
+      "resources": ["results.html"],
+      "matches": ["https://reyestr.court.gov.ua/*"]
     }
   ],
   "content_security_policy": {

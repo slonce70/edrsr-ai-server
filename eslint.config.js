@@ -101,6 +101,7 @@ export default [
         URL: 'readonly',
         URLSearchParams: 'readonly',
         MutationObserver: 'readonly',
+        btoa: 'readonly',
       },
     },
     rules: {

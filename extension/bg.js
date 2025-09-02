@@ -536,7 +536,7 @@ async function handlePortMessage(message, port, sendResponse) {
           // The results page is still looking at the old, failed job.
           // Let's redirect the user to the new job's results page.
           const newJobId = result.jobId;
-          const resultsPageUrl = chrome.runtime.getURL(`extension/results.html?jobId=${newJobId}`);
+          const resultsPageUrl = chrome.runtime.getURL(`results.html?jobId=${newJobId}`);
           port.postMessage({ type: 'REDIRECT', payload: { url: resultsPageUrl } });
         }
         break;
