@@ -85,8 +85,8 @@ class DatabaseService {
 
   async getJobLight(jobId, userId = null) {
     const sql = userId
-      ? `SELECT id, title, status, progress, processed_links, total_links, prompt, created_at, updated_at FROM jobs WHERE id = $1 AND user_id = $2`
-      : `SELECT id, title, status, progress, processed_links, total_links, prompt, created_at, updated_at FROM jobs WHERE id = $1`;
+      ? `SELECT id, title, status, progress, processed_links, total_links, prompt, created_at, updated_at, duration FROM jobs WHERE id = $1 AND user_id = $2`
+      : `SELECT id, title, status, progress, processed_links, total_links, prompt, created_at, updated_at, duration FROM jobs WHERE id = $1`;
     const params = userId ? [jobId, userId] : [jobId];
     return await database.get(sql, params);
   }
@@ -121,7 +121,7 @@ class DatabaseService {
       UPDATE jobs
       SET ${setClauses}
       WHERE id = $${paramIndex}
-      RETURNING id, title, status, progress, processed_links, total_links, prompt, created_at, updated_at
+      RETURNING id, title, status, progress, processed_links, total_links, prompt, created_at, updated_at, duration
     `;
 
     const updated = await database.get(sql, params);

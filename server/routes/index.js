@@ -202,6 +202,7 @@ function startWorker({ jobId, links, cookie, prompt, claimed = false }) {
         created_at: updatedJob.created_at,
         updated_at: updatedJob.updated_at,
         prompt: updatedJob.prompt,
+        duration: updatedJob.duration,
       };
 
       sendUpdateToJobOwner(jobId, wsData);

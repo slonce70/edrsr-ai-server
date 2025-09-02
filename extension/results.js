@@ -89,8 +89,7 @@ document.addEventListener('DOMContentLoaded', () => {
   };
   marked.setOptions({ renderer });
 
-  let librariesLoaded = false; // for image PDF path (jsPDF)
-  let imageLibsLoading = false;
+  // jsPDF is now statically included via results.html
   let reportRendered = false;
   let unicodeFontReady = false;
 
@@ -121,30 +120,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   };
 
+  // No-op placeholder retained for compatibility (jsPDF is preloaded)
   async function ensureImageLibsLoaded() {
-    if (librariesLoaded) return true;
-    if (imageLibsLoading) {
-      // wait until loaded
-      return new Promise((resolve) => {
-        const iv = setInterval(() => {
-          if (librariesLoaded) {
-            clearInterval(iv);
-            resolve(true);
-          }
-        }, 100);
-      });
-    }
-    imageLibsLoading = true;
-    // Load jsPDF only on demand (local packaged file)
-    await new Promise((resolve, reject) => {
-      const s = document.createElement('script');
-      s.src = chrome.runtime.getURL('jspdf.umd.min.js');
-      s.onload = () => resolve();
-      s.onerror = () => reject(new Error('Failed to load jsPDF'));
-      document.head.appendChild(s);
-    });
-    librariesLoaded = true;
-    imageLibsLoading = false;
     return true;
   }
 
@@ -162,10 +139,7 @@ document.addEventListener('DOMContentLoaded', () => {
         throw new Error('Packaged fonts not found');
       }
 
-      const [regBuf, boldBuf] = await Promise.all([
-        regResp.arrayBuffer(),
-        boldResp.arrayBuffer(),
-      ]);
+      const [regBuf, boldBuf] = await Promise.all([regResp.arrayBuffer(), boldResp.arrayBuffer()]);
 
       const toBase64 = (buffer) => {
         const bytes = new Uint8Array(buffer);
@@ -441,7 +415,6 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
       // Generate a text-based PDF (not image), with basic formatting and clickable links
       try {
-        await ensureImageLibsLoaded(); // loads jsPDF on demand
         await generateRichTextPDF();
       } catch (e) {
         console.error('Error generating text PDF:', e);
@@ -633,7 +606,7 @@ document.addEventListener('DOMContentLoaded', () => {
       pdf.setTextColor(...textColor);
 
       checkPageBreak();
-      y = y; // ensure y defined
+      // y is managed via outer scope and checkPageBreak
 
       for (const w of words) {
         const wText = w.text;
@@ -735,7 +708,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Save
-    const safeTitle = (currentJobData?.title || 'report').replace(/[^\w\-]+/g, '_');
+    const safeTitle = (currentJobData?.title || 'report').replace(/[^\w-]+/g, '_');
     pdf.save(`${safeTitle}_${jobId}.pdf`);
 
     // UI restore
