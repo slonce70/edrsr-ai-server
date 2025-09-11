@@ -124,8 +124,8 @@ MEMORY_LIMIT_MB=500
 
 ### **Безопасность скрейпера (пропуск проблемных страниц)**
 ```env
-# Максимальный размер HTML для парсинга (байты), по умолчанию ~2 MB
-MAX_HTML_BYTES=2000000
+# Максимальный размер HTML для парсинга (байты), по умолчанию ~3.5 MB
+MAX_HTML_BYTES=3500000
 
 # Защита от "тяжелых" страниц: слишком много <script> или сверхдлинные строки
 MAX_SCRIPT_TAGS=200
@@ -250,7 +250,7 @@ MEMORY_LIMIT_MB=500
 API_BASE_URL=http://localhost:4000
 
 # Scraper Safety
-MAX_HTML_BYTES=2000000
+MAX_HTML_BYTES=3500000
 MAX_SCRIPT_TAGS=200
 MAX_HTML_LINE_LENGTH=200000
 MAX_JS_KEYWORDS=1500
