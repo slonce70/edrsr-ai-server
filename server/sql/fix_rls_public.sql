@@ -52,13 +52,13 @@ BEGIN
         -- ignore if index exists with another name
       END;
 
-      -- Owner-scoped policies (create only if missing)
+      -- Owner-scoped policies (create only if missing). Use (select ...) wrappers for initplan perf
       IF NOT EXISTS (
         SELECT 1 FROM pg_policies
         WHERE schemaname = sch AND tablename = r.table_name AND policyname = r.table_name || '_select_own'
       ) THEN
         EXECUTE format(
-          'CREATE POLICY %I ON %I.%I FOR SELECT USING (user_id = auth.uid() OR auth.role() = ''service_role'');',
+          'CREATE POLICY %I ON %I.%I FOR SELECT USING (user_id = (select auth.uid()) OR (select auth.role()) = ''service_role'');',
           r.table_name || '_select_own', sch, r.table_name
         );
       END IF;
@@ -68,7 +68,7 @@ BEGIN
         WHERE schemaname = sch AND tablename = r.table_name AND policyname = r.table_name || '_insert_own'
       ) THEN
         EXECUTE format(
-          'CREATE POLICY %I ON %I.%I FOR INSERT WITH CHECK (user_id = auth.uid() OR auth.role() = ''service_role'');',
+          'CREATE POLICY %I ON %I.%I FOR INSERT WITH CHECK (user_id = (select auth.uid()) OR (select auth.role()) = ''service_role'');',
           r.table_name || '_insert_own', sch, r.table_name
         );
       END IF;
@@ -78,7 +78,7 @@ BEGIN
         WHERE schemaname = sch AND tablename = r.table_name AND policyname = r.table_name || '_update_own'
       ) THEN
         EXECUTE format(
-          'CREATE POLICY %I ON %I.%I FOR UPDATE USING (user_id = auth.uid() OR auth.role() = ''service_role'') WITH CHECK (user_id = auth.uid() OR auth.role() = ''service_role'');',
+          'CREATE POLICY %I ON %I.%I FOR UPDATE USING (user_id = (select auth.uid()) OR (select auth.role()) = ''service_role'') WITH CHECK (user_id = (select auth.uid()) OR (select auth.role()) = ''service_role'');',
           r.table_name || '_update_own', sch, r.table_name
         );
       END IF;
@@ -88,13 +88,14 @@ BEGIN
         WHERE schemaname = sch AND tablename = r.table_name AND policyname = r.table_name || '_delete_own'
       ) THEN
         EXECUTE format(
-          'CREATE POLICY %I ON %I.%I FOR DELETE USING (user_id = auth.uid() OR auth.role() = ''service_role'');',
+          'CREATE POLICY %I ON %I.%I FOR DELETE USING (user_id = (select auth.uid()) OR (select auth.role()) = ''service_role'');',
           r.table_name || '_delete_own', sch, r.table_name
         );
       END IF;
 
     ELSE
-      -- Shared/lookup tables: allow read for everyone, writes only by service_role
+      -- Shared/lookup tables: allow read for everyone, writes only by service_role.
+      -- Avoid multiple permissive policies on SELECT by scoping write policies to non-SELECT actions.
       IF NOT EXISTS (
         SELECT 1 FROM pg_policies
         WHERE schemaname = sch AND tablename = r.table_name AND policyname = r.table_name || '_read_all'
@@ -105,13 +106,42 @@ BEGIN
         );
       END IF;
 
-      IF NOT EXISTS (
+      -- Drop legacy ALL-action write policy if present to prevent multiple permissive SELECT policies
+      IF EXISTS (
         SELECT 1 FROM pg_policies
         WHERE schemaname = sch AND tablename = r.table_name AND policyname = r.table_name || '_write_service_role'
       ) THEN
+        EXECUTE format('DROP POLICY %I ON %I.%I;', r.table_name || '_write_service_role', sch, r.table_name);
+      END IF;
+
+      -- Create write policies per action gated to service_role. Use (select ...) wrapper for perf.
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = sch AND tablename = r.table_name AND policyname = r.table_name || '_ins_service_role'
+      ) THEN
         EXECUTE format(
-          'CREATE POLICY %I ON %I.%I FOR ALL USING (auth.role() = ''service_role'') WITH CHECK (auth.role() = ''service_role'');',
-          r.table_name || '_write_service_role', sch, r.table_name
+          'CREATE POLICY %I ON %I.%I FOR INSERT WITH CHECK ((select auth.role()) = ''service_role'');',
+          r.table_name || '_ins_service_role', sch, r.table_name
+        );
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = sch AND tablename = r.table_name AND policyname = r.table_name || '_upd_service_role'
+      ) THEN
+        EXECUTE format(
+          'CREATE POLICY %I ON %I.%I FOR UPDATE USING ((select auth.role()) = ''service_role'') WITH CHECK ((select auth.role()) = ''service_role'');',
+          r.table_name || '_upd_service_role', sch, r.table_name
+        );
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = sch AND tablename = r.table_name AND policyname = r.table_name || '_del_service_role'
+      ) THEN
+        EXECUTE format(
+          'CREATE POLICY %I ON %I.%I FOR DELETE USING ((select auth.role()) = ''service_role'');',
+          r.table_name || '_del_service_role', sch, r.table_name
         );
       END IF;
     END IF;
@@ -127,4 +157,3 @@ FROM pg_class c
 JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE n.nspname='public' AND c.relkind IN ('r','p')
 ORDER BY 1,2;
-

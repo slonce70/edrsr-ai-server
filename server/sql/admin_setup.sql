@@ -19,7 +19,7 @@ CREATE POLICY user_roles_admin_only ON user_roles
     FOR ALL USING (
         EXISTS (
             SELECT 1 FROM user_roles ur 
-            WHERE ur.user_id = auth.uid() AND ur.role = 'admin'
+            WHERE ur.user_id = (select auth.uid()) AND ur.role = 'admin'
         )
     );
 
@@ -44,7 +44,7 @@ CREATE POLICY admin_audit_read ON admin_audit_log
     FOR SELECT USING (
         EXISTS (
             SELECT 1 FROM user_roles ur 
-            WHERE ur.user_id = auth.uid() AND ur.role = 'admin'
+            WHERE ur.user_id = (select auth.uid()) AND ur.role = 'admin'
         )
     );
 
