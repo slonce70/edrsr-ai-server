@@ -3,14 +3,66 @@ import 'dotenv/config';
 
 const { Pool } = pg;
 
+// Small helper for delays
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function isTransientPgError(error) {
+  if (!error) return false;
+  const code = error.code;
+  const msg = `${error.message || ''} ${error.stack || ''}`.toLowerCase();
+  // Common transient/connection-related conditions (pgBouncer/Supabase restarts, network blips)
+  const transientCodes = new Set([
+    '57P01', // admin_shutdown
+    '57P02', // crash_shutdown
+    '57P03', // cannot_connect_now
+    '53300', // too_many_connections
+    '08000', // connection_exception
+    '08003', // connection_does_not_exist
+    '08006', // connection_failure
+  ]);
+  if (code && transientCodes.has(code)) return true;
+  // Message-based detection for poolers/clouds
+  const substrings = [
+    'dbhandler exited',
+    'db_termination',
+    'terminating connection',
+    'server closed the connection unexpectedly',
+    'connection terminated',
+    'the database system is starting up',
+    'could not receive data from server',
+    'connection reset by peer',
+    'socket hang up',
+    'econnreset',
+  ];
+  return substrings.some((s) => msg.includes(s));
+}
+
 class Database {
   constructor() {
     if (!process.env.DATABASE_URL) {
       throw new Error('DATABASE_URL is not set in the environment variables.');
     }
-    this.pool = new Pool({
+
+    // Safer pool configuration for Supabase/pgBouncer and cloud envs
+    const poolConfig = {
       connectionString: process.env.DATABASE_URL,
-    });
+      max: parseInt(process.env.PG_POOL_MAX || '10', 10),
+      idleTimeoutMillis: parseInt(process.env.PG_IDLE_TIMEOUT_MS || '30000', 10),
+      connectionTimeoutMillis: parseInt(process.env.PG_CONN_TIMEOUT_MS || '10000', 10),
+      keepAlive: true,
+      // rotate connections periodically to avoid stale ones behind NAT/pgBouncer
+      maxUses: parseInt(process.env.PG_MAX_USES || '7500', 10),
+    };
+    const wantSSL =
+      process.env.PGSSL === 'true' ||
+      process.env.PGSSLMODE === 'require' ||
+      (process.env.DATABASE_URL || '').includes('supabase.com');
+    if (wantSSL) {
+      // For Supabase often rejectUnauthorized=false is acceptable in app clients
+      poolConfig.ssl = { rejectUnauthorized: false };
+    }
+
+    this.pool = new Pool(poolConfig);
 
     this.pool.on('connect', () => {
       // Логування тільки при першому підключенні
@@ -21,17 +73,33 @@ class Database {
     });
 
     this.pool.on('error', (err) => {
-      console.error('Помилка підключення до бази даних:', err.stack);
+      console.error('Помилка підключення до бази даних:', err.stack || err.message);
     });
   }
 
-  async query(sql, params = []) {
-    const client = await this.pool.connect();
-    try {
-      return await client.query(sql, params);
-    } finally {
-      client.release();
+  async withRetry(executor, { attempts = 3, delays = [200, 500, 1000] } = {}) {
+    let lastError;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        return await executor();
+      } catch (err) {
+        lastError = err;
+        if (isTransientPgError(err) && i < attempts - 1) {
+          const delay = delays[i] || delays[delays.length - 1] || 500;
+          // Light log only; upstream caller may also log
+          console.warn(`⚠️ PG transient error, retrying in ${delay}ms:`, err.message);
+          await sleep(delay);
+          continue;
+        }
+        throw err;
+      }
     }
+    throw lastError;
+  }
+
+  async query(sql, params = []) {
+    // Use pool.query directly (no explicit client) and add retry logic
+    return await this.withRetry(() => this.pool.query(sql, params));
   }
 
   async run(sql, params = []) {
@@ -246,6 +314,7 @@ class Database {
       // Index for the new parsed_cases table
       'CREATE INDEX IF NOT EXISTS idx_parsed_cases_url ON parsed_cases(url)',
       'CREATE INDEX IF NOT EXISTS idx_parsed_cases_user_id ON parsed_cases(user_id)',
+      'CREATE INDEX IF NOT EXISTS idx_parsed_cases_updated_at ON parsed_cases(updated_at DESC)',
 
       // Text search index
       "CREATE INDEX IF NOT EXISTS idx_edrsr_name_search ON edrsr USING GIN(to_tsvector('simple', name))",

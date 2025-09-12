@@ -380,34 +380,37 @@ class DatabaseService {
       const caseDataJson = JSON.stringify(caseData);
       await database.run(sql, [caseData.url, caseDataJson, userId]);
       logger.info(`[CACHE] SAVED case for URL: ${caseData.url}`);
-
-      // Clean up old cache entries occasionally (every 50th save)
-      if (Math.random() < 0.02) {
-        // 2% chance = ~every 50 saves
-        await this.cleanupOldCacheEntries();
-      }
     } catch (error) {
       logger.error(`[CACHE] Error saving case to cache for URL ${caseData.url}:`, error);
     }
   }
 
-  async cleanupOldCacheEntries() {
+  // Optimized cleanup using a cutoff timestamp to avoid large NOT IN subqueries
+  async cleanupOldCacheEntriesOptimized(maxEntries = null) {
     try {
-      // Keep only the 1000 most recent cache entries
-      const cleanupSql = `
-        DELETE FROM parsed_cases 
-        WHERE url NOT IN (
-          SELECT url FROM parsed_cases 
-          ORDER BY updated_at DESC 
-          LIMIT 1000
+      const limit = parseInt(maxEntries || process.env.CACHE_MAX_PARSED_CASES || '1000', 10);
+      if (!Number.isFinite(limit) || limit <= 0) return 0;
+
+      const sql = `
+        WITH cutoff AS (
+          SELECT updated_at
+          FROM parsed_cases
+          ORDER BY updated_at DESC
+          OFFSET $1 LIMIT 1
         )
+        DELETE FROM parsed_cases
+        WHERE (SELECT updated_at FROM cutoff) IS NOT NULL
+          AND updated_at < (SELECT updated_at FROM cutoff)
       `;
-      const result = await database.run(cleanupSql);
-      if (result.changes > 0) {
-        logger.info(`[CACHE] Cleaned up ${result.changes} old cache entries`);
+      const res = await database.run(sql, [limit - 1]);
+      const deleted = res.changes || 0;
+      if (deleted > 0) {
+        logger.info(`[CACHE] Cleaned up ${deleted} old cache entries (kept latest ${limit})`);
       }
+      return deleted;
     } catch (error) {
-      logger.error(`[CACHE] Error cleaning up old cache entries:`, error);
+      logger.error(`[CACHE] Error cleaning up old cache entries (optimized):`, error);
+      return 0;
     }
   }
 
@@ -455,6 +458,11 @@ class DatabaseService {
   async deleteJob(jobId, userId = null) {
     logger.info(`[DB] Attempting to delete job ${jobId} and all related data.`);
     const client = await database.pool.connect();
+    const onClientError = (err) => {
+      // Prevent unhandled 'error' event on client during transaction
+      logger.error('[DB] Client error during deleteJob transaction:', err);
+    };
+    client.on('error', onClientError);
     const tablesToDeleteFrom = ['chat_messages', 'job_results', 'job_links', 'jobs'];
 
     try {
@@ -489,6 +497,11 @@ class DatabaseService {
       logger.error(`[DB] Error deleting job ${jobId}:`, error);
       throw new Error(`Failed to delete job ${jobId}. The transaction was rolled back.`);
     } finally {
+      try {
+        client.removeListener('error', onClientError);
+      } catch (_e) {
+        // noop
+      }
       client.release();
     }
   }
