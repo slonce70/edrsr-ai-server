@@ -13,6 +13,7 @@ import { initWebSocket } from './websocket.js';
 import errorHandler from './middleware/errorHandler.js';
 import { securityHeaders } from './middleware/security.js';
 import { logger } from './utils.js';
+import { startCacheCleanupService } from './services/maintenance.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -50,6 +51,13 @@ export function createServer() {
   app.use('/auth', authRoutes);
   app.use('/api', initRoutes(clients));
   app.use('/api/admin', adminRoutes);
+
+  // Start background maintenance services (e.g., cache cleanup)
+  try {
+    startCacheCleanupService();
+  } catch (e) {
+    logger.warn('[MAINTENANCE] Failed to start cache cleanup service:', e.message);
+  }
 
   // Admin panel route
   app.get('/admin*', (req, res) => {
