@@ -7,6 +7,18 @@ import { isValidEDRSRUrl } from './utils.js';
 // const limit = pLimit(parseInt(process.env.MAX_CONCURRENT_REQUESTS) || 1); // Removed for sequential processing
 const requestDelay = parseInt(process.env.REQUEST_DELAY_MS) || 1000;
 
+function parsePositiveInt(value, fallback) {
+  const parsed = parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const DEFAULT_CASE_TIMEOUT_MS = parsePositiveInt(
+  process.env.CASE_TIMEOUT_MS ||
+    process.env.FETCH_CASE_TIMEOUT_MS ||
+    process.env.OVERALL_REQUEST_TIMEOUT_MS,
+  30000
+);
+
 // Defensive guards against bad/huge pages
 const MAX_HTML_BYTES = parseInt(process.env.MAX_HTML_BYTES, 10) || 3_500_000; // ~3.5 MB
 const MAX_SCRIPT_TAGS = parseInt(process.env.MAX_SCRIPT_TAGS, 10) || 200;
@@ -451,7 +463,7 @@ function enhanceMetadataFromText(caseData, fullPageText) {
 /**
  * Завантажує одне судове рішення з ЄДРСР, застосовуючи двохетапний збір метаданих.
  */
-export async function fetchCase(url, cookie = '', signal = null) {
+export async function fetchCase(url, cookie = '', signal = null, options = {}) {
   // 1. Check cache first
   const cachedCase = await dbService.getCachedCaseByUrl(url);
   if (cachedCase) {
@@ -472,21 +484,39 @@ export async function fetchCase(url, cookie = '', signal = null) {
     };
   }
 
+  const caseId = url.match(/\/Review\/(\d+)/)?.[1] || url;
+  const timeoutMs = parsePositiveInt(options.timeoutMs, DEFAULT_CASE_TIMEOUT_MS);
+  const gotTimeoutMs = parsePositiveInt(
+    process.env.GOT_REQUEST_TIMEOUT_MS,
+    Math.min(timeoutMs, 45000)
+  );
+  const effectiveGotTimeout = Math.max(1000, Math.min(gotTimeoutMs, timeoutMs));
+
+  let abortedByTimeout = false;
+  let abortedByParentSignal = false;
+
   // Abort controller for centralized timeout management
   const controller = new AbortController();
   const { signal: abortSignal } = controller;
 
   // Combine user-provided signal if it exists
+  const onParentAbort = () => {
+    abortedByParentSignal = true;
+    controller.abort();
+  };
+
   if (signal) {
-    signal.addEventListener('abort', () => controller.abort());
+    if (signal.aborted) {
+      onParentAbort();
+    } else {
+      signal.addEventListener('abort', onParentAbort, { once: true });
+    }
   }
 
-  const timeout = setTimeout(
-    () => {
-      controller.abort();
-    },
-    parseInt(process.env.OVERALL_REQUEST_TIMEOUT_MS) || 60000
-  ); // 60 seconds overall timeout
+  const timeoutId = setTimeout(() => {
+    abortedByTimeout = true;
+    controller.abort();
+  }, timeoutMs);
 
   try {
     console.log(`📥 Завантажую: ${url}`);
@@ -507,7 +537,9 @@ export async function fetchCase(url, cookie = '', signal = null) {
         calculateDelay: ({ attemptCount }) => attemptCount * 1000, // 1s, 2s
       },
       timeout: {
-        request: parseInt(process.env.GOT_REQUEST_TIMEOUT_MS) || 45000, // 45s per request attempt
+        request: effectiveGotTimeout,
+        response: effectiveGotTimeout,
+        read: effectiveGotTimeout,
       },
       // Avoid auto-parsing non-2xx into throw; we handle errors via catch
       throwHttpErrors: true,
@@ -671,38 +703,47 @@ ${caseData.body}
     await delay(requestDelay);
     return caseData;
   } catch (error) {
-    // Determine the error type for more informative logging
+    if (abortedByParentSignal && !abortedByTimeout) {
+      throw new Error('Операцію скасовано користувачем');
+    }
+
     let errorType = 'unknown';
-    if (error.name === 'AbortError' || error.message.includes('timeout')) {
+    let message = error?.message || 'Невідома помилка';
+    if (abortedByTimeout) {
+      errorType = 'timeout';
+      message = `Перевищено ліміт часу ${timeoutMs}мс під час завантаження`;
+    } else if (error.name === 'AbortError' || message.includes('timeout')) {
       errorType = 'timeout';
     } else if (error.name === 'RequestError') {
       errorType = 'network';
     }
 
-    console.error(`❌ Помилка завантаження ${url} (тип: ${errorType}):`, error.message);
+    console.error(`❌ Помилка завантаження ${url} (тип: ${errorType}):`, message);
 
-    // Cache temporary errors to avoid retrying too quickly
     if (errorType === 'timeout' || errorType === 'network') {
       await dbService.saveCaseToCache({
         url,
-        id: url.match(/\/Review\/(\d+)/)?.[1] || url,
-        body: `Помилка завантаження (кешовано): ${error.message}`,
-        error: error.message,
-        errorType: errorType,
+        id: caseId,
+        body: `Помилка завантаження (кешовано): ${message}`,
+        error: message,
+        errorType,
         cachedAt: Date.now(),
-        isTemporary: true, // Flag to indicate this is a temporary cache entry
+        isTemporary: true,
       });
     }
 
     return {
       url,
-      id: url.match(/\/Review\/(\d+)/)?.[1] || url,
-      body: `Помилка завантаження: ${error.message}`,
-      error: error.message,
-      errorType: errorType,
+      id: caseId,
+      body: `Помилка завантаження: ${message}`,
+      error: message,
+      errorType,
     };
   } finally {
-    clearTimeout(timeout);
+    clearTimeout(timeoutId);
+    if (signal) {
+      signal.removeEventListener('abort', onParentAbort);
+    }
   }
 }
 
@@ -718,6 +759,12 @@ export async function downloadAll(urls, cookie = '', onProgress = () => {}, abor
   const results = [];
   let processedCount = 0;
   let skippedCount = 0;
+  const caseTimeoutMs = parsePositiveInt(
+    process.env.CASE_TIMEOUT_MS ||
+      process.env.FETCH_CASE_TIMEOUT_MS ||
+      process.env.OVERALL_REQUEST_TIMEOUT_MS,
+    DEFAULT_CASE_TIMEOUT_MS
+  );
 
   for (const url of validUrls) {
     // Check if operation was cancelled
@@ -729,7 +776,7 @@ export async function downloadAll(urls, cookie = '', onProgress = () => {}, abor
     try {
       console.log(`📥 [${processedCount + 1}/${validUrls.length}] Обробляю: ${url}`);
 
-      const result = await fetchCase(url, cookie, abortSignal);
+      const result = await fetchCase(url, cookie, abortSignal, { timeoutMs: caseTimeoutMs });
 
       if (result.error) {
         // Check if the error is due to a timeout, cancellation, or network issue
