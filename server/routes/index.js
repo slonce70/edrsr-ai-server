@@ -784,7 +784,8 @@ export default function (clients) {
 
       res.json({ success: true, jobId, ...initialJobState });
 
-      jobQueue.enqueue({ jobId, links, cookie, prompt });
+      // Queue только очищенные ссылки, чтобы не перегружать воркерлер лишними проверками
+      jobQueue.enqueue({ jobId, links: safeLinks, cookie, prompt });
       processQueue();
     } catch (error) {
       next(error);

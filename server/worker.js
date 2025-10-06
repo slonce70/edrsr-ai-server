@@ -97,6 +97,8 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
   let lastNotifiedProcessed = 0;
   // Notify roughly every 10% of total or at least every 3 items
   const NOTIFY_EVERY = Math.max(3, Math.ceil(links.length / 10));
+  const MIN_STATUS_UPDATE_INTERVAL_MS = parseInt(process.env.STATUS_UPDATE_INTERVAL_MS || '2000', 10);
+  let lastStatusUpdateAt = Date.now();
 
   // Глобальный таймаут для всей задачи
   const jobTimeout = setTimeout(() => {
@@ -211,7 +213,12 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
             currentTotalProcessed - lastNotifiedProcessed >= NOTIFY_EVERY ||
             processedCount === batch.length; // always at batch end
 
-          if (progressedEnough || processedEnough) {
+          const now = Date.now();
+          const isBatchEnd = processedCount === batch.length;
+          const isJobEnd = currentTotalProcessed >= links.length;
+          const intervalElapsed = now - lastStatusUpdateAt >= MIN_STATUS_UPDATE_INTERVAL_MS;
+
+          if ((progressedEnough || processedEnough || isBatchEnd || isJobEnd) && (intervalElapsed || isBatchEnd || isJobEnd)) {
             await postStatusUpdate(
               'downloading',
               progress,
@@ -225,6 +232,7 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
             );
             lastNotifiedProgress = progress;
             lastNotifiedProcessed = currentTotalProcessed;
+            lastStatusUpdateAt = now;
           }
 
           // Проактивный мониторинг памяти

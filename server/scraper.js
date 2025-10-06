@@ -1,5 +1,6 @@
 import got from 'got';
 import * as cheerio from 'cheerio';
+import iconv from 'iconv-lite';
 import 'dotenv/config';
 import dbService from './services/dbService.js'; // Import the dbService
 import { isValidEDRSRUrl } from './utils.js';
@@ -125,6 +126,126 @@ function analyzeRawHtmlForHazards(rawHtml) {
   }
 
   return { skip: false };
+}
+
+function detectCharset(buffer, contentTypeHeader = '') {
+  const DEFAULT_CHARSET = 'utf-8';
+  if (!buffer) return DEFAULT_CHARSET;
+
+  const headerMatch = contentTypeHeader.match(/charset=([^;]+)/i);
+  if (headerMatch) {
+    const candidate = headerMatch[1].trim().toLowerCase();
+    if (candidate && iconv.encodingExists(candidate)) {
+      return candidate;
+    }
+  }
+
+  const snippet = buffer
+    .toString('ascii', 0, Math.min(buffer.length, 2048))
+    .replace(/\s+/g, ' ');
+
+  const metaCharsetMatch = snippet.match(/<meta[^>]+charset=['"]?([^\s"'>]+)/i);
+  if (metaCharsetMatch) {
+    const candidate = metaCharsetMatch[1].trim().toLowerCase();
+    if (candidate && iconv.encodingExists(candidate)) {
+      return candidate;
+    }
+  }
+
+  const httpEquivMatch = snippet.match(/<meta[^>]+content=['"][^>]*charset=([^"'>\s]+)/i);
+  if (httpEquivMatch) {
+    const candidate = httpEquivMatch[1].trim().toLowerCase();
+    if (candidate && iconv.encodingExists(candidate)) {
+      return candidate;
+    }
+  }
+
+  return DEFAULT_CHARSET;
+}
+
+function decodeHtmlBody(buffer, contentTypeHeader = '') {
+  const charset = detectCharset(buffer, contentTypeHeader);
+  try {
+    if (charset === 'utf-8' || charset === 'utf8') {
+      return buffer.toString('utf8');
+    }
+    return iconv.decode(buffer, charset);
+  } catch (error) {
+    console.warn(`⚠️ [DECODE] Failed to decode using charset ${charset}: ${error.message}`);
+    return buffer.toString('utf8');
+  }
+}
+
+function stripNonContentElements($) {
+  if (!$) return;
+  const selectors = [
+    'script',
+    'style',
+    'noscript',
+    'iframe',
+    'object',
+    'embed',
+    'canvas',
+    'svg',
+    'form',
+  ];
+  for (const selector of selectors) {
+    $(selector).remove();
+  }
+}
+
+const JS_LINE_PATTERNS = [
+  /^\s*function\b/i,
+  /^\s*(var|let|const)\b/i,
+  /^\s*\$\(/,
+  /^\s*window\./i,
+  /^\s*document\./i,
+  /\);\s*$/,
+  /=>/,
+  /\{\s*$/,
+  /^\s*if\s*\(/i,
+];
+
+const CYRILLIC_REGEX = /[А-Яа-яҐЄІЇёЁ]/;
+
+function looksLikeJavascriptLine(line) {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  if (CYRILLIC_REGEX.test(trimmed)) {
+    return false;
+  }
+
+  if (JS_LINE_PATTERNS.some((pattern) => pattern.test(trimmed))) {
+    return true;
+  }
+
+  const punctuationCount = trimmed.replace(/[^{}();=]/g, '').length;
+  const latinLetters = trimmed.replace(/[^A-Za-z]/g, '').length;
+
+  if (latinLetters === 0 && punctuationCount >= 4) {
+    return true;
+  }
+
+  if (trimmed.length <= 160 && /[{};]/.test(trimmed) && !/[А-Яа-яҐЄІЇ]/.test(trimmed)) {
+    return true;
+  }
+
+  return false;
+}
+
+function removeResidualScripts(text) {
+  if (!text) return text;
+  const filteredLines = [];
+  for (const line of text.split('\n')) {
+    if (looksLikeJavascriptLine(line)) {
+      continue;
+    }
+    filteredLines.push(line);
+  }
+  return filteredLines.join('\n');
 }
 
 /**
@@ -292,14 +413,8 @@ function extractMainContent($) {
     }
   }
 
-  // Шаг 3: Дополнительная очистка остатков JS в любом месте текста
-  cleanText = cleanText
-    .replace(/jQuery\(function[^}]*\}[^}]*\}[^}]*\}/gis, '') // Полные jQuery блоки
-    .replace(/\$\(document\)\.ready[^}]*\}[^}]*\}/gis, '') // document.ready блоки
-    .replace(/function\s+\w+\s*\([^)]*\)\s*\{[^}]*\}/gis, '') // Функции
-    .replace(/var\s+\w+\s*=\s*\$\([^;]*;/gis, '') // jQuery переменные
-    .replace(/\$\([^)]*\)\.[a-zA-Z]+\([^)]*\);?/gis, '') // jQuery вызовы
-    .replace(/windowResize\(\);?/gis, ''); // Вызовы функций
+  // Шаг 3: Убираем остатки JS‑строк без дорогих глобальных регексов
+  cleanText = removeResidualScripts(cleanText);
 
   // 3. Убираем технические строки, но сохраняем судебный контент
   const linesToRemove = [
@@ -541,6 +656,7 @@ export async function fetchCase(url, cookie = '', signal = null, options = {}) {
         response: effectiveGotTimeout,
         read: effectiveGotTimeout,
       },
+      responseType: 'buffer',
       // Avoid auto-parsing non-2xx into throw; we handle errors via catch
       throwHttpErrors: true,
     });
@@ -563,7 +679,9 @@ export async function fetchCase(url, cookie = '', signal = null, options = {}) {
     }
 
     // Analyze raw HTML for hazards before parsing
-    const hazard = analyzeRawHtmlForHazards(response.body || '');
+    const decodedHtml = decodeHtmlBody(response.body, contentType);
+
+    const hazard = analyzeRawHtmlForHazards(decodedHtml || '');
     if (hazard.skip) {
       console.warn(`🚫 [SKIP] ${url} -> ${hazard.reason}`);
       const skipped = {
@@ -580,7 +698,10 @@ export async function fetchCase(url, cookie = '', signal = null, options = {}) {
     }
 
     // Load HTML into cheerio only after passing guards
-    let $ = cheerio.load(response.body);
+    let $ = cheerio.load(decodedHtml, { decodeEntities: false });
+
+    // Remove obvious non-content nodes before extracting text
+    stripNonContentElements($);
 
     // Clear response body from memory immediately after loading
     response.body = null;
