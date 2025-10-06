@@ -280,7 +280,7 @@ async function loadDashboard() {
   document.getElementById('memory-usage').textContent = data.memory_usage || 0;
 
   // Update dashboard cards
-  document.getElementById('jobs-24h').textContent = data.jobs_24h || 0;
+  document.getElementById('jobs-today').textContent = data.jobs_today || 0;
   document.getElementById('avg-duration').textContent = data.avg_job_duration
     ? formatDurationSeconds(data.avg_job_duration)
     : '-';

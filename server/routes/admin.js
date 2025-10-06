@@ -48,7 +48,9 @@ router.get('/dashboard', async (req, res) => {
         (SELECT COUNT(*) FROM jobs WHERE status = 'completed') as completed_jobs,
         (SELECT COUNT(*) FROM jobs WHERE status = 'error') as failed_jobs,
         (SELECT COUNT(*) FROM jobs WHERE status = 'error' AND COALESCE(attempt, 0) < 3) as retryable_jobs,
-        (SELECT COUNT(*) FROM jobs WHERE created_at > now() - interval '24 hours') as jobs_24h,
+        (SELECT COUNT(*)
+         FROM jobs
+         WHERE created_at >= date_trunc('day', now() AT TIME ZONE 'Europe/Kiev') AT TIME ZONE 'Europe/Kiev') as jobs_today,
         (SELECT COUNT(*) FROM job_links) as total_links_processed,
         (SELECT ROUND(AVG(duration)) FROM jobs WHERE status = 'completed' AND duration IS NOT NULL) as avg_job_duration,
         (SELECT COUNT(*) FROM chat_messages) as total_chat_messages,
@@ -748,9 +750,9 @@ router.post('/system/cleanup', async (req, res) => {
       }
 
       case 'old_cache': {
-        // Очищаем старый кеш
+        // Очищаем кеш, который не обновлялся 30+ дней
         const oldCache = await database.run(
-          "DELETE FROM parsed_cases WHERE created_at < now() - interval '30 days'"
+          "DELETE FROM parsed_cases WHERE COALESCE(updated_at, created_at) < now() - interval '30 days'"
         );
         result.cleaned = oldCache.changes;
         break;
