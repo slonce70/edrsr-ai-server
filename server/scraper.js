@@ -187,7 +187,6 @@ function stripNonContentElements($) {
     'embed',
     'canvas',
     'svg',
-    'form',
   ];
   for (const selector of selectors) {
     $(selector).remove();
