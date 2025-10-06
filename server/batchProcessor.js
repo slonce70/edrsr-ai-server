@@ -119,12 +119,35 @@ async function getBatchSummary(batchCases, batchNumber, totalBatches, finalUserP
     .join('\n\n');
 
   // Default to a simple factual summary if no specific prompt is provided.
-  if (!finalUserPrompt || !PROMPT_TEMPLATES[finalUserPrompt]) {
+  if (!finalUserPrompt) {
     const prompt = `${PROMPT_TEMPLATES.batch_summary.replace('{{focus_block}}', '')}\n\n${corpus}`;
     return generateContent(prompt);
   }
 
-  // For all other prompts, construct a focused summary request.
+  // Custom user prompt that is not part of predefined templates.
+  if (!PROMPT_TEMPLATES[finalUserPrompt]) {
+    const prompt = `
+# КОНТЕКСТ:
+Ти допомагаєш юристу виконати індивідуальний запит. Потрібна детальна попередня вижимка по кожній справі, що повністю відповідає користувацьким інструкціям.
+
+# КОРИСТУВАЦЬКА ІНСТРУКЦІЯ (НЕ СКОРОЧУЙ):
+"""
+${finalUserPrompt}
+"""
+
+# ОБОВ'ЯЗКОВІ ПРАВИЛА:
+${PROMPT_TEMPLATES.batch_summary}
+- Не опускай жодного релевантного факту, аргументу чи висновку, які можуть вплинути на виконання інструкції вище.
+- Для кожної справи чітко вкажи усі моменти, які можуть бути критично важливими для відповіді на користувацький запит.
+
+# МАТЕРІАЛИ ДЛЯ АНАЛІЗУ:
+${corpus}
+`;
+
+    return generateContent(prompt);
+  }
+
+  // For all other prompts from the template set, construct a focused summary request.
   const taskPrompt = PROMPT_TEMPLATES[finalUserPrompt];
   const prompt = `
 # КОНТЕКСТ:
