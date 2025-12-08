@@ -21,17 +21,20 @@ const RATE_LIMIT_COOLDOWN_MS = 60000; // 60 seconds cooldown for rate-limited ke
 /**
  * Generate content using Gemini AI with retry, fallback, and API key rotation.
  * @param {string} prompt - The prompt to send to Gemini
+ * @param {number|null} reservedKeyIndex - Опціональний індекс зарезервованого ключа для batch
  * @returns {string} - Generated content
  */
-async function generateContent(prompt) {
+async function generateContent(prompt, reservedKeyIndex = null) {
   let attempt = 0;
   let keysFullyTried = new Set(); // Ключі де обидві моделі не спрацювали
 
   while (attempt < MAX_RETRIES) {
     attempt++;
 
-    // Отримати наступний доступний API ключ
-    const { client, keyIndex } = apiKeyManager.getNextClient();
+    // Використати зарезервований ключ або взяти наступний доступний
+    const { client, keyIndex } = reservedKeyIndex !== null
+      ? apiKeyManager.getClientByIndex(reservedKeyIndex)
+      : apiKeyManager.getNextClient();
 
     // Спробувати спочатку основну модель, потім fallback
     const modelsToTry = [modelName];
@@ -95,7 +98,8 @@ async function generateContent(prompt) {
           }
 
           // Обидві моделі не спрацювали на цьому ключі
-          apiKeyManager.markRateLimited(keyIndex, RATE_LIMIT_COOLDOWN_MS);
+          // Використовуємо адаптивний cooldown на основі моделі
+          apiKeyManager.markRateLimited(keyIndex, null, currentModel);
           keysFullyTried.add(keyIndex);
           logger.info(`⚠️ Ключ #${keyIndex + 1} повністю rate limited, пробую інший ключ...`);
           break; // Вийти з циклу моделей, спробувати інший ключ
@@ -135,9 +139,10 @@ async function generateContent(prompt) {
  * @param {number} batchNumber - The current batch number for logging.
  * @param {number} totalBatches - The total number of batches.
  * @param {string} finalUserPrompt - The user's ultimate analysis goal.
+ * @param {number|null} reservedKeyIndex - Опціональний індекс зарезервованого ключа для batch.
  * @returns {string} A concise, focused summary of the batch.
  */
-async function getBatchSummary(batchCases, batchNumber, totalBatches, finalUserPrompt = null) {
+async function getBatchSummary(batchCases, batchNumber, totalBatches, finalUserPrompt = null, reservedKeyIndex = null) {
   logger.info(
     `📦 Summarizing batch ${batchNumber}/${totalBatches} (${batchCases.length} cases) for task: ${finalUserPrompt || 'default'}`
   );
@@ -152,7 +157,7 @@ async function getBatchSummary(batchCases, batchNumber, totalBatches, finalUserP
   // Default to a simple factual summary if no specific prompt is provided.
   if (!finalUserPrompt) {
     const prompt = `${PROMPT_TEMPLATES.batch_summary.replace('{{focus_block}}', '')}\n\n${corpus}`;
-    return generateContent(prompt);
+    return generateContent(prompt, reservedKeyIndex);
   }
 
   // Custom user prompt that is not part of predefined templates.
@@ -175,7 +180,7 @@ ${PROMPT_TEMPLATES.batch_summary}
 ${corpus}
 `;
 
-    return generateContent(prompt);
+    return generateContent(prompt, reservedKeyIndex);
   }
 
   // For all other prompts from the template set, construct a focused summary request.
@@ -197,7 +202,7 @@ ${corpus}
 `;
 
   try {
-    const summary = await generateContent(prompt);
+    const summary = await generateContent(prompt, reservedKeyIndex);
     logger.info(`✅ Summary for batch ${batchNumber} received: ${summary.length} chars`);
     return summary;
   } catch (err) {

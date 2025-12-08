@@ -7,6 +7,10 @@
 /server/.env
 # Ignore any env variants in server (do not commit secrets)
 /server/.env.*
+# Render.com production env (contains real API keys!)
+edrsr-ai-server.env
+*.env.local
+*.env.production
 # But keep the example env file
 !/server/env.example
 

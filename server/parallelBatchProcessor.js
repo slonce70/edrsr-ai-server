@@ -1,24 +1,39 @@
 /**
  * Parallel batch processor for legal case analysis
- * Handles up to 3 concurrent batch processing while maintaining order and error handling
+ * Handles concurrent batch processing while maintaining order and error handling
+ * Адаптивно масштабує паралелізм на основі кількості доступних API ключів
  */
 
 import { getBatchSummary } from './batchProcessor.js';
+import { apiKeyManager } from './config.js';
 import { sleep } from './utils.js';
 import { logger } from './utils.js';
 
-// Зменшено з 3 до 2 для оптимізації памʼяті (3 batch × 1-2MB = 6MB одночасно)
-const MAX_CONCURRENT_BATCHES = parseInt(process.env.MAX_CONCURRENT_BATCHES, 10) || 2;
+// Максимальна кількість паралельних батчів (обмеження через пам'ять на Render.com 512MB)
+const MAX_SAFE_CONCURRENT = parseInt(process.env.MAX_CONCURRENT_BATCHES, 10) || 5;
+
+/**
+ * Розрахувати оптимальну кількість паралельних батчів
+ * Враховує: кількість API ключів та обмеження пам'яті
+ * @returns {number}
+ */
+function getOptimalConcurrency() {
+  const availableKeys = apiKeyManager.totalCount;
+  const optimalConcurrency = Math.min(availableKeys, MAX_SAFE_CONCURRENT);
+  logger.debug(`📊 Optimal concurrency: ${optimalConcurrency} (keys: ${availableKeys}, max: ${MAX_SAFE_CONCURRENT})`);
+  return optimalConcurrency;
+}
 
 /**
  * Class for managing parallel batch processing with order preservation
  */
 export class ParallelBatchProcessor {
   constructor() {
-    this.activeBatches = new Map(); // trackId -> { batchIndex, promise, startTime }
+    this.activeBatches = new Map(); // trackId -> { batchIndex, promise, startTime, reservedKey }
     this.completedResults = new Map(); // batchIndex -> result
     this.progressCallback = null;
     this.totalBatches = 0;
+    this.maxConcurrent = getOptimalConcurrency();
   }
 
   /**
@@ -37,9 +52,11 @@ export class ParallelBatchProcessor {
     this.progressCallback = updateCallback;
     this.completedResults.clear();
     this.activeBatches.clear();
+    // Оновити concurrency при кожному запуску (ключі можуть змінитись)
+    this.maxConcurrent = getOptimalConcurrency();
 
     logger.debug(
-      `🚀 Starting parallel processing of ${this.totalBatches} batches (max ${MAX_CONCURRENT_BATCHES} concurrent)`
+      `🚀 Starting parallel processing of ${this.totalBatches} batches (max ${this.maxConcurrent} concurrent, ${apiKeyManager.totalCount} API keys)`
     );
 
     const results = [];
@@ -84,7 +101,7 @@ export class ParallelBatchProcessor {
 
     // Function to start a new batch if slot is available
     const startNextBatch = () => {
-      if (nextBatchIndex < batches.length && activePromises.length < MAX_CONCURRENT_BATCHES) {
+      if (nextBatchIndex < batches.length && activePromises.length < this.maxConcurrent) {
         const batchPromise = this._startBatchProcessing(
           batches[nextBatchIndex],
           nextBatchIndex,
@@ -132,27 +149,33 @@ export class ParallelBatchProcessor {
     const trackId = `batch_${batchIndex}`;
     const startTime = Date.now();
 
+    // Резервуємо унікальний API ключ для цього batch
+    const { keyIndex, release } = apiKeyManager.reserveKeyForBatch(trackId);
+
     this.activeBatches.set(trackId, {
       batchIndex,
       startTime,
       status: 'processing',
+      reservedKeyIndex: keyIndex,
     });
 
-    logger.debug(`🚀 Starting batch ${batchIndex + 1}/${this.totalBatches}`);
+    logger.debug(`🚀 Starting batch ${batchIndex + 1}/${this.totalBatches} with key #${keyIndex + 1}`);
 
     try {
       const result = await this._processSingleBatch(
         batch,
         batchIndex + 1,
         this.totalBatches,
-        userPrompt
+        userPrompt,
+        keyIndex // Передаємо зарезервований ключ
       );
 
       this.completedResults.set(batchIndex, { data: result, error: null });
       this.activeBatches.delete(trackId);
+      release(); // Звільняємо ключ після успішного завершення
 
       const duration = Date.now() - startTime;
-      logger.debug(`✅ Batch ${batchIndex + 1} completed in ${duration}ms`);
+      logger.debug(`✅ Batch ${batchIndex + 1} completed in ${duration}ms (key #${keyIndex + 1} released)`);
 
       // Update progress only after completion
       this._updateProgressSummary();
@@ -162,6 +185,7 @@ export class ParallelBatchProcessor {
       // Soft-fail policy: mark batch as empty data instead of fatal error if retries in lower layer exhausted
       this.completedResults.set(batchIndex, { data: ``, error: null });
       this.activeBatches.delete(trackId);
+      release(); // Звільняємо ключ навіть при помилці
 
       this._updateProgressSummary();
     }
@@ -172,14 +196,19 @@ export class ParallelBatchProcessor {
   /**
    * Process a single batch using existing getBatchSummary logic
    * @private
+   * @param {Array} batchCases - Cases in this batch
+   * @param {number} batchNumber - Batch number (1-indexed)
+   * @param {number} totalBatches - Total batches count
+   * @param {string} userPrompt - User's prompt
+   * @param {number|null} reservedKeyIndex - Reserved API key index for this batch
    */
-  async _processSingleBatch(batchCases, batchNumber, totalBatches, userPrompt) {
+  async _processSingleBatch(batchCases, batchNumber, totalBatches, userPrompt, reservedKeyIndex = null) {
     // Add small delay to prevent overwhelming the API
     if (batchNumber > 1) {
       await sleep(200);
     }
 
-    return await getBatchSummary(batchCases, batchNumber, totalBatches, userPrompt);
+    return await getBatchSummary(batchCases, batchNumber, totalBatches, userPrompt, reservedKeyIndex);
   }
 
   /**
@@ -202,7 +231,7 @@ export class ParallelBatchProcessor {
       const activeCount = this.activeBatches.size;
       const remainingCount = this.totalBatches - completedCount;
 
-      const message = `Завершено: ${completedCount}/${this.totalBatches}, активно: ${Math.min(activeCount, MAX_CONCURRENT_BATCHES)}, остается: ${remainingCount}`;
+      const message = `Завершено: ${completedCount}/${this.totalBatches}, активно: ${Math.min(activeCount, this.maxConcurrent)}, залишилось: ${remainingCount}`;
       this.progressCallback(message);
     }
   }

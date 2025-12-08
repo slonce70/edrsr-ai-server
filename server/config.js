@@ -30,6 +30,8 @@ class ApiKeyManager {
     this.currentIndex = 0;
     this.cooldowns = new Map(); // keyIndex → cooldown until timestamp
     this.usageStats = keys.map(() => ({ requests: 0, errors: 0, rateLimits: 0 }));
+    this.reservedKeys = new Map(); // batchId → keyIndex (для паралельної обробки)
+    this.activeRequests = new Map(); // keyIndex → count (активні запити на ключі)
 
     console.log(`✅ [API KEY MANAGER] Ініціалізовано ${keys.length} API ключ(ів)`);
   }
@@ -98,17 +100,36 @@ class ApiKeyManager {
 
   /**
    * Позначити ключ як rate limited (429 помилка)
+   * Адаптивний cooldown на основі RPM ліміту моделі:
+   * - Gemini Flash: 10 RPM = cooldown 6 секунд
+   * - Gemini Pro: 2-5 RPM = cooldown 15-30 секунд
    * @param {number} keyIndex - Індекс ключа
-   * @param {number} cooldownMs - Час cooldown в мілісекундах (за замовчуванням 60 сек)
+   * @param {number} cooldownMs - Час cooldown в мілісекундах (опціонально)
+   * @param {string} modelUsed - Назва моделі що викликала rate limit
    */
-  markRateLimited(keyIndex, cooldownMs = 60000) {
-    const cooldownUntil = Date.now() + cooldownMs;
+  markRateLimited(keyIndex, cooldownMs = null, modelUsed = '') {
+    // Адаптивний cooldown на основі моделі
+    let effectiveCooldown = cooldownMs;
+    if (effectiveCooldown === null) {
+      if (modelUsed.toLowerCase().includes('flash')) {
+        // Flash: 10 RPM = 1 запит кожні 6 сек
+        effectiveCooldown = 6000;
+      } else if (modelUsed.toLowerCase().includes('pro')) {
+        // Pro: 2-5 RPM = 1 запит кожні 15-30 сек
+        effectiveCooldown = 15000;
+      } else {
+        // Default: 10 сек (компроміс)
+        effectiveCooldown = 10000;
+      }
+    }
+
+    const cooldownUntil = Date.now() + effectiveCooldown;
     this.cooldowns.set(keyIndex, cooldownUntil);
     this.usageStats[keyIndex].rateLimits++;
 
     console.warn(
-      `⚠️ [GEMINI] Ключ #${keyIndex + 1} досяг rate limit, cooldown ${cooldownMs / 1000}с ` +
-        `(всього rate limits: ${this.usageStats[keyIndex].rateLimits})`
+      `⚠️ [GEMINI] Ключ #${keyIndex + 1} досяг rate limit, cooldown ${effectiveCooldown / 1000}с ` +
+        `(модель: ${modelUsed || 'unknown'}, всього rate limits: ${this.usageStats[keyIndex].rateLimits})`
     );
   }
 
@@ -163,6 +184,121 @@ class ApiKeyManager {
    */
   get totalCount() {
     return this.keys.length;
+  }
+
+  /**
+   * Резервувати унікальний ключ для batch (для паралельної обробки)
+   * Кожен batch отримує свій ключ, щоб уникнути колізій
+   * @param {string} batchId - Унікальний ідентифікатор batch
+   * @returns {{ client: GoogleGenerativeAI, keyIndex: number, release: () => void }}
+   */
+  reserveKeyForBatch(batchId) {
+    const now = Date.now();
+
+    // Якщо batch вже має зарезервований ключ - повернути його
+    if (this.reservedKeys.has(batchId)) {
+      const keyIndex = this.reservedKeys.get(batchId);
+      return {
+        client: this.clients[keyIndex],
+        keyIndex,
+        release: () => this.releaseKeyForBatch(batchId),
+      };
+    }
+
+    // Знайти ключ з найменшою кількістю активних запитів, що не на cooldown
+    let bestKeyIndex = -1;
+    let minActiveRequests = Infinity;
+
+    for (let i = 0; i < this.keys.length; i++) {
+      const cooldownUntil = this.cooldowns.get(i);
+      if (cooldownUntil && now < cooldownUntil) {
+        continue; // Пропустити ключі на cooldown
+      }
+
+      const activeCount = this.activeRequests.get(i) || 0;
+      if (activeCount < minActiveRequests) {
+        minActiveRequests = activeCount;
+        bestKeyIndex = i;
+      }
+    }
+
+    // Якщо всі ключі на cooldown - взяти з найменшим cooldown
+    if (bestKeyIndex === -1) {
+      let minCooldown = Infinity;
+      for (const [index, until] of this.cooldowns.entries()) {
+        if (until < minCooldown) {
+          minCooldown = until;
+          bestKeyIndex = index;
+        }
+      }
+      // Fallback на перший ключ
+      if (bestKeyIndex === -1) bestKeyIndex = 0;
+    }
+
+    // Зарезервувати ключ
+    this.reservedKeys.set(batchId, bestKeyIndex);
+    this.activeRequests.set(bestKeyIndex, (this.activeRequests.get(bestKeyIndex) || 0) + 1);
+
+    console.log(
+      `🔐 [GEMINI] Зарезервовано ключ #${bestKeyIndex + 1} для batch ${batchId} ` +
+        `(активних запитів: ${this.activeRequests.get(bestKeyIndex)})`
+    );
+
+    return {
+      client: this.clients[bestKeyIndex],
+      keyIndex: bestKeyIndex,
+      release: () => this.releaseKeyForBatch(batchId),
+    };
+  }
+
+  /**
+   * Звільнити зарезервований ключ після завершення batch
+   * @param {string} batchId - Ідентифікатор batch
+   */
+  releaseKeyForBatch(batchId) {
+    const keyIndex = this.reservedKeys.get(batchId);
+    if (keyIndex !== undefined) {
+      this.reservedKeys.delete(batchId);
+      const currentActive = this.activeRequests.get(keyIndex) || 0;
+      if (currentActive > 0) {
+        this.activeRequests.set(keyIndex, currentActive - 1);
+      }
+      console.log(
+        `🔓 [GEMINI] Звільнено ключ #${keyIndex + 1} від batch ${batchId} ` +
+          `(залишилось активних: ${this.activeRequests.get(keyIndex) || 0})`
+      );
+    }
+  }
+
+  /**
+   * Отримати клієнт по конкретному індексу (для використання зарезервованого ключа)
+   * @param {number} keyIndex - Індекс ключа
+   * @returns {{ client: GoogleGenerativeAI, keyIndex: number }}
+   */
+  getClientByIndex(keyIndex) {
+    if (keyIndex < 0 || keyIndex >= this.clients.length) {
+      console.warn(`⚠️ [GEMINI] Невалідний keyIndex ${keyIndex}, використовую round-robin`);
+      return this.getNextClient();
+    }
+
+    this.usageStats[keyIndex].requests++;
+
+    if (this.clients.length > 1) {
+      console.log(
+        `[GEMINI] Використовую зарезервований ключ #${keyIndex + 1}/${this.clients.length} ` +
+          `(запитів: ${this.usageStats[keyIndex].requests})`
+      );
+    }
+
+    return { client: this.clients[keyIndex], keyIndex };
+  }
+
+  /**
+   * Отримати кількість зарезервованих ключів (для визначення MAX_CONCURRENT_BATCHES)
+   * @returns {number}
+   */
+  get reservedCount() {
+    return this.reservedKeys.size;
   }
 }
 

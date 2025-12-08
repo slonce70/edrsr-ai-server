@@ -924,4 +924,74 @@ router.get('/security/stats', async (req, res) => {
   }
 });
 
+// =====================
+// GEMINI API СТАТИСТИКА
+// =====================
+
+router.get('/gemini/stats', async (req, res) => {
+  try {
+    // Імпортуємо apiKeyManager динамічно щоб уникнути циклічних залежностей
+    const { apiKeyManager } = await import('../config.js');
+
+    const stats = apiKeyManager.getStats();
+
+    // Отримати кількість queued jobs для контексту
+    let queuedJobs = 0;
+    try {
+      const result = await database.get(
+        `SELECT COUNT(*) as count FROM jobs WHERE status IN ('queued', 'retrying')`
+      );
+      queuedJobs = result?.count || 0;
+    } catch (dbErr) {
+      logger.warn('Could not get queued jobs count:', dbErr.message);
+    }
+
+    // Додаткова статистика
+    const enhancedStats = {
+      ...stats,
+      queuedJobs,
+      timestamp: new Date().toISOString(),
+      summary: {
+        totalRequests: stats.usage.reduce((sum, u) => sum + u.requests, 0),
+        totalErrors: stats.usage.reduce((sum, u) => sum + u.errors, 0),
+        totalRateLimits: stats.usage.reduce((sum, u) => sum + u.rateLimits, 0),
+        keysOnCooldown: stats.cooldowns.length,
+      },
+    };
+
+    await logAdminAction(req.user.id, 'VIEW_GEMINI_STATS', 'system', 'N/A', {}, req);
+
+    res.json({
+      success: true,
+      data: enhancedStats,
+    });
+  } catch (error) {
+    logger.error('Gemini stats error:', error);
+    res.status(500).json({ error: 'Помилка отримання статистики Gemini API' });
+  }
+});
+
+// Скинути статистику використання ключів
+router.post('/gemini/reset-stats', async (req, res) => {
+  try {
+    const { apiKeyManager } = await import('../config.js');
+
+    // Скидаємо статистику
+    for (let i = 0; i < apiKeyManager.usageStats.length; i++) {
+      apiKeyManager.usageStats[i] = { requests: 0, errors: 0, rateLimits: 0 };
+    }
+    apiKeyManager.cooldowns.clear();
+
+    await logAdminAction(req.user.id, 'RESET_GEMINI_STATS', 'system', 'N/A', {}, req);
+
+    res.json({
+      success: true,
+      message: 'Статистику Gemini API скинуто',
+    });
+  } catch (error) {
+    logger.error('Reset gemini stats error:', error);
+    res.status(500).json({ error: 'Помилка скидання статистики' });
+  }
+});
+
 export default router;

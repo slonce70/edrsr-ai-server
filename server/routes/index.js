@@ -448,34 +448,34 @@ function forceTerminateWorker(jobId, reason = 'Принудительное за
 async function processQueue() {
   // Reserve processing slot immediately to prevent race across concurrent triggers
   if (!jobQueue.tryReserve()) {
-    logger.debug('[QUEUE] Обработчик занят.');
+    logger.debug('[QUEUE] Обробник зайнятий.');
     return;
   }
 
-  // 1) Предпочтительно брать из памяти (чтобы не потерять cookie)
-  const memJob = jobQueue.dequeue();
-  if (memJob) {
-    logger.info(`[QUEUE] Запускаю задание ${memJob.jobId} из памяти.`);
-    // already reserved via tryReserve; start worker
-    startWorker({ ...memJob, claimed: false });
-    return;
-  }
-
-  // 2) Если в памяти пусто — пробуем забрать из БД
+  // Черга тепер повністю в БД - завжди беремо через claimNextJob()
   try {
     const claimed = await dbService.claimNextJob(WORKER_ID);
     if (claimed && claimed.id) {
       const links = await dbService.getJobLinks(claimed.id, claimed.user_id || null);
-      logger.info(`[QUEUE/DB] Запускаю задание ${claimed.id} из БД.`);
-      // already reserved via tryReserve; start worker
-      startWorker({ jobId: claimed.id, links, cookie: '', prompt: claimed.prompt, claimed: true });
+      // Спробувати отримати cookie з кешу (якщо job був щойно створений)
+      const cachedCookie = jobQueue.getCachedCookie(claimed.id);
+      const cookie = cachedCookie || '';
+
+      logger.info(`[QUEUE] Запускаю job ${claimed.id} з БД (cookie: ${cachedCookie ? 'з кешу' : 'немає'})`);
+
+      // Очистити cookie з кешу після використання
+      if (cachedCookie) {
+        jobQueue.clearCachedCookie(claimed.id);
+      }
+
+      startWorker({ jobId: claimed.id, links, cookie, prompt: claimed.prompt, claimed: true });
     } else {
-      logger.debug('[QUEUE] Очередь пуста.');
+      logger.debug('[QUEUE] Черга порожня.');
       // release reservation since nothing to do
       jobQueue.endProcessing();
     }
   } catch (e) {
-    logger.error('[QUEUE] Ошибка обработки очереди:', e.message);
+    logger.error('[QUEUE] Помилка обробки черги:', e.message);
     jobQueue.endProcessing();
   }
 }
@@ -1081,12 +1081,22 @@ export default function (clients) {
     }
   });
 
-  // Endpoint для получения статистики системы
-  router.get('/system/stats', requireAdmin, (req, res) => {
+  // Endpoint для отримання статистики системи
+  router.get('/system/stats', requireAdmin, async (req, res) => {
     try {
       const workersInfo = getActiveWorkersInfo();
-      const queueStatus = jobQueue.getQueueStatus();
       const memoryUsage = process.memoryUsage();
+
+      // Отримати кількість jobs в черзі з БД
+      let queuedJobsCount = 0;
+      try {
+        const result = await dbService.pool.query(
+          `SELECT COUNT(*) FROM jobs WHERE status IN ('queued', 'retrying')`
+        );
+        queuedJobsCount = parseInt(result.rows[0]?.count || 0, 10);
+      } catch (dbErr) {
+        logger.warn('[STATS] Не вдалося отримати кількість jobs з БД:', dbErr.message);
+      }
 
       res.json({
         success: true,
@@ -1096,12 +1106,9 @@ export default function (clients) {
           details: workersInfo.workers,
         },
         queue: {
-          length: queueStatus.length,
+          length: queuedJobsCount,
           isProcessing: !jobQueue.isIdle(),
-          jobs: queueStatus.map((job) => ({
-            jobId: job.jobId,
-            linksCount: job.links?.length || 0,
-          })),
+          cachedCookies: jobQueue.getCachedJobsCount(),
         },
         memory: {
           heapUsed: Math.round(memoryUsage.heapUsed / 1024 / 1024),
@@ -1114,7 +1121,7 @@ export default function (clients) {
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: 'Ошибка получения статистики системы',
+        error: 'Помилка отримання статистики системи',
         message: error.message,
       });
     }
@@ -1155,25 +1162,36 @@ export default function (clients) {
     }
   });
 
-  // Endpoint для очистки очереди
-  router.post('/queue/clear', requireAdmin, (req, res) => {
+  // Endpoint для очищення черги
+  router.post('/queue/clear', requireAdmin, async (req, res) => {
     try {
-      const queueLength = jobQueue.getQueueStatus().length;
+      // Очистити кеш cookies
+      const cachedCount = jobQueue.getCachedJobsCount();
+      jobQueue.clearAllCookies();
 
-      // Очищаем очередь
-      while (jobQueue.getQueueStatus().length > 0) {
-        jobQueue.dequeue();
+      // Скасувати всі queued jobs в БД (змінити статус на 'cancelled')
+      let cancelledCount = 0;
+      try {
+        const result = await dbService.pool.query(
+          `UPDATE jobs SET status = 'error', error_message = 'Скасовано адміністратором'
+           WHERE status IN ('queued', 'retrying')
+           RETURNING id`
+        );
+        cancelledCount = result.rowCount || 0;
+      } catch (dbErr) {
+        logger.warn('[QUEUE/CLEAR] Не вдалося скасувати jobs в БД:', dbErr.message);
       }
 
       res.json({
         success: true,
-        message: `Очередь очищена. Удалено ${queueLength} заданий`,
-        clearedJobs: queueLength,
+        message: `Чергу очищено. Скасовано ${cancelledCount} завдань, очищено ${cachedCount} cookies`,
+        cancelledJobs: cancelledCount,
+        clearedCookies: cachedCount,
       });
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: 'Ошибка очистки очереди',
+        error: 'Помилка очищення черги',
         message: error.message,
       });
     }
