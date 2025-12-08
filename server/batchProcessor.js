@@ -24,18 +24,18 @@ const RATE_LIMIT_COOLDOWN_MS = 60000; // 60 seconds cooldown for rate-limited ke
  */
 async function generateContent(prompt) {
   let currentModelName = modelName;
-  let lastKeyIndex = -1;
+  let attempt = 0;
+  let keysTriedThisRound = new Set();
 
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+  while (attempt < MAX_RETRIES) {
+    attempt++;
+
     // Отримати наступний доступний API ключ (round-robin)
     const { client, keyIndex } = apiKeyManager.getNextClient();
-    lastKeyIndex = keyIndex;
 
     logger.info(
-      `🚀 Відправка запиту до Gemini (Спроба ${attempt}/${MAX_RETRIES}, ` +
-        `Модель: ${currentModelName}, Ключ: #${keyIndex + 1}/${apiKeyManager.totalCount})...`
+      `🚀 Gemini запит (Спроба ${attempt}/${MAX_RETRIES}, Ключ #${keyIndex + 1}/${apiKeyManager.totalCount})`
     );
-    logger.info(`📏 Промпт: ~${(prompt.length / 4).toFixed(0)} токенів.`);
 
     const model = client.getGenerativeModel({
       model: currentModelName,
@@ -52,14 +52,9 @@ async function generateContent(prompt) {
       }
       return text.trim();
     } catch (error) {
-      console.error(
-        `❌ Помилка виклику Gemini (Спроба ${attempt}/${MAX_RETRIES}, ` +
-          `Модель: ${currentModelName}, Ключ: #${keyIndex + 1}): ${error.message}`
-      );
-
       const message = String(error.message || '');
-      const isOverloadError = message.includes('503');
       const isQuotaError = message.includes('429');
+      const isOverloadError = message.includes('503');
       const isInternalError = message.includes('500');
       const isNetworkError =
         message.includes('fetch failed') || message.includes('ENET') || message.includes('ECONN');
@@ -69,54 +64,54 @@ async function generateContent(prompt) {
       // Позначити помилку в статистиці
       apiKeyManager.markError(keyIndex);
 
-      if (
-        (isOverloadError || isQuotaError || isInternalError || isNetworkError || isEmptyResponse) &&
-        attempt < MAX_RETRIES
-      ) {
-        // Rate limit (429) - позначити ключ на cooldown і спробувати інший
-        if (isQuotaError) {
-          apiKeyManager.markRateLimited(keyIndex, RATE_LIMIT_COOLDOWN_MS);
+      // Rate limit (429) - спробувати інший ключ БЕЗ збільшення attempt
+      if (isQuotaError) {
+        apiKeyManager.markRateLimited(keyIndex, RATE_LIMIT_COOLDOWN_MS);
+        keysTriedThisRound.add(keyIndex);
 
-          // Якщо є інші доступні ключі - спробувати негайно
-          if (apiKeyManager.availableCount > 0) {
-            logger.info(
-              `[KEY ROTATION] Ключ #${keyIndex + 1} rate limited, переключаюсь на інший...`
-            );
-            continue;
-          }
-        }
-
-        // Fallback logic (only for overload/quota)
-        if (
-          FALLBACK_MODEL_NAME &&
-          currentModelName !== FALLBACK_MODEL_NAME &&
-          (isOverloadError || isQuotaError)
-        ) {
-          logger.info(
-            `[FALLBACK] Основна модель перевантажена. Переключення на резервну модель: ${FALLBACK_MODEL_NAME}`
-          );
-          currentModelName = FALLBACK_MODEL_NAME;
+        // Якщо є інші ключі які ще не пробували
+        if (keysTriedThisRound.size < apiKeyManager.totalCount) {
+          logger.info(`⚠️ Ключ #${keyIndex + 1} rate limited, пробую інший...`);
+          attempt--; // Не рахувати як спробу
+          await new Promise((resolve) => setTimeout(resolve, 1000)); // 1 сек пауза
           continue;
         }
 
-        // Retry with exponential backoff
-        const delay = INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt - 1); // 20s, 40s, 80s, ...
-        const reason =
-          (isOverloadError && 'перевантаження (503)') ||
-          (isQuotaError && 'квота (429)') ||
-          (isInternalError && 'внутрішня помилка (500)') ||
-          (isNetworkError && 'мережева помилка') ||
-          (isEmptyResponse && 'порожня відповідь');
-        console.log(
-          `[RETRY] Причина: ${reason}. Повторна спроба через ${Math.round(delay / 1000)} секунд...`
-        );
-        await new Promise((resolve) => setTimeout(resolve, delay));
-      } else {
-        // For other errors or if retries are exhausted, re-throw the error
-        throw error;
+        // Всі ключі вже спробовані - почекати і скинути
+        logger.warn(`⚠️ Всі ${apiKeyManager.totalCount} ключів rate limited, чекаю 30 сек...`);
+        keysTriedThisRound.clear();
+        await new Promise((resolve) => setTimeout(resolve, 30000));
+        continue;
       }
+
+      // Fallback на іншу модель
+      if (
+        FALLBACK_MODEL_NAME &&
+        currentModelName !== FALLBACK_MODEL_NAME &&
+        (isOverloadError || isQuotaError)
+      ) {
+        logger.info(`[FALLBACK] Переключення на ${FALLBACK_MODEL_NAME}`);
+        currentModelName = FALLBACK_MODEL_NAME;
+        continue;
+      }
+
+      // Інші помилки - retry з затримкою
+      if (
+        (isOverloadError || isInternalError || isNetworkError || isEmptyResponse) &&
+        attempt < MAX_RETRIES
+      ) {
+        const delay = INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt - 1);
+        logger.info(`[RETRY] Помилка, повтор через ${Math.round(delay / 1000)} сек...`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        continue;
+      }
+
+      // Критична помилка
+      throw error;
     }
   }
+
+  throw new Error('Вичерпано всі спроби запиту до Gemini');
 }
 
 /**
