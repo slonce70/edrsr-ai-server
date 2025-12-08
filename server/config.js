@@ -29,6 +29,8 @@ class ApiKeyManager {
     this.clients = keys.map((key) => new GoogleGenAI({ apiKey: key }));
     this.currentIndex = 0;
     this.cooldowns = new Map(); // keyIndex → cooldown until timestamp
+    this.softBans = new Map(); // keyIndex → soft-ban until timestamp (after consecutive 429)
+    this.consecutive429 = new Map(); // keyIndex → count of consecutive 429s
     this.invalidKeys = new Set(); // keyIndex → permanently invalid keys (400/401 errors)
     this.usageStats = keys.map(() => ({ requests: 0, errors: 0, rateLimits: 0, invalid: false }));
     this.reservedKeys = new Map(); // batchId → keyIndex (для паралельної обробки)
@@ -54,13 +56,15 @@ class ApiKeyManager {
       }
 
       const cooldownUntil = this.cooldowns.get(this.currentIndex);
+      const softBanUntil = this.softBans.get(this.currentIndex);
 
-      if (!cooldownUntil || now > cooldownUntil) {
+      const isCooldownActive = cooldownUntil && now < cooldownUntil;
+      const isSoftBanActive = softBanUntil && now < softBanUntil;
+
+      if (!isCooldownActive && !isSoftBanActive) {
         // Ключ доступний
-        if (cooldownUntil && now > cooldownUntil) {
-          // Cooldown закінчився - очистити
-          this.cooldowns.delete(this.currentIndex);
-        }
+        if (cooldownUntil && now > cooldownUntil) this.cooldowns.delete(this.currentIndex);
+        if (softBanUntil && now > softBanUntil) this.softBans.delete(this.currentIndex);
 
         const keyIndex = this.currentIndex;
         const client = this.clients[keyIndex];
@@ -81,7 +85,7 @@ class ApiKeyManager {
         return { client, keyIndex };
       }
 
-      // Цей ключ на cooldown - спробувати наступний
+      // Цей ключ на cooldown/soft-ban - спробувати наступний
       this.currentIndex = (this.currentIndex + 1) % this.clients.length;
     } while (this.currentIndex !== startIndex);
 
@@ -94,8 +98,10 @@ class ApiKeyManager {
       if (this.invalidKeys.has(i)) continue;
 
       const cooldownUntil = this.cooldowns.get(i) || 0;
-      if (cooldownUntil < minCooldown) {
-        minCooldown = cooldownUntil;
+      const softBanUntil = this.softBans.get(i) || 0;
+      const nextAvailable = Math.max(cooldownUntil, softBanUntil);
+      if (nextAvailable < minCooldown) {
+        minCooldown = nextAvailable;
         minCooldownIndex = i;
       }
     }
@@ -129,19 +135,34 @@ class ApiKeyManager {
     if (effectiveCooldown === null) {
       if (modelUsed.toLowerCase().includes('flash')) {
         // Flash: 10 RPM = 1 запит кожні 6 сек
-        effectiveCooldown = 6000;
+        effectiveCooldown = parseInt(process.env.GEMINI_RATE_LIMIT_COOLDOWN_MS_FLASH, 10) || 120000;
       } else if (modelUsed.toLowerCase().includes('pro')) {
         // Pro: 2-5 RPM = 1 запит кожні 15-30 сек
-        effectiveCooldown = 15000;
+        effectiveCooldown = parseInt(process.env.GEMINI_RATE_LIMIT_COOLDOWN_MS_PRO, 10) || 180000;
       } else {
         // Default: 10 сек (компроміс)
-        effectiveCooldown = 10000;
+        effectiveCooldown = parseInt(process.env.GEMINI_RATE_LIMIT_COOLDOWN_MS_DEFAULT, 10) || 120000;
       }
     }
 
     const cooldownUntil = Date.now() + effectiveCooldown;
     this.cooldowns.set(keyIndex, cooldownUntil);
     this.usageStats[keyIndex].rateLimits++;
+
+    // Інкрементуємо лічильник послідовних 429
+    const current429 = (this.consecutive429.get(keyIndex) || 0) + 1;
+    this.consecutive429.set(keyIndex, current429);
+
+    const softBanThreshold = parseInt(process.env.GEMINI_RATE_LIMIT_SOFTBAN_THRESHOLD, 10) || 3;
+    const softBanMs = parseInt(process.env.GEMINI_RATE_LIMIT_SOFTBAN_MS, 10) || 600000; // 10 хв
+    if (current429 >= softBanThreshold) {
+      const softBanUntil = Date.now() + softBanMs;
+      this.softBans.set(keyIndex, softBanUntil);
+      this.consecutive429.set(keyIndex, 0); // скидаємо після бану
+      console.warn(
+        `🚫 [GEMINI] Ключ #${keyIndex + 1} у м'якому бані на ${Math.round(softBanMs / 1000)}с після ${current429} послідовних 429`
+      );
+    }
 
     console.warn(
       `⚠️ [GEMINI] Ключ #${keyIndex + 1} досяг rate limit, cooldown ${effectiveCooldown / 1000}с ` +
@@ -155,6 +176,7 @@ class ApiKeyManager {
    */
   markError(keyIndex) {
     this.usageStats[keyIndex].errors++;
+    this.consecutive429.set(keyIndex, 0);
   }
 
   /**
@@ -167,10 +189,19 @@ class ApiKeyManager {
     this.usageStats[keyIndex].invalid = true;
     // Також видаляємо з cooldown щоб не плутати
     this.cooldowns.delete(keyIndex);
+    this.softBans.delete(keyIndex);
+    this.consecutive429.delete(keyIndex);
     console.error(
       `🚫 [GEMINI] Ключ #${keyIndex + 1} ПЕРМАНЕНТНО НЕВАЛІДНИЙ! ` +
         `(Залишилось валідних: ${this.keys.length - this.invalidKeys.size})`
     );
+  }
+
+  markSuccess(keyIndex) {
+    // Скидаємо лічильник послідовних 429 після успішного запиту
+    if (this.consecutive429.has(keyIndex)) {
+      this.consecutive429.set(keyIndex, 0);
+    }
   }
 
   /**
@@ -195,10 +226,18 @@ class ApiKeyManager {
         remainingSeconds: Math.ceil((until - now) / 1000),
       }));
 
+    const activeSoftBans = Array.from(this.softBans.entries())
+      .filter(([, until]) => until > now)
+      .map(([index, until]) => ({
+        keyIndex: index + 1,
+        remainingSeconds: Math.ceil((until - now) / 1000),
+      }));
+
     return {
       totalKeys: this.keys.length,
-      availableKeys: this.keys.length - activeCooldowns.length,
+      availableKeys: this.keys.length - activeCooldowns.length - activeSoftBans.length,
       cooldowns: activeCooldowns,
+      softBans: activeSoftBans,
       usage: this.usageStats.map((stats, i) => ({
         key: i + 1,
         ...stats,
@@ -356,10 +395,15 @@ class ApiKeyManager {
     // Перевірити cooldown - якщо на cooldown, використати інший
     const now = Date.now();
     const cooldownUntil = this.cooldowns.get(keyIndex);
-    if (cooldownUntil && now < cooldownUntil) {
-      const remainingSeconds = Math.ceil((cooldownUntil - now) / 1000);
+    const softBanUntil = this.softBans.get(keyIndex);
+    const isCooldownActive = cooldownUntil && now < cooldownUntil;
+    const isSoftBanActive = softBanUntil && now < softBanUntil;
+
+    if (isCooldownActive || isSoftBanActive) {
+      const remainingMs = Math.max(cooldownUntil || 0, softBanUntil || 0) - now;
+      const remainingSeconds = Math.ceil(Math.max(0, remainingMs) / 1000);
       console.warn(
-        `⚠️ [GEMINI] Ключ #${keyIndex + 1} на cooldown (${remainingSeconds}с), шукаю інший...`
+        `⚠️ [GEMINI] Ключ #${keyIndex + 1} недоступний (${remainingSeconds}с), шукаю інший...`
       );
       return this.getNextClient();
     }
