@@ -109,12 +109,17 @@ async function analyzeCases(cases, userPrompt = null, updateStatusCallback = () 
  */
 async function answerChatQuestion(jobId, analysisText, history, question, chatSessions) {
   let chat;
+  let keyIndex;
 
   if (chatSessions.has(jobId)) {
-    chat = chatSessions.get(jobId).chat;
+    const session = chatSessions.get(jobId);
+    chat = session.chat;
+    keyIndex = session.keyIndex;
   } else {
     // Отримуємо клієнт з ротацією для нової сесії
-    const { client, keyIndex } = apiKeyManager.getNextClient();
+    const selection = apiKeyManager.getNextClient();
+    keyIndex = selection.keyIndex;
+    const { client } = selection;
     logger.info(`[Chat] Нова сесія ${jobId} використовує API ключ #${keyIndex + 1}`);
     // Створюємо нову сесію з початковим контекстом (звітом)
     const initialHistory = [
@@ -139,8 +144,10 @@ async function answerChatQuestion(jobId, analysisText, history, question, chatSe
   try {
     // Новий SDK: sendMessage приймає об'єкт { message: ... }
     const response = await chat.sendMessage({ message: question });
+    apiKeyManager.markSuccess(keyIndex);
     return response.text;
   } catch (err) {
+    apiKeyManager.markError(keyIndex);
     console.error(`[Chat Error for Job ${jobId}]`, err);
     // Спроба відновити сесію у випадку помилки
     chatSessions.delete(jobId);
