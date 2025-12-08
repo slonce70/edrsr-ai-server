@@ -600,7 +600,6 @@ function structureCourtDecision(text) {
  * @returns {object} - Оновлений об'єкт caseData.
  */
 function enhanceMetadataFromText(caseData, fullPageText) {
-  const startTime = Date.now();
   const caseId = caseData.id || 'unknown';
 
   // Покращуємо Номер справи
@@ -614,33 +613,17 @@ function enhanceMetadataFromText(caseData, fullPageText) {
 
   // Покращуємо Дату
   if (caseData.date === 'Дата не знайдена' || !caseData.date) {
-    console.log(`[Enhancer] [${caseId}] Шукаю дату... (текст: ${fullPageText.length} символів)`);
-
     // Шукаємо дату в пріоритетному порядку: спочатку дата набрання сили, потім дата реєстрації.
-    const dateStart1 = Date.now();
     const dateEffectiveMatch = fullPageText.match(COMPILED_REGEX.dateEffective);
-    const dateTime1 = Date.now() - dateStart1;
-
-    const dateStart2 = Date.now();
     const dateRegisteredMatch = fullPageText.match(COMPILED_REGEX.dateRegistered);
-    const dateTime2 = Date.now() - dateStart2;
-
-    console.log(`[Enhancer] [${caseId}] Regex час: dateEffective=${dateTime1}ms, dateRegistered=${dateTime2}ms`);
 
     if (dateEffectiveMatch && dateEffectiveMatch[1]) {
       caseData.date = dateEffectiveMatch[1].trim();
-      console.log(`[Enhancer] [${caseId}] Знайдено дату (набрання сили) з тексту: ${caseData.date}`);
+      console.log(`[Enhancer] [${caseId}] Знайдено дату (набрання сили): ${caseData.date}`);
     } else if (dateRegisteredMatch && dateRegisteredMatch[1]) {
       caseData.date = dateRegisteredMatch[1].trim();
-      console.log(`[Enhancer] [${caseId}] Знайдено дату (реєстрації) з тексту: ${caseData.date}`);
+      console.log(`[Enhancer] [${caseId}] Знайдено дату (реєстрації): ${caseData.date}`);
     }
-  } else {
-    console.log(`[Enhancer] [${caseId}] Дата вже є: ${caseData.date}`);
-  }
-
-  const elapsed = Date.now() - startTime;
-  if (elapsed > 100) {
-    console.warn(`⚠️ [Enhancer] [${caseId}] Повільний enhancer: ${elapsed}ms`);
   }
 
   return caseData;
@@ -788,21 +771,18 @@ export async function fetchCase(url, cookie = '', signal = null, options = {}) {
     };
 
     // Етап 2: Інтелектуальний збір для заповнення прогалин
-    // Обмежуємо текст для regex пошуку - метадані зазвичай на початку документа
+    // Оптимізація: витягуємо текст тільки з таблиці #info де є метадані, а не весь body
     const bodyTextStart = Date.now();
+    // fullPageText потрібен для extractLegalMetadata та emergency search
     let fullPageText = $('body').text();
+    // Для enhancer беремо тільки #info (метадані на початку) - набагато швидше
+    const metadataText = $('#info').text() || $('#divcasecat').text() || fullPageText.substring(0, 10000);
     const bodyTextTime = Date.now() - bodyTextStart;
     if (bodyTextTime > 100) {
-      console.warn(`⚠️ [${caseData.id}] Повільний $('body').text(): ${bodyTextTime}ms (${fullPageText.length} символів)`);
+      console.warn(`⚠️ [${caseData.id}] Повільний text extraction: ${bodyTextTime}ms`);
     }
 
-    // Обмежуємо текст для enhancer - метадані на початку, не потрібен весь документ
-    const MAX_ENHANCER_TEXT = 50000; // 50KB достатньо для пошуку метаданих
-    const textForEnhancer = fullPageText.length > MAX_ENHANCER_TEXT
-      ? fullPageText.substring(0, MAX_ENHANCER_TEXT)
-      : fullPageText;
-
-    caseData = enhanceMetadataFromText(caseData, textForEnhancer);
+    caseData = enhanceMetadataFromText(caseData, metadataText);
 
     // Етап 3: Вилучення та фінальна очистка основного тіла документу
     console.log(`🔍 [${caseData.id}] Починаємо парсинг контенту...`);
