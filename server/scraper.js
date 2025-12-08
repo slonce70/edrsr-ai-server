@@ -3,7 +3,20 @@ import * as cheerio from 'cheerio';
 import iconv from 'iconv-lite';
 import 'dotenv/config';
 import dbService from './services/dbService.js'; // Import the dbService
-import { isValidEDRSRUrl } from './utils.js';
+import { isValidEDRSRUrl, logger } from './utils.js';
+import TurndownService from 'turndown';
+
+// Markdown extraction toggle
+const USE_MARKDOWN_EXTRACTION = process.env.USE_MARKDOWN_EXTRACTION === 'true';
+
+// Turndown instance for HTML to Markdown conversion
+const turndownService = new TurndownService({
+  headingStyle: 'atx',
+  bulletListMarker: '-',
+  codeBlockStyle: 'fenced',
+});
+// Remove unwanted elements
+turndownService.remove(['script', 'style', 'iframe', 'noscript', 'svg']);
 
 // const limit = pLimit(parseInt(process.env.MAX_CONCURRENT_REQUESTS) || 1); // Removed for sequential processing
 const requestDelay = parseInt(process.env.REQUEST_DELAY_MS) || 1000;
@@ -237,6 +250,48 @@ function removeResidualScripts(text) {
 }
 
 /**
+ * Конвертує HTML в Markdown за допомогою Turndown.
+ * Використовує Cheerio для витягування контенту з селектора.
+ * @param {cheerio.CheerioAPI} $ - Cheerio об'єкт завантаженої сторінки.
+ * @param {string} targetSelector - CSS селектор цільового елемента.
+ * @returns {string|null} - Markdown текст або null при помилці.
+ */
+function extractAsMarkdown($, targetSelector = '#divdocument') {
+  try {
+    const $target = $(targetSelector);
+    if (!$target.length) {
+      logger.warn(`[MARKDOWN] Selector "${targetSelector}" not found`);
+      return null;
+    }
+
+    const html = $target.html();
+    if (!html || html.length < 100) {
+      return null;
+    }
+
+    // Конвертуємо в Markdown
+    let markdown = turndownService.turndown(html);
+
+    // Очистка для судових документів
+    markdown = markdown
+      .replace(/\[.*?\]\(javascript:.*?\)/g, '') // JS посилання
+      .replace(/\[.*?\]\(#[^)]*\)/g, (match) => {
+        // Залишаємо текст посилання, видаляємо url якщо це просто #
+        const textMatch = match.match(/\[(.*?)\]/);
+        return textMatch ? textMatch[1] : '';
+      })
+      .replace(/^\s*[-*]\s*$/gm, '') // Пусті list items
+      .replace(/\n{3,}/g, '\n\n') // Надлишкові переноси
+      .trim();
+
+    return markdown;
+  } catch (err) {
+    logger.warn(`[MARKDOWN] Extraction failed: ${err.message}`);
+    return null;
+  }
+}
+
+/**
  * Витягує основний контент судового рішення, застосовуючи фінальний, гібридний алгоритм очищення.
  * @param {cheerio.CheerioAPI} $ - Cheerio об'єкт завантаженої сторінки.
  * @returns {string} - Максимально очищений текст судового рішення.
@@ -251,38 +306,41 @@ function extractMainContent($) {
     '.document-content',
   ];
 
-  // ===== НОВАЯ ЛОГИКА: СБОР КОНТЕНТА ИЗ МНОЖЕСТВЕННЫХ ИСТОЧНИКОВ =====
-  let combinedContent = '';
+  // ===== ОПТИМІЗОВАНА ЛОГІКА: ВИКОРИСТАННЯ ARRAY ЗАМІСТЬ STRING CONCAT =====
+  const contentParts = [];
   const foundSelectors = [];
 
-  // Этап 1: Собираем контент из всех доступных селекторов
+  // Етап 1: Збираємо контент з усіх доступних селекторів
   for (const selector of contentSelectors) {
     const elements = $(selector);
     if (elements.length > 0) {
       elements.each((_, element) => {
-        const $element = $(element);
-        const elementText = $element.text().trim();
+        const elementText = $(element).text().trim();
         if (elementText.length > 50) {
-          // Игнорируем слишком короткие фрагменты
-          combinedContent += '\n' + elementText;
+          // Ігноруємо занадто короткі фрагменти
+          contentParts.push(elementText);
           foundSelectors.push(selector);
         }
       });
     }
   }
 
-  // Этап 2: Если основные селекторы не дали результата, ищем по структуре документа
+  // Етап 2: Якщо основні селектори не дали результату, шукаємо по структурі документа
+  let combinedContent = contentParts.join('\n');
+
   if (combinedContent.length < 200) {
     console.log(
-      `⚠️ Основные селекторы дали мало контента (${combinedContent.length} символов). Ищем в других элементах...`
+      `⚠️ Основні селектори дали мало контенту (${combinedContent.length} символів). Шукаємо в інших елементах...`
     );
 
-    // Ищем div'ы с большим количеством текста
-    $('div').each((_, element) => {
-      const $div = $(element);
-      const divText = $div.text().trim();
+    // Оптимізований пошук: конвертуємо в масив з early exit
+    const divs = $('div').toArray();
+    let totalFound = combinedContent.length;
 
-      // Проверяем, что div содержит судебную информацию
+    for (const div of divs) {
+      const divText = $(div).text().trim();
+
+      // Перевіряємо, що div містить судову інформацію
       if (
         divText.length > 500 &&
         (divText.includes('УХВАЛА') ||
@@ -292,11 +350,17 @@ function extractMainContent($) {
           divText.includes('ВИРІШИВ') ||
           divText.includes('ПОСТАНОВИВ'))
       ) {
-        console.log(`✅ Найден дополнительный контент в div (${divText.length} символов)`);
-        combinedContent += '\n' + divText;
+        console.log(`✅ Знайдено додатковий контент в div (${divText.length} символів)`);
+        contentParts.push(divText);
         foundSelectors.push('fallback-div');
+        totalFound += divText.length;
+
+        // Early exit: якщо знайшли достатньо контенту, припиняємо пошук
+        if (totalFound > 5000) break;
       }
-    });
+    }
+
+    combinedContent = contentParts.join('\n');
   }
 
   // Этап 3: Последний резерв - весь body, но с фильтрацией
@@ -710,7 +774,22 @@ export async function fetchCase(url, cookie = '', signal = null, options = {}) {
 
     // Етап 3: Вилучення та фінальна очистка основного тіла документу
     console.log(`🔍 [${caseData.id}] Починаємо парсинг контенту...`);
-    caseData.body = extractMainContent($);
+
+    // Спробувати markdown extraction якщо увімкнено
+    if (USE_MARKDOWN_EXTRACTION) {
+      console.log(`📝 [${caseData.id}] Використовую Markdown extraction (Turndown)...`);
+      const markdown = extractAsMarkdown($, '#divdocument');
+      if (markdown && markdown.length > 200) {
+        caseData.body = markdown;
+        console.log(`✅ [${caseData.id}] Markdown extraction успішно (${markdown.length} символів)`);
+      } else {
+        console.log(`⚠️ [${caseData.id}] Markdown extraction не дало результату, fallback на Cheerio`);
+        caseData.body = extractMainContent($);
+      }
+    } else {
+      caseData.body = extractMainContent($);
+    }
+
     // Explicitly release Cheerio reference after extraction
     $ = null;
 
