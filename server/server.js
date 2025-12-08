@@ -28,14 +28,15 @@ const getAllowedOrigins = () => {
     return process.env.CORS_ALLOWED_ORIGINS.split(',').map((origin) => origin.trim());
   }
 
-  // Production/staging: require explicit configuration or use restrictive defaults
+  // Production/staging: require explicit configuration or use permissive defaults for Render.com
   if (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging') {
     logger.warn(
-      '[SECURITY] CORS_ALLOWED_ORIGINS not set in production/staging. Using restrictive defaults.'
+      '[SECURITY] CORS_ALLOWED_ORIGINS not set in production/staging. Using permissive defaults.'
     );
-    // Return only the expected production domains
+    // Return expected production domains including Render.com
     return [
       'https://reyestr.court.gov.ua', // EDRSR website
+      'https://edrsr-ai-server.onrender.com', // Render.com admin panel
     ];
   }
 
