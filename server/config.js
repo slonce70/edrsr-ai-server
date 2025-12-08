@@ -205,7 +205,10 @@ export const genAI = apiKeyManager.clients[0];
 
 // Model configuration from environment
 export const modelName = process.env.MODEL_NAME || 'gemini-2.5-flash';
-export const FALLBACK_MODEL_NAME = process.env.FALLBACK_MODEL_NAME || null;
+// Fallback модель - якщо основна rate limited, спробувати цю
+export const FALLBACK_MODEL_NAME =
+  process.env.FALLBACK_MODEL_NAME ||
+  (modelName === 'gemini-2.5-pro' ? 'gemini-2.5-flash' : 'gemini-2.5-pro');
 
 // Generation configuration from environment
 export const GENERATION_CONFIG = {
