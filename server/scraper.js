@@ -600,12 +600,15 @@ function structureCourtDecision(text) {
  * @returns {object} - Оновлений об'єкт caseData.
  */
 function enhanceMetadataFromText(caseData, fullPageText) {
+  const startTime = Date.now();
+  const caseId = caseData.id || 'unknown';
+
   // Покращуємо Номер справи
   if (caseData.caseNumber === 'Не вказано' || !caseData.caseNumber) {
     const caseNumberMatch = fullPageText.match(COMPILED_REGEX.caseNumber);
     if (caseNumberMatch && caseNumberMatch[1]) {
       caseData.caseNumber = caseNumberMatch[1].trim();
-      console.log(`[Enhancer] Знайдено номер справи з тексту: ${caseData.caseNumber}`);
+      console.log(`[Enhancer] [${caseId}] Знайдено номер справи з тексту: ${caseData.caseNumber}`);
     }
   }
 
@@ -617,11 +620,16 @@ function enhanceMetadataFromText(caseData, fullPageText) {
 
     if (dateEffectiveMatch && dateEffectiveMatch[1]) {
       caseData.date = dateEffectiveMatch[1].trim();
-      console.log(`[Enhancer] Знайдено дату (набрання сили) з тексту: ${caseData.date}`);
+      console.log(`[Enhancer] [${caseId}] Знайдено дату (набрання сили) з тексту: ${caseData.date}`);
     } else if (dateRegisteredMatch && dateRegisteredMatch[1]) {
       caseData.date = dateRegisteredMatch[1].trim();
-      console.log(`[Enhancer] Знайдено дату (реєстрації) з тексту: ${caseData.date}`);
+      console.log(`[Enhancer] [${caseId}] Знайдено дату (реєстрації) з тексту: ${caseData.date}`);
     }
+  }
+
+  const elapsed = Date.now() - startTime;
+  if (elapsed > 100) {
+    console.warn(`⚠️ [Enhancer] [${caseId}] Повільний enhancer: ${elapsed}ms`);
   }
 
   return caseData;
@@ -769,7 +777,13 @@ export async function fetchCase(url, cookie = '', signal = null, options = {}) {
     };
 
     // Етап 2: Інтелектуальний збір для заповнення прогалин
+    const bodyTextStart = Date.now();
     let fullPageText = $('body').text();
+    const bodyTextTime = Date.now() - bodyTextStart;
+    if (bodyTextTime > 100) {
+      console.warn(`⚠️ [${caseData.id}] Повільний $('body').text(): ${bodyTextTime}ms`);
+    }
+
     caseData = enhanceMetadataFromText(caseData, fullPageText);
 
     // Етап 3: Вилучення та фінальна очистка основного тіла документу
