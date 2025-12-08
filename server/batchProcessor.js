@@ -32,7 +32,7 @@ async function generateContent(prompt, reservedKeyIndex = null) {
   if (ENABLE_CLI_PROXY && cliProxyClient) {
     try {
       logger.info(
-        `🚀 CLIProxy PRIMARY (${CLI_PROXY_MODEL}, ключ ${cliProxyClient.currentKeyIndex + 1}/${cliProxyClient.totalCount})`
+        `🚀 CLIProxy PRIMARY (${CLI_PROXY_MODEL}, доступно ${cliProxyClient.availableCount}/${cliProxyClient.totalCount} ключів)`
       );
 
       const response = await cliProxyClient.generateContent({
@@ -46,11 +46,10 @@ async function generateContent(prompt, reservedKeyIndex = null) {
         return response.text.trim();
       }
     } catch (proxyError) {
-      const status = proxyError.status || '';
-      logger.warn(`⚠️ CLIProxy помилка: ${proxyError.message}`);
-
-      if (status === 429 || status === 503) {
-        logger.info(`⚡ CLIProxy rate limited, переключаюсь на офіційні ключі...`);
+      if (proxyError.allKeysExhausted) {
+        logger.warn(`⚠️ CLIProxy: всі ${cliProxyClient.totalCount} ключів вичерпані, fallback на офіційні...`);
+      } else {
+        logger.warn(`⚠️ CLIProxy помилка: ${proxyError.message}`);
       }
     }
   }
