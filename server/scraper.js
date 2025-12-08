@@ -788,14 +788,21 @@ export async function fetchCase(url, cookie = '', signal = null, options = {}) {
     };
 
     // Етап 2: Інтелектуальний збір для заповнення прогалин
+    // Обмежуємо текст для regex пошуку - метадані зазвичай на початку документа
     const bodyTextStart = Date.now();
     let fullPageText = $('body').text();
     const bodyTextTime = Date.now() - bodyTextStart;
     if (bodyTextTime > 100) {
-      console.warn(`⚠️ [${caseData.id}] Повільний $('body').text(): ${bodyTextTime}ms`);
+      console.warn(`⚠️ [${caseData.id}] Повільний $('body').text(): ${bodyTextTime}ms (${fullPageText.length} символів)`);
     }
 
-    caseData = enhanceMetadataFromText(caseData, fullPageText);
+    // Обмежуємо текст для enhancer - метадані на початку, не потрібен весь документ
+    const MAX_ENHANCER_TEXT = 50000; // 50KB достатньо для пошуку метаданих
+    const textForEnhancer = fullPageText.length > MAX_ENHANCER_TEXT
+      ? fullPageText.substring(0, MAX_ENHANCER_TEXT)
+      : fullPageText;
+
+    caseData = enhanceMetadataFromText(caseData, textForEnhancer);
 
     // Етап 3: Вилучення та фінальна очистка основного тіла документу
     console.log(`🔍 [${caseData.id}] Починаємо парсинг контенту...`);
