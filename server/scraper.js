@@ -1,6 +1,7 @@
 import got from 'got';
 import * as cheerio from 'cheerio';
 import iconv from 'iconv-lite';
+import pLimit from 'p-limit';
 import 'dotenv/config';
 import dbService from './services/dbService.js'; // Import the dbService
 import { isValidEDRSRUrl, logger } from './utils.js';
@@ -18,8 +19,19 @@ const turndownService = new TurndownService({
 // Remove unwanted elements
 turndownService.remove(['script', 'style', 'iframe', 'noscript', 'svg']);
 
-// const limit = pLimit(parseInt(process.env.MAX_CONCURRENT_REQUESTS) || 1); // Removed for sequential processing
-const requestDelay = parseInt(process.env.REQUEST_DELAY_MS) || 1000;
+const MAX_CONCURRENT_REQUESTS = parsePositiveInt(process.env.MAX_CONCURRENT_REQUESTS, 2);
+const REQUEST_DELAY_BASE_MS = parsePositiveInt(process.env.REQUEST_DELAY_MS, 150);
+const REQUEST_DELAY_JITTER_MS = parsePositiveInt(process.env.REQUEST_DELAY_JITTER_MS, 50);
+const REQUEST_DELAY_ON_RATE_LIMIT_MS = parsePositiveInt(
+  process.env.REQUEST_DELAY_ON_RATE_LIMIT_MS,
+  1000
+);
+const ADAPTIVE_REQUEST_DELAY = process.env.ADAPTIVE_REQUEST_DELAY !== 'false';
+const FULL_PAGE_TEXT_LIMIT = parsePositiveInt(process.env.FULL_PAGE_TEXT_LIMIT, 250000);
+const STRUCTURE_TEXT_MAX = parsePositiveInt(process.env.STRUCTURE_TEXT_MAX, 20000);
+const RETRY_LIMIT = parsePositiveInt(process.env.GOT_RETRY_LIMIT, 1);
+const RETRY_BACKOFF_MS = parsePositiveInt(process.env.GOT_RETRY_BACKOFF_MS, 800);
+const MEMORY_CHECK_INTERVAL = parsePositiveInt(process.env.MEMORY_CHECK_INTERVAL, 10);
 
 function parsePositiveInt(value, fallback) {
   const parsed = parseInt(value, 10);
@@ -30,7 +42,7 @@ const DEFAULT_CASE_TIMEOUT_MS = parsePositiveInt(
   process.env.CASE_TIMEOUT_MS ||
     process.env.FETCH_CASE_TIMEOUT_MS ||
     process.env.OVERALL_REQUEST_TIMEOUT_MS,
-  30000
+  18000
 );
 
 // Defensive guards against bad/huge pages
@@ -77,6 +89,35 @@ const COMPILED_REGEX = {
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function jitter(ms) {
+  if (!ms || ms <= 0) return 0;
+  return Math.floor(Math.random() * ms);
+}
+
+function computeAdaptiveDelay({ statusCode = null, isError = false }) {
+  const base = REQUEST_DELAY_BASE_MS > 0 ? REQUEST_DELAY_BASE_MS : 0;
+
+  if (!ADAPTIVE_REQUEST_DELAY) {
+    return base + jitter(REQUEST_DELAY_JITTER_MS);
+  }
+
+  let delayMs = 0;
+
+  if (statusCode === 429 || statusCode === 503) {
+    delayMs = REQUEST_DELAY_ON_RATE_LIMIT_MS || base;
+  } else if (isError) {
+    delayMs = base;
+  }
+
+  if (delayMs <= 0) return 0;
+  return delayMs + jitter(REQUEST_DELAY_JITTER_MS);
+}
+
+function fmtSpan(start, end) {
+  if (!start || !end) return '-';
+  return `${end - start}ms`;
 }
 
 function safeByteLength(str) {
@@ -492,7 +533,7 @@ function extractMainContent($) {
     .trim();
 
   // Финальное структурирование контента
-  if (cleanText && cleanText.length > 100) {
+  if (cleanText && cleanText.length > 100 && cleanText.length <= STRUCTURE_TEXT_MAX) {
     cleanText = structureCourtDecision(cleanText);
   }
 
@@ -633,11 +674,22 @@ function enhanceMetadataFromText(caseData, fullPageText) {
  * Завантажує одне судове рішення з ЄДРСР, застосовуючи двохетапний збір метаданих.
  */
 export async function fetchCase(url, cookie = '', signal = null, options = {}) {
+  const caseId = url.match(/\/Review\/(\d+)/)?.[1] || url;
+  const t0 = Date.now();
+  let tFetchStart;
+  let tFetchEnd;
+  let tHazardEnd;
+  let tDecodeEnd;
+  let tCheerioEnd;
+  let tMetadataEnd;
+  let tBodyEnd;
+  let tCacheEnd;
+  let statusCode = null;
+
   // 1. Check cache first
   const cachedCase = await dbService.getCachedCaseByUrl(url);
   if (cachedCase) {
-    // Return a copy to prevent mutation of the cached object
-    // NO DELAY here because we didn't hit the network
+    logger.info(`[T][${caseId}] cache-hit total=${Date.now() - t0}ms`);
     return { ...cachedCase, fromCache: true };
   }
 
@@ -653,13 +705,13 @@ export async function fetchCase(url, cookie = '', signal = null, options = {}) {
     };
   }
 
-  const caseId = url.match(/\/Review\/(\d+)/)?.[1] || url;
   const timeoutMs = parsePositiveInt(options.timeoutMs, DEFAULT_CASE_TIMEOUT_MS);
-  const gotTimeoutMs = parsePositiveInt(
-    process.env.GOT_REQUEST_TIMEOUT_MS,
-    Math.min(timeoutMs, 45000)
+  const gotTimeoutEnv = parsePositiveInt(process.env.GOT_REQUEST_TIMEOUT_MS, null);
+  const gotTimeoutDefault = Math.min(timeoutMs, 18000);
+  const effectiveGotTimeout = Math.max(
+    1000,
+    Math.min(gotTimeoutEnv ?? gotTimeoutDefault, timeoutMs)
   );
-  const effectiveGotTimeout = Math.max(1000, Math.min(gotTimeoutMs, timeoutMs));
 
   let abortedByTimeout = false;
   let abortedByParentSignal = false;
@@ -688,7 +740,9 @@ export async function fetchCase(url, cookie = '', signal = null, options = {}) {
   }, timeoutMs);
 
   try {
-    console.log(`📥 Завантажую: ${url}`);
+    logger.info(
+      `📥 Завантажую: ${url} (timeout=${effectiveGotTimeout}ms, retries=${RETRY_LIMIT}, delayBase=${REQUEST_DELAY_BASE_MS}ms, adaptiveDelay=${ADAPTIVE_REQUEST_DELAY})`
+    );
     const headers = {
       'User-Agent':
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -696,14 +750,15 @@ export async function fetchCase(url, cookie = '', signal = null, options = {}) {
     };
 
     // Use the abort controller's signal
+    tFetchStart = Date.now();
     const response = await got(url, {
       headers,
       signal: abortSignal,
       retry: {
-        limit: 2, // Simplified retry logic
+        limit: RETRY_LIMIT,
         methods: ['GET'],
         statusCodes: [408, 413, 429, 500, 502, 503, 504, 521, 522, 524],
-        calculateDelay: ({ attemptCount }) => attemptCount * 1000, // 1s, 2s
+        calculateDelay: ({ attemptCount }) => Math.min(RETRY_BACKOFF_MS * attemptCount, 2000),
       },
       timeout: {
         request: effectiveGotTimeout,
@@ -714,6 +769,8 @@ export async function fetchCase(url, cookie = '', signal = null, options = {}) {
       // Avoid auto-parsing non-2xx into throw; we handle errors via catch
       throwHttpErrors: true,
     });
+    statusCode = response.statusCode || null;
+    tFetchEnd = Date.now();
 
     // Content-Type sanity check
     const contentType = (response.headers['content-type'] || '').toLowerCase();
@@ -728,14 +785,22 @@ export async function fetchCase(url, cookie = '', signal = null, options = {}) {
         errorType: 'non_html',
         skipped: true,
       };
+      logger.warn(
+        `[T][${caseId}] non-html status=${statusCode || '-'} fetch=${fmtSpan(
+          tFetchStart,
+          tFetchEnd
+        )} total=${Date.now() - t0}ms contentType=${contentType}`
+      );
       await dbService.saveCaseToCache(skipped);
       return skipped;
     }
 
     // Analyze raw HTML for hazards before parsing
     const decodedHtml = decodeHtmlBody(response.body, contentType);
+    tDecodeEnd = Date.now();
 
     const hazard = analyzeRawHtmlForHazards(decodedHtml || '');
+    tHazardEnd = Date.now();
     if (hazard.skip) {
       console.warn(`🚫 [SKIP] ${url} -> ${hazard.reason}`);
       const skipped = {
@@ -746,6 +811,9 @@ export async function fetchCase(url, cookie = '', signal = null, options = {}) {
         errorType: hazard.reason.includes('large') ? 'too_large' : 'bad_content',
         skipped: true,
       };
+      logger.warn(
+        `[T][${caseId}] hazard-skip reason="${hazard.reason}" fetch=${fmtSpan(tFetchStart, tFetchEnd)} decode=${fmtSpan(tFetchEnd, tDecodeEnd)} hazard=${fmtSpan(tDecodeEnd, tHazardEnd)} total=${Date.now() - t0}ms`
+      );
       // Cache this decision to avoid repeated heavy attempts
       await dbService.saveCaseToCache(skipped);
       return skipped;
@@ -753,6 +821,7 @@ export async function fetchCase(url, cookie = '', signal = null, options = {}) {
 
     // Load HTML into cheerio only after passing guards
     let $ = cheerio.load(decodedHtml, { decodeEntities: false });
+    tCheerioEnd = Date.now();
 
     // Remove obvious non-content nodes before extracting text
     stripNonContentElements($);
@@ -781,6 +850,9 @@ export async function fetchCase(url, cookie = '', signal = null, options = {}) {
     const getFullPageText = () => {
       if (fullPageText === null) {
         fullPageText = $('body').text();
+        if (fullPageText.length > FULL_PAGE_TEXT_LIMIT) {
+          fullPageText = fullPageText.slice(0, FULL_PAGE_TEXT_LIMIT);
+        }
       }
       return fullPageText;
     };
@@ -789,6 +861,7 @@ export async function fetchCase(url, cookie = '', signal = null, options = {}) {
     }
 
     caseData = enhanceMetadataFromText(caseData, metadataText);
+    tMetadataEnd = Date.now();
 
     // Етап 3: Вилучення та фінальна очистка основного тіла документу
     console.log(`🔍 [${caseData.id}] Починаємо парсинг контенту...`);
@@ -811,6 +884,7 @@ export async function fetchCase(url, cookie = '', signal = null, options = {}) {
     } else {
       caseData.body = extractMainContent($);
     }
+    tBodyEnd = Date.now();
 
     // Зберігаємо fullPageText ДО очищення $ (потрібен для extractLegalMetadata та emergency search)
     const cachedFullPageText = getFullPageText();
@@ -926,9 +1000,24 @@ ${caseData.body}
 
     // 2. Save to cache after successful processing
     await dbService.saveCaseToCache(caseData);
+    tCacheEnd = Date.now();
 
-    // Apply delay ONLY when we actually fetched from the network
-    await delay(requestDelay);
+    const delayMs = computeAdaptiveDelay({ statusCode, isError: false });
+    if (delayMs > 0) {
+      await delay(delayMs);
+    }
+
+    const totalMs = Date.now() - t0;
+    logger.info(
+      `[T][${caseData.id}] status=${statusCode || '-'} fetch=${fmtSpan(
+        tFetchStart,
+        tFetchEnd
+      )} decode=${fmtSpan(tFetchEnd, tDecodeEnd)} hazard=${fmtSpan(tDecodeEnd, tHazardEnd)} dom=${fmtSpan(tHazardEnd, tCheerioEnd)} meta=${fmtSpan(
+        tCheerioEnd,
+        tMetadataEnd
+      )} content=${fmtSpan(tMetadataEnd, tBodyEnd)} cache=${fmtSpan(tBodyEnd, tCacheEnd)} total=${totalMs}ms bodyLen=${caseData.body?.length || 0}`
+    );
+
     return caseData;
   } catch (error) {
     if (abortedByParentSignal && !abortedByTimeout) {
@@ -937,6 +1026,7 @@ ${caseData.body}
 
     let errorType = 'unknown';
     let message = error?.message || 'Невідома помилка';
+    statusCode = error?.response?.statusCode || statusCode;
     if (abortedByTimeout) {
       errorType = 'timeout';
       message = `Перевищено ліміт часу ${timeoutMs}мс під час завантаження`;
@@ -958,7 +1048,21 @@ ${caseData.body}
         cachedAt: Date.now(),
         isTemporary: true,
       });
+      tCacheEnd = Date.now();
     }
+
+    const delayMs = computeAdaptiveDelay({ statusCode, isError: true });
+    if (delayMs > 0) {
+      await delay(delayMs);
+    }
+
+    const errorTiming =
+      `[T][${caseId}] error type=${errorType} status=${statusCode || '-'} ` +
+      `fetch=${fmtSpan(tFetchStart, tFetchEnd)} decode=${fmtSpan(tFetchEnd, tDecodeEnd)} ` +
+      `hazard=${fmtSpan(tDecodeEnd, tHazardEnd)} dom=${fmtSpan(tHazardEnd, tCheerioEnd)} ` +
+      `meta=${fmtSpan(tCheerioEnd, tMetadataEnd)} content=${fmtSpan(tMetadataEnd, tBodyEnd)} ` +
+      `cache=${fmtSpan(tBodyEnd, tCacheEnd)} total=${Date.now() - t0}ms msg="${message}"`;
+    logger.warn(errorTiming);
 
     return {
       url,
@@ -978,13 +1082,15 @@ ${caseData.body}
 // --- Решта функцій файлу без змін ---
 
 export async function downloadAll(urls, cookie = '', onProgress = () => {}, abortSignal = null) {
-  console.log(`🚀 Початок завантаження ${urls.length} судових рішень...`);
+  console.log(
+    `🚀 Початок завантаження ${urls.length} судових рішень (concurrency=${MAX_CONCURRENT_REQUESTS})...`
+  );
   if (!urls || urls.length === 0) throw new Error('Список URL порожній');
   // Строгая валидация домена/пути, вместо includes(...)
   const validUrls = urls.filter((url) => isValidEDRSRUrl(url));
   if (validUrls.length === 0) throw new Error('Не знайдено валідних URL ЄДРСР');
 
-  const results = [];
+  const results = new Array(validUrls.length);
   let processedCount = 0;
   let skippedCount = 0;
   const caseTimeoutMs = parsePositiveInt(
@@ -993,96 +1099,92 @@ export async function downloadAll(urls, cookie = '', onProgress = () => {}, abor
       process.env.OVERALL_REQUEST_TIMEOUT_MS,
     DEFAULT_CASE_TIMEOUT_MS
   );
+  const memWarningMB = parseInt(process.env.MEMORY_WARNING_MB, 10) || 200;
+  const memLimitMB = parseInt(process.env.MEMORY_LIMIT_MB, 10) || 400;
+  const limiter = pLimit(Math.max(1, MAX_CONCURRENT_REQUESTS));
 
-  for (const url of validUrls) {
-    // Check if operation was cancelled
-    if (abortSignal && abortSignal.aborted) {
-      console.log(`⚠️ Операцію скасовано користувачем на ${processedCount}/${validUrls.length}`);
-      throw new Error('Операцію скасовано користувачем');
-    }
+  const isSkippable = (result) =>
+    result.errorType === 'timeout' ||
+    result.errorType === 'network' ||
+    result.errorType === 'non_html' ||
+    result.errorType === 'too_large' ||
+    result.errorType === 'bad_content' ||
+    result.error?.includes('отменена') ||
+    result.error?.includes('скасовано') ||
+    result.error?.includes('abort');
 
-    try {
-      console.log(`📥 [${processedCount + 1}/${validUrls.length}] Обробляю: ${url}`);
+  const processOne = (url, index) =>
+    limiter(async () => {
+      if (abortSignal && abortSignal.aborted) {
+        console.log(`⚠️ Операцію скасовано користувачем на ${processedCount}/${validUrls.length}`);
+        throw new Error('Операцію скасовано користувачем');
+      }
 
-      const result = await fetchCase(url, cookie, abortSignal, { timeoutMs: caseTimeoutMs });
+      try {
+        console.log(`📥 [${index + 1}/${validUrls.length}] Обробляю: ${url}`);
+        const result = await fetchCase(url, cookie, abortSignal, { timeoutMs: caseTimeoutMs });
 
-      if (result.error) {
-        // Check if the error is due to a timeout, cancellation, or network issue
-        const isSkippableError =
-          result.errorType === 'timeout' ||
-          result.errorType === 'network' ||
-          result.errorType === 'non_html' ||
-          result.errorType === 'too_large' ||
-          result.errorType === 'bad_content' ||
-          result.error.includes('отменена') ||
-          result.error.includes('скасовано') ||
-          result.error.includes('abort');
-
-        if (isSkippableError) {
+        let finalResult = result;
+        if (result.error && isSkippable(result)) {
           console.warn(`⚠️ Пропускаю проблемне посилання: ${url} (${result.error})`);
           skippedCount++;
-          results.push({ ...result, skipped: true });
-        } else {
-          results.push(result);
-        }
-      } else {
-        results.push(result);
-      }
-
-      processedCount++;
-      await onProgress(processedCount);
-
-      // Профілактичний GC кожні 10 справ для запобігання OOM
-      if (processedCount % 10 === 0) {
-        const memUsage = process.memoryUsage();
-        const memUsedMB = Math.round(memUsage.heapUsed / 1024 / 1024);
-        const memWarningMB = parseInt(process.env.MEMORY_WARNING_MB, 10) || 200;
-        const memLimitMB = parseInt(process.env.MEMORY_LIMIT_MB, 10) || 400;
-
-        console.log(
-          `📊 [MEMORY] Heap: ${memUsedMB}MB / RSS: ${Math.round(memUsage.rss / 1024 / 1024)}MB`
-        );
-
-        // Профілактичний GC при досягненні warning порогу
-        if (memUsedMB > memWarningMB && global.gc) {
-          console.log(`🗑️ [MEMORY] Профілактичний GC при ${memUsedMB}MB > ${memWarningMB}MB`);
-          global.gc();
-          const memAfterGC = process.memoryUsage();
-          console.log(`🗑️ [MEMORY] Після GC: ${Math.round(memAfterGC.heapUsed / 1024 / 1024)}MB`);
+          finalResult = { ...result, skipped: true };
         }
 
-        // Затримка при критичному рівні памʼяті
-        if (memUsedMB > memLimitMB) {
-          console.warn(`⚠️ [MEMORY] Критичний рівень памʼяті (${memUsedMB}MB), додаю затримку...`);
-          await delay(2000);
+        results[index] = finalResult;
+
+        const currentProcessed = ++processedCount;
+        await onProgress(currentProcessed);
+
+        if (currentProcessed % MEMORY_CHECK_INTERVAL === 0) {
+          const memUsage = process.memoryUsage();
+          const memUsedMB = Math.round(memUsage.heapUsed / 1024 / 1024);
+          console.log(
+            `📊 [MEMORY] Heap: ${memUsedMB}MB / RSS: ${Math.round(memUsage.rss / 1024 / 1024)}MB`
+          );
+
+          if (memUsedMB > memWarningMB && global.gc) {
+            console.log(`🗑️ [MEMORY] Профілактичний GC при ${memUsedMB}MB > ${memWarningMB}MB`);
+            global.gc();
+            const memAfterGC = process.memoryUsage();
+            console.log(`🗑️ [MEMORY] Після GC: ${Math.round(memAfterGC.heapUsed / 1024 / 1024)}MB`);
+          }
+
+          if (memUsedMB > memLimitMB) {
+            console.warn(
+              `⚠️ [MEMORY] Критичний рівень памʼяті (${memUsedMB}MB), додаю затримку...`
+            );
+            await delay(2000);
+          }
         }
+      } catch (error) {
+        console.error(`❌ CRITICAL Error during processing ${url}:`, error.message);
+
+        const isCancelledError =
+          error.message.includes('отменена') ||
+          error.message.includes('скасовано') ||
+          error.message.includes('abort');
+        if (isCancelledError) {
+          throw error;
+        }
+
+        results[index] = {
+          url,
+          error: error.message,
+          id: url.match(/\/Review\/(\d+)/)?.[1] || url,
+          skipped: true,
+          errorType: 'critical',
+        };
+        const currentProcessed = ++processedCount;
+        await onProgress(currentProcessed);
       }
-    } catch (error) {
-      // This catch block will now mostly handle unrecoverable errors or cancellation
-      console.error(`❌ CRITICAL Error during processing ${url}:`, error.message);
+    });
 
-      const isCancelledError =
-        error.message.includes('отменена') ||
-        error.message.includes('скасовано') ||
-        error.message.includes('abort');
-      if (isCancelledError) {
-        throw error; // Propagate cancellation to stop the entire process
-      }
+  const tasks = validUrls.map((url, index) => processOne(url, index));
+  await Promise.all(tasks);
 
-      results.push({
-        url,
-        error: error.message,
-        id: url.match(/\/Review\/(\d+)/)?.[1] || url,
-        skipped: true,
-        errorType: 'critical',
-      });
-      processedCount++;
-      await onProgress(processedCount);
-    }
-  }
-
-  const successful = results.filter((r) => !r.error).length;
-  const failed = results.filter((r) => r.error && !r.skipped).length;
+  const successful = results.filter((r) => r && !r.error).length;
+  const failed = results.filter((r) => r && r.error && !r.skipped).length;
 
   console.log(
     `✅ Завершено обработку: успешно=${successful}, пропущено=${skippedCount}, ошибок=${failed} из ${validUrls.length}`
