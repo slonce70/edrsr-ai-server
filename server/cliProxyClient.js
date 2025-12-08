@@ -37,38 +37,66 @@ class CLIProxyClient {
   }
 
   async generateContent({ model, contents, config }) {
-    const { key, keyIndex } = this.getNextKey();
+    const triedKeys = new Set();
+    let lastError = null;
 
-    const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${key}`,
-      },
-      body: JSON.stringify({
-        model,
-        messages: [{ role: 'user', content: contents }],
-        max_tokens: config?.maxOutputTokens || 65536,
-        reasoning_effort: 'high',
-      }),
-    });
+    // Спробувати всі ключі перед fallback на офіційні
+    while (triedKeys.size < this.apiKeys.length) {
+      const { key, keyIndex } = this.getNextKey();
 
-    if (response.status === 429 || response.status === 503) {
-      this.markRateLimited(keyIndex);
-      const err = new Error(`CLIProxy rate limited (${response.status})`);
-      err.status = response.status;
-      err.keyIndex = keyIndex;
-      throw err;
+      // Якщо вже пробували цей ключ - пропустити
+      if (triedKeys.has(keyIndex)) {
+        // Всі ключі на cooldown
+        break;
+      }
+      triedKeys.add(keyIndex);
+
+      try {
+        const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${key}`,
+          },
+          body: JSON.stringify({
+            model,
+            messages: [{ role: 'user', content: contents }],
+            max_tokens: config?.maxOutputTokens || 65536,
+            reasoning_effort: 'high',
+          }),
+        });
+
+        // Успіх
+        if (response.ok) {
+          const data = await response.json();
+          return { text: data.choices?.[0]?.message?.content || '' };
+        }
+
+        // Rate limit або помилка сервера - спробувати інший ключ
+        if (response.status === 429 || response.status === 503 || response.status === 403) {
+          this.markRateLimited(keyIndex, response.status === 403 ? 30000 : 60000);
+          lastError = new Error(`CLIProxy error (${response.status}), ключ #${keyIndex + 1}`);
+          lastError.status = response.status;
+          continue; // Спробувати наступний ключ
+        }
+
+        // Інші помилки - одразу fallback
+        const err = new Error(`CLIProxy error: ${response.status}`);
+        err.status = response.status;
+        throw err;
+      } catch (fetchError) {
+        // Network error - спробувати інший ключ
+        if (fetchError.status) throw fetchError; // Re-throw CLIProxy errors
+        lastError = fetchError;
+        this.markRateLimited(keyIndex, 30000);
+        continue;
+      }
     }
 
-    if (!response.ok) {
-      const err = new Error(`CLIProxy error: ${response.status}`);
-      err.status = response.status;
-      throw err;
-    }
-
-    const data = await response.json();
-    return { text: data.choices?.[0]?.message?.content || '' };
+    // Всі ключі вичерпані
+    const err = lastError || new Error('CLIProxy: всі ключі вичерпані');
+    err.allKeysExhausted = true;
+    throw err;
   }
 
   get totalCount() {
