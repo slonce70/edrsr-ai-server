@@ -81,10 +81,10 @@ async function generateContent(prompt, reservedKeyIndex = null) {
 
         apiKeyManager.markError(keyIndex);
 
-        // Невалідний ключ - пропускаємо його повністю
+        // Невалідний ключ - позначаємо як ПЕРМАНЕНТНО невалідний
         if (isInvalidKey) {
           logger.error(`🚫 [GEMINI] Ключ #${keyIndex + 1} НЕВАЛІДНИЙ! Перевірте ключ в Google AI Studio.`);
-          apiKeyManager.markRateLimited(keyIndex, 3600000); // 1 година cooldown
+          apiKeyManager.markInvalid(keyIndex); // Permanent ban замість cooldown
           keysFullyTried.add(keyIndex);
           break;
         }
