@@ -23,30 +23,35 @@ import { startCacheCleanupService } from './services/maintenance.js';
  * Falls back to permissive mode in development only.
  */
 const getAllowedOrigins = () => {
-  // Check for explicit configuration
+  // Base origins that are always allowed
+  const baseOrigins = [
+    'https://reyestr.court.gov.ua', // EDRSR website
+    'https://edrsr-ai-server.onrender.com', // Render.com admin panel
+  ];
+
+  // Add configured origins if present
   if (process.env.CORS_ALLOWED_ORIGINS) {
-    return process.env.CORS_ALLOWED_ORIGINS.split(',').map((origin) => origin.trim());
+    const configuredOrigins = process.env.CORS_ALLOWED_ORIGINS.split(',').map((origin) =>
+      origin.trim()
+    );
+    const allOrigins = [...new Set([...baseOrigins, ...configuredOrigins])];
+    logger.info(`[CORS] Allowed origins: ${allOrigins.join(', ')}`);
+    return allOrigins;
   }
 
-  // Production/staging: require explicit configuration or use permissive defaults for Render.com
-  if (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging') {
-    logger.warn(
-      '[SECURITY] CORS_ALLOWED_ORIGINS not set in production/staging. Using permissive defaults.'
-    );
-    // Return expected production domains including Render.com
+  // Development: add localhost
+  if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'staging') {
     return [
-      'https://reyestr.court.gov.ua', // EDRSR website
-      'https://edrsr-ai-server.onrender.com', // Render.com admin panel
+      ...baseOrigins,
+      'http://localhost:3000',
+      'http://localhost:4000',
+      'http://127.0.0.1:3000',
+      'http://127.0.0.1:4000',
     ];
   }
 
-  // Development: allow localhost variations
-  return [
-    'http://localhost:3000',
-    'http://localhost:4000',
-    'http://127.0.0.1:3000',
-    'http://127.0.0.1:4000',
-  ];
+  logger.info(`[CORS] Using default origins: ${baseOrigins.join(', ')}`);
+  return baseOrigins;
 };
 
 /**
