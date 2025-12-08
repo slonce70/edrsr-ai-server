@@ -781,9 +781,13 @@ export async function fetchCase(url, cookie = '', signal = null, options = {}) {
       const markdown = extractAsMarkdown($, '#divdocument');
       if (markdown && markdown.length > 200) {
         caseData.body = markdown;
-        console.log(`✅ [${caseData.id}] Markdown extraction успішно (${markdown.length} символів)`);
+        console.log(
+          `✅ [${caseData.id}] Markdown extraction успішно (${markdown.length} символів)`
+        );
       } else {
-        console.log(`⚠️ [${caseData.id}] Markdown extraction не дало результату, fallback на Cheerio`);
+        console.log(
+          `⚠️ [${caseData.id}] Markdown extraction не дало результату, fallback на Cheerio`
+        );
         caseData.body = extractMainContent($);
       }
     } else {
@@ -889,7 +893,9 @@ ${caseData.body}
       console.log(
         `✂️ [${caseData.id}] Текст обрізано: ${caseData.body.length} → ${MAX_CASE_TEXT_LENGTH} символів`
       );
-      caseData.body = caseData.body.substring(0, MAX_CASE_TEXT_LENGTH) + '\n\n[... Текст обрізано для оптимізації ...]';
+      caseData.body =
+        caseData.body.substring(0, MAX_CASE_TEXT_LENGTH) +
+        '\n\n[... Текст обрізано для оптимізації ...]';
     }
 
     console.log(`✅ Завантажено та оброблено: ${caseData.id} (${caseData.body.length} символів)`);

@@ -26,15 +26,16 @@ const RATE_LIMIT_COOLDOWN_MS = 60000; // 60 seconds cooldown for rate-limited ke
  */
 async function generateContent(prompt, reservedKeyIndex = null) {
   let attempt = 0;
-  let keysFullyTried = new Set(); // Ключі де обидві моделі не спрацювали
+  const keysFullyTried = new Set(); // Ключі де обидві моделі не спрацювали
 
   while (attempt < MAX_RETRIES) {
     attempt++;
 
     // Використати зарезервований ключ або взяти наступний доступний
-    const { client, keyIndex } = reservedKeyIndex !== null
-      ? apiKeyManager.getClientByIndex(reservedKeyIndex)
-      : apiKeyManager.getNextClient();
+    const { client, keyIndex } =
+      reservedKeyIndex !== null
+        ? apiKeyManager.getClientByIndex(reservedKeyIndex)
+        : apiKeyManager.getNextClient();
 
     // Спробувати спочатку основну модель, потім fallback
     const modelsToTry = [modelName];
@@ -47,15 +48,16 @@ async function generateContent(prompt, reservedKeyIndex = null) {
         `🚀 Gemini (Спроба ${attempt}/${MAX_RETRIES}, Ключ #${keyIndex + 1}/${apiKeyManager.totalCount}, Модель: ${currentModel})`
       );
 
-      const model = client.getGenerativeModel({
-        model: currentModel,
-        generationConfig: GENERATION_CONFIG,
-        safetySettings: SAFETY_SETTINGS,
-      });
-
       try {
-        const result = await model.generateContent(prompt);
-        const text = result?.response?.text?.();
+        const response = await client.models.generateContent({
+          model: currentModel,
+          contents: prompt,
+          config: {
+            ...GENERATION_CONFIG,
+            safetySettings: SAFETY_SETTINGS,
+          },
+        });
+        const text = response.text;
 
         if (!text?.trim()) {
           throw new Error('Gemini повернув порожню відповідь.');
@@ -63,7 +65,7 @@ async function generateContent(prompt, reservedKeyIndex = null) {
         return text.trim(); // Успіх!
       } catch (error) {
         const message = String(error.message || '');
-        const statusCode = error.status || error.statusCode || (message.match(/\b(\d{3})\b/)?.[1]);
+        const statusCode = error.status || error.statusCode || message.match(/\b(\d{3})\b/)?.[1];
 
         // Детальне логування помилки
         logger.warn(`❌ [GEMINI] Ключ #${keyIndex + 1}, ${currentModel}: ${message.slice(0, 200)}`);
@@ -83,7 +85,9 @@ async function generateContent(prompt, reservedKeyIndex = null) {
 
         // Невалідний ключ - позначаємо як ПЕРМАНЕНТНО невалідний
         if (isInvalidKey) {
-          logger.error(`🚫 [GEMINI] Ключ #${keyIndex + 1} НЕВАЛІДНИЙ! Перевірте ключ в Google AI Studio.`);
+          logger.error(
+            `🚫 [GEMINI] Ключ #${keyIndex + 1} НЕВАЛІДНИЙ! Перевірте ключ в Google AI Studio.`
+          );
           apiKeyManager.markInvalid(keyIndex); // Permanent ban замість cooldown
           keysFullyTried.add(keyIndex);
           break;
@@ -142,7 +146,13 @@ async function generateContent(prompt, reservedKeyIndex = null) {
  * @param {number|null} reservedKeyIndex - Опціональний індекс зарезервованого ключа для batch.
  * @returns {string} A concise, focused summary of the batch.
  */
-async function getBatchSummary(batchCases, batchNumber, totalBatches, finalUserPrompt = null, reservedKeyIndex = null) {
+async function getBatchSummary(
+  batchCases,
+  batchNumber,
+  totalBatches,
+  finalUserPrompt = null,
+  reservedKeyIndex = null
+) {
   logger.info(
     `📦 Summarizing batch ${batchNumber}/${totalBatches} (${batchCases.length} cases) for task: ${finalUserPrompt || 'default'}`
   );

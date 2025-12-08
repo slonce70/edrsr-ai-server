@@ -461,7 +461,9 @@ async function processQueue() {
       const cachedCookie = jobQueue.getCachedCookie(claimed.id);
       const cookie = cachedCookie || '';
 
-      logger.info(`[QUEUE] Запускаю job ${claimed.id} з БД (cookie: ${cachedCookie ? 'з кешу' : 'немає'})`);
+      logger.info(
+        `[QUEUE] Запускаю job ${claimed.id} з БД (cookie: ${cachedCookie ? 'з кешу' : 'немає'})`
+      );
 
       // Очистити cookie з кешу після використання
       if (cachedCookie) {

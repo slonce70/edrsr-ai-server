@@ -10,7 +10,7 @@ When working with this project's dependencies, use **MCP context7** to fetch up-
 2. Then fetch docs: `mcp__context7__get-library-docs`
 
 Key libraries to look up:
-- `@google/generative-ai` - Gemini AI SDK
+- `@google/genai` - Gemini AI SDK (new unified SDK with thinking support)
 - `@supabase/supabase-js` - Supabase client
 - `express` - Web framework
 - `cheerio` - HTML parsing

@@ -115,7 +115,6 @@ async function answerChatQuestion(jobId, analysisText, history, question, chatSe
   } else {
     // Отримуємо клієнт з ротацією для нової сесії
     const { client, keyIndex } = apiKeyManager.getNextClient();
-    const model = client.getGenerativeModel({ model: modelName });
     logger.info(`[Chat] Нова сесія ${jobId} використовує API ключ #${keyIndex + 1}`);
     // Створюємо нову сесію з початковим контекстом (звітом)
     const initialHistory = [
@@ -132,14 +131,15 @@ async function answerChatQuestion(jobId, analysisText, history, question, chatSe
         parts: [{ text: 'Звіт завантажено. Я готовий відповідати на ваші запитання.' }],
       },
     ];
-    chat = model.startChat({ history: initialHistory });
+    // Новий SDK: використовуємо client.chats.create() замість model.startChat()
+    chat = client.chats.create({ model: modelName, history: initialHistory });
     chatSessions.set(jobId, { chat, keyIndex });
   }
 
   try {
-    const result = await chat.sendMessage(question);
-    const response = await result.response;
-    return response.text();
+    // Новий SDK: sendMessage приймає об'єкт { message: ... }
+    const response = await chat.sendMessage({ message: question });
+    return response.text;
   } catch (err) {
     console.error(`[Chat Error for Job ${jobId}]`, err);
     // Спроба відновити сесію у випадку помилки
@@ -155,8 +155,11 @@ async function answerChatQuestion(jobId, analysisText, history, question, chatSe
 async function testGeminiConnection() {
   try {
     const { client, keyIndex } = apiKeyManager.getNextClient();
-    const model = client.getGenerativeModel({ model: modelName });
-    await model.generateContent('ping');
+    // Новий SDK: використовуємо client.models.generateContent()
+    await client.models.generateContent({
+      model: modelName,
+      contents: 'ping',
+    });
     logger.info(`[Health] Gemini OK (ключ #${keyIndex + 1})`);
     return true;
   } catch (error) {
