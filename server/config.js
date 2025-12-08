@@ -29,7 +29,8 @@ class ApiKeyManager {
     this.clients = keys.map((key) => new GoogleGenerativeAI(key));
     this.currentIndex = 0;
     this.cooldowns = new Map(); // keyIndex → cooldown until timestamp
-    this.usageStats = keys.map(() => ({ requests: 0, errors: 0, rateLimits: 0 }));
+    this.invalidKeys = new Set(); // keyIndex → permanently invalid keys (400/401 errors)
+    this.usageStats = keys.map(() => ({ requests: 0, errors: 0, rateLimits: 0, invalid: false }));
     this.reservedKeys = new Map(); // batchId → keyIndex (для паралельної обробки)
     this.activeRequests = new Map(); // keyIndex → count (активні запити на ключі)
 
@@ -44,8 +45,14 @@ class ApiKeyManager {
     const startIndex = this.currentIndex;
     const now = Date.now();
 
-    // Спробувати знайти ключ, що не на cooldown
+    // Спробувати знайти ключ, що не на cooldown і не invalid
     do {
+      // Пропустити invalid ключі
+      if (this.invalidKeys.has(this.currentIndex)) {
+        this.currentIndex = (this.currentIndex + 1) % this.clients.length;
+        continue;
+      }
+
       const cooldownUntil = this.cooldowns.get(this.currentIndex);
 
       if (!cooldownUntil || now > cooldownUntil) {
@@ -78,20 +85,29 @@ class ApiKeyManager {
       this.currentIndex = (this.currentIndex + 1) % this.clients.length;
     } while (this.currentIndex !== startIndex);
 
-    // Всі ключі на cooldown - повернути перший (з найменшим cooldown)
-    let minCooldownIndex = 0;
+    // Всі ключі на cooldown або invalid - знайти найкращий варіант
+    let minCooldownIndex = -1;
     let minCooldown = Infinity;
 
-    for (const [index, until] of this.cooldowns.entries()) {
-      if (until < minCooldown) {
-        minCooldown = until;
-        minCooldownIndex = index;
+    for (let i = 0; i < this.keys.length; i++) {
+      // Пропустити invalid ключі навіть у fallback
+      if (this.invalidKeys.has(i)) continue;
+
+      const cooldownUntil = this.cooldowns.get(i) || 0;
+      if (cooldownUntil < minCooldown) {
+        minCooldown = cooldownUntil;
+        minCooldownIndex = i;
       }
+    }
+
+    // Якщо всі ключі invalid - кинути помилку
+    if (minCooldownIndex === -1) {
+      throw new Error('❌ Всі API ключі невалідні! Перевірте GEMINI_API_KEYS в налаштуваннях.');
     }
 
     const waitTime = Math.max(0, minCooldown - now);
     console.warn(
-      `⚠️ [GEMINI] Всі ключі на cooldown! Використовую ключ #${minCooldownIndex + 1} ` +
+      `⚠️ [GEMINI] Всі валідні ключі на cooldown! Використовую ключ #${minCooldownIndex + 1} ` +
         `(очікування: ${Math.ceil(waitTime / 1000)}с)`
     );
 
@@ -139,6 +155,31 @@ class ApiKeyManager {
    */
   markError(keyIndex) {
     this.usageStats[keyIndex].errors++;
+  }
+
+  /**
+   * Позначити ключ як перманентно невалідний (400/401 помилки)
+   * Такий ключ більше ніколи не буде використовуватись
+   * @param {number} keyIndex - Індекс ключа
+   */
+  markInvalid(keyIndex) {
+    this.invalidKeys.add(keyIndex);
+    this.usageStats[keyIndex].invalid = true;
+    // Також видаляємо з cooldown щоб не плутати
+    this.cooldowns.delete(keyIndex);
+    console.error(
+      `🚫 [GEMINI] Ключ #${keyIndex + 1} ПЕРМАНЕНТНО НЕВАЛІДНИЙ! ` +
+        `(Залишилось валідних: ${this.keys.length - this.invalidKeys.size})`
+    );
+  }
+
+  /**
+   * Перевірити чи ключ невалідний
+   * @param {number} keyIndex - Індекс ключа
+   * @returns {boolean}
+   */
+  isInvalid(keyIndex) {
+    return this.invalidKeys.has(keyIndex);
   }
 
   /**
@@ -195,21 +236,36 @@ class ApiKeyManager {
   reserveKeyForBatch(batchId) {
     const now = Date.now();
 
-    // Якщо batch вже має зарезервований ключ - повернути його
+    // Якщо batch вже має зарезервований ключ - перевірити чи він ще валідний
     if (this.reservedKeys.has(batchId)) {
       const keyIndex = this.reservedKeys.get(batchId);
-      return {
-        client: this.clients[keyIndex],
-        keyIndex,
-        release: () => this.releaseKeyForBatch(batchId),
-      };
+      // Якщо зарезервований ключ став invalid - знайти новий
+      if (this.invalidKeys.has(keyIndex)) {
+        this.reservedKeys.delete(batchId);
+        const currentActive = this.activeRequests.get(keyIndex) || 0;
+        if (currentActive > 0) {
+          this.activeRequests.set(keyIndex, currentActive - 1);
+        }
+        console.warn(`⚠️ [GEMINI] Зарезервований ключ #${keyIndex + 1} став invalid, шукаю новий...`);
+      } else {
+        return {
+          client: this.clients[keyIndex],
+          keyIndex,
+          release: () => this.releaseKeyForBatch(batchId),
+        };
+      }
     }
 
-    // Знайти ключ з найменшою кількістю активних запитів, що не на cooldown
+    // Знайти ключ з найменшою кількістю активних запитів, що не на cooldown і не invalid
     let bestKeyIndex = -1;
     let minActiveRequests = Infinity;
 
     for (let i = 0; i < this.keys.length; i++) {
+      // Пропустити invalid ключі
+      if (this.invalidKeys.has(i)) {
+        continue;
+      }
+
       const cooldownUntil = this.cooldowns.get(i);
       if (cooldownUntil && now < cooldownUntil) {
         continue; // Пропустити ключі на cooldown
@@ -222,17 +278,24 @@ class ApiKeyManager {
       }
     }
 
-    // Якщо всі ключі на cooldown - взяти з найменшим cooldown
+    // Якщо всі валідні ключі на cooldown - взяти з найменшим cooldown
     if (bestKeyIndex === -1) {
       let minCooldown = Infinity;
-      for (const [index, until] of this.cooldowns.entries()) {
-        if (until < minCooldown) {
-          minCooldown = until;
-          bestKeyIndex = index;
+      for (let i = 0; i < this.keys.length; i++) {
+        // Пропустити invalid ключі навіть у fallback
+        if (this.invalidKeys.has(i)) continue;
+
+        const cooldownUntil = this.cooldowns.get(i) || 0;
+        if (cooldownUntil < minCooldown) {
+          minCooldown = cooldownUntil;
+          bestKeyIndex = i;
         }
       }
-      // Fallback на перший ключ
-      if (bestKeyIndex === -1) bestKeyIndex = 0;
+    }
+
+    // Якщо всі ключі invalid - кинути помилку
+    if (bestKeyIndex === -1) {
+      throw new Error('❌ Всі API ключі невалідні! Перевірте GEMINI_API_KEYS в налаштуваннях.');
     }
 
     // Зарезервувати ключ
@@ -272,12 +335,28 @@ class ApiKeyManager {
 
   /**
    * Отримати клієнт по конкретному індексу (для використання зарезервованого ключа)
+   * Якщо ключ invalid або на cooldown - автоматично fallback на round-robin
    * @param {number} keyIndex - Індекс ключа
    * @returns {{ client: GoogleGenerativeAI, keyIndex: number }}
    */
   getClientByIndex(keyIndex) {
     if (keyIndex < 0 || keyIndex >= this.clients.length) {
       console.warn(`⚠️ [GEMINI] Невалідний keyIndex ${keyIndex}, використовую round-robin`);
+      return this.getNextClient();
+    }
+
+    // Перевірити чи ключ invalid - якщо так, використати інший
+    if (this.invalidKeys.has(keyIndex)) {
+      console.warn(`⚠️ [GEMINI] Ключ #${keyIndex + 1} невалідний, шукаю інший...`);
+      return this.getNextClient();
+    }
+
+    // Перевірити cooldown - якщо на cooldown, використати інший
+    const now = Date.now();
+    const cooldownUntil = this.cooldowns.get(keyIndex);
+    if (cooldownUntil && now < cooldownUntil) {
+      const remainingSeconds = Math.ceil((cooldownUntil - now) / 1000);
+      console.warn(`⚠️ [GEMINI] Ключ #${keyIndex + 1} на cooldown (${remainingSeconds}с), шукаю інший...`);
       return this.getNextClient();
     }
 
@@ -305,30 +384,73 @@ class ApiKeyManager {
 // --- Парсинг API ключів ---
 
 /**
+ * Валідувати формат Gemini API ключа
+ * @param {string} key - API ключ
+ * @param {number} index - Індекс ключа для логування
+ * @returns {boolean} - true якщо ключ має валідний формат
+ */
+function isValidKeyFormat(key, index) {
+  // Валідні Gemini API ключі починаються з "AIza"
+  if (!key.startsWith('AIza')) {
+    console.warn(
+      `⚠️ [CONFIG] Ключ #${index + 1} (${key.slice(0, 8)}...) має невалідний формат! ` +
+        `Gemini ключі повинні починатись з "AIza".`
+    );
+    return false;
+  }
+  // Мінімальна довжина ключа
+  if (key.length < 30) {
+    console.warn(`⚠️ [CONFIG] Ключ #${index + 1} занадто короткий (${key.length} символів)`);
+    return false;
+  }
+  return true;
+}
+
+/**
  * Отримати масив API ключів з змінних середовища
  * Підтримує: GEMINI_API_KEYS (через кому) або GEMINI_API_KEY (один ключ)
+ * Автоматично фільтрує ключі з невалідним форматом
  * @returns {string[]}
  */
 function parseApiKeys() {
+  let rawKeys = [];
+
   // Пріоритет 1: Багато ключів через кому
   if (process.env.GEMINI_API_KEYS) {
-    const keys = process.env.GEMINI_API_KEYS.split(',')
+    rawKeys = process.env.GEMINI_API_KEYS.split(',')
       .map((key) => key.trim())
       .filter((key) => key.length > 0);
-
-    if (keys.length > 0) {
-      console.log(`📋 [CONFIG] Знайдено ${keys.length} API ключів (GEMINI_API_KEYS)`);
-      return keys;
-    }
   }
-
   // Пріоритет 2: Один ключ (backward compatible)
-  if (process.env.GEMINI_API_KEY) {
-    console.log(`📋 [CONFIG] Знайдено 1 API ключ (GEMINI_API_KEY)`);
-    return [process.env.GEMINI_API_KEY];
+  else if (process.env.GEMINI_API_KEY) {
+    rawKeys = [process.env.GEMINI_API_KEY.trim()];
   }
 
-  throw new Error('❌ GEMINI_API_KEY або GEMINI_API_KEYS не встановлено в змінних середовища!');
+  if (rawKeys.length === 0) {
+    throw new Error('❌ GEMINI_API_KEY або GEMINI_API_KEYS не встановлено в змінних середовища!');
+  }
+
+  // Валідація формату ключів
+  const validKeys = rawKeys.filter((key, index) => isValidKeyFormat(key, index));
+
+  console.log(
+    `📋 [CONFIG] Знайдено ${rawKeys.length} API ключів, валідних: ${validKeys.length}`
+  );
+
+  if (validKeys.length === 0) {
+    throw new Error(
+      `❌ Жоден з ${rawKeys.length} API ключів не має валідного формату! ` +
+        `Gemini ключі повинні починатись з "AIza".`
+    );
+  }
+
+  if (validKeys.length < rawKeys.length) {
+    console.warn(
+      `⚠️ [CONFIG] ${rawKeys.length - validKeys.length} ключ(ів) відфільтровано через невалідний формат`
+    );
+  }
+
+  return validKeys;
 }
 
 // --- Ініціалізація ---
