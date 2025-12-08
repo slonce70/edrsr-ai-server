@@ -11,6 +11,9 @@
     />
   </head>
   <body>
+    <!-- Mobile overlay -->
+    <div class="mobile-overlay" onclick="closeMobileMenu()"></div>
+
     <div class="admin-container">
       <!-- Sidebar -->
       <nav class="sidebar">
@@ -69,6 +72,9 @@
       <main class="main-content">
         <!-- Header -->
         <header class="top-header">
+          <button class="mobile-menu-btn" onclick="toggleMobileMenu()">
+            <i class="fas fa-bars"></i>
+          </button>
           <h1 id="page-title">Дашборд</h1>
           <div class="header-actions">
             <button class="btn btn-refresh" onclick="refreshCurrentPage()">
