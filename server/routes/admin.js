@@ -19,6 +19,11 @@ import dbService from '../services/dbService.js';
 
 const router = express.Router();
 
+// Dashboard cache (60 seconds TTL to reduce DB load)
+let dashboardCache = null;
+let dashboardCacheTime = 0;
+const DASHBOARD_CACHE_TTL = 60 * 1000; // 60 seconds
+
 // Применяем безопасность и авторизацию ко всем админским routes
 router.use(securityHeaders);
 router.use(logSuspiciousActivity);
@@ -41,6 +46,14 @@ if (SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) {
 
 router.get('/dashboard', async (req, res) => {
   try {
+    const now = Date.now();
+
+    // Return cached data if valid (reduces DB load significantly)
+    if (dashboardCache && now - dashboardCacheTime < DASHBOARD_CACHE_TTL) {
+      await logAdminAction(req.user.id, 'VIEW_DASHBOARD', null, null, { cached: true }, req);
+      return res.json({ success: true, data: dashboardCache });
+    }
+
     // Основная статистика
     const stats = await database.all(`
       SELECT 
@@ -102,7 +115,11 @@ router.get('/dashboard', async (req, res) => {
       ...systemStats,
     };
 
-    await logAdminAction(req.user.id, 'VIEW_DASHBOARD', null, null, {}, req);
+    // Update cache
+    dashboardCache = dashboardData;
+    dashboardCacheTime = Date.now();
+
+    await logAdminAction(req.user.id, 'VIEW_DASHBOARD', null, null, { cached: false }, req);
     res.json({ success: true, data: dashboardData });
   } catch (error) {
     logger.error('Dashboard error:', error);
@@ -333,65 +350,8 @@ router.get('/jobs', async (req, res) => {
       paramIndex++;
     }
 
-    // Optional server-side filtering by user email (full dataset)
-    if (email && supabaseAdmin) {
-      try {
-        const match = String(email).toLowerCase();
-        const matchingUserIds = [];
-        let pageNum = 1;
-        const perPage = 1000; // large page to reduce calls
-        // Iterate through all users and collect ids matching email substring
-        while (true) {
-          const { data, error } = await supabaseAdmin.auth.admin.listUsers({
-            page: pageNum,
-            perPage,
-          });
-          if (error) throw error;
-
-          const users = data?.users || [];
-          for (const u of users) {
-            const e = u?.email || '';
-            if (e && e.toLowerCase().includes(match)) {
-              matchingUserIds.push(u.id);
-            }
-          }
-
-          const total = data?.total || 0;
-          if (users.length < perPage || pageNum * perPage >= total) break;
-          pageNum++;
-        }
-
-        if (matchingUserIds.length === 0) {
-          // No users matched the email, return empty result early
-          await logAdminAction(
-            req.user.id,
-            'VIEW_ALL_JOBS',
-            null,
-            null,
-            { page, status, search, email },
-            req
-          );
-          return res.json({
-            success: true,
-            jobs: [],
-            pagination: {
-              page: parseInt(page),
-              limit: parseInt(limit),
-              total: 0,
-            },
-          });
-        }
-
-        // Filter jobs by matching user ids
-        whereClause += ` ${whereClause ? 'AND' : 'WHERE'} user_id = ANY($${paramIndex}::uuid[])`;
-        params.push(matchingUserIds);
-        paramIndex++;
-      } catch (e) {
-        // If we cannot fetch users for any reason, proceed without email filter
-        // but log a warning
-        logger.warn('Email filter skipped due to Supabase error:', e.message);
-      }
-    }
+    // Email filter removed for performance - was loading ALL users from Supabase
+    // Client-side filtering is used instead (emails are loaded with jobs anyway)
 
     let jobs = await database.all(
       `SELECT id, title, status, progress, total_links, processed_links, 
@@ -402,19 +362,25 @@ router.get('/jobs', async (req, res) => {
       [...params, limit, offset]
     );
 
-    // Enrich with user emails for admin visibility
+    // Enrich with user emails for admin visibility (batch request instead of N+1)
     if (supabaseAdmin && Array.isArray(jobs) && jobs.length > 0) {
       const uniqueUserIds = [...new Set(jobs.map((j) => j.user_id).filter(Boolean))];
       const emailMap = new Map();
-      for (const uid of uniqueUserIds) {
-        try {
-          const { data } = await supabaseAdmin.auth.admin.getUserById(uid);
-          const email = data?.user?.email || null;
-          emailMap.set(uid, email);
-        } catch (e) {
-          emailMap.set(uid, null);
+
+      // Single batch request instead of N individual getUserById calls
+      try {
+        const { data, error } = await supabaseAdmin.auth.admin.listUsers({ perPage: 100 });
+        if (!error && data?.users) {
+          for (const u of data.users) {
+            if (uniqueUserIds.includes(u.id)) {
+              emailMap.set(u.id, u.email);
+            }
+          }
         }
+      } catch (e) {
+        logger.warn('Could not batch fetch user emails:', e.message);
       }
+
       jobs = jobs.map((j) => ({ ...j, user_email: emailMap.get(j.user_id) || null }));
     }
 
@@ -850,19 +816,19 @@ router.get('/audit-log', async (req, res) => {
       userEmails[req.user.id] = req.user.email;
     }
 
-    // Запрашиваем email для каждого пользователя через Supabase Auth
+    // Single batch request instead of N individual getUserById calls
     if (supabaseAdmin && uniqueUserIds.length > 0) {
-      for (const userId of uniqueUserIds) {
-        if (userEmails[userId]) continue; // Skip if we already have it
-
-        try {
-          const { data: user } = await supabaseAdmin.auth.admin.getUserById(userId);
-          if (user?.user?.email) {
-            userEmails[userId] = user.user.email;
+      try {
+        const { data, error } = await supabaseAdmin.auth.admin.listUsers({ perPage: 100 });
+        if (!error && data?.users) {
+          for (const u of data.users) {
+            if (uniqueUserIds.includes(u.id) && !userEmails[u.id]) {
+              userEmails[u.id] = u.email;
+            }
           }
-        } catch (error) {
-          logger.warn(`Could not fetch email for user ${userId}:`, error.message);
         }
+      } catch (e) {
+        logger.warn('Could not batch fetch user emails for audit log:', e.message);
       }
     }
 

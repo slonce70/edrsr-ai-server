@@ -216,6 +216,10 @@ function navigateToPage(page) {
 // Jobs page state for sorting
 let jobsEmailSortDir = null; // 'asc' | 'desc' | null
 
+// Debounce timers for search (reduces API calls)
+let usersSearchTimeout = null;
+let jobsSearchTimeout = null;
+
 async function loadPageData(page) {
   try {
     showLoading();
@@ -305,7 +309,7 @@ async function loadUsers(page = 1, search = '') {
     .map(
       (user) => `
         <tr>
-            <td>${user.email}</td>
+            <td>${escapeHtml(user.email)}</td>
             <td>${formatDate(user.created_at)}</td>
             <td>${user.last_sign_in_at ? formatDate(user.last_sign_in_at) : 'Никогда'}</td>
             <td>
@@ -319,18 +323,18 @@ async function loadUsers(page = 1, search = '') {
                 <div class="action-buttons">
                     ${
                       !user.is_admin
-                        ? `<button class="btn btn-primary btn-sm" onclick="makeAdmin('${user.id}')">
+                        ? `<button class="btn btn-primary btn-sm" onclick="makeAdmin('${escapeHtml(user.id)}')">
                             <i class="fas fa-user-shield"></i> Сделать админом
                         </button>`
                         : user.id !== currentUser?.id
-                          ? `<button class="btn btn-warning btn-sm" onclick="revokeAdmin('${user.id}')">
+                          ? `<button class="btn btn-warning btn-sm" onclick="revokeAdmin('${escapeHtml(user.id)}')">
                                 <i class="fas fa-user-times"></i> Отозвать права
                             </button>`
                           : '<span class="status-badge status-completed">Вы</span>'
                     }
                     ${
                       user.id !== currentUser?.id
-                        ? `<button class="btn btn-danger btn-sm" onclick="deleteUser('${user.id}', '${user.email}')">
+                        ? `<button class="btn btn-danger btn-sm" onclick="deleteUser('${escapeHtml(user.id)}', '${escapeHtml(user.email)}')">
                             <i class="fas fa-trash"></i> Удалить
                         </button>`
                         : ''
@@ -384,39 +388,39 @@ async function loadJobs(page = 1, status = '', search = '', email = '') {
         <tr>
             <td>
                 <div class="job-title-cell">
-                    <span id="title-${job.id}">${job.title || 'Без названия'}</span>
-                    <button class="btn btn-link btn-sm" onclick="editJobTitle('${job.id}', '${(job.title || '').replace(/'/g, "\\'")}')">
+                    <span id="title-${escapeHtml(job.id)}">${escapeHtml(job.title) || 'Без названия'}</span>
+                    <button class="btn btn-link btn-sm" onclick="editJobTitle('${escapeHtml(job.id)}', '${escapeHtml((job.title || '').replace(/'/g, "\\'"))}')">
                         <i class="fas fa-edit"></i>
                     </button>
                 </div>
             </td>
-            <td>${job.user_email ? job.user_email : '<span class="muted">N/A</span>'}</td>
-            <td><span class="status-badge status-${job.status}">${getStatusText(job.status)}</span></td>
+            <td>${job.user_email ? escapeHtml(job.user_email) : '<span class="muted">N/A</span>'}</td>
+            <td><span class="status-badge status-${escapeHtml(job.status)}">${getStatusText(job.status)}</span></td>
             <td>
                 <div class="progress-bar">
-                    <div class="progress-fill" style="width: ${job.progress || 0}%"></div>
+                    <div class="progress-fill" style="width: ${parseInt(job.progress, 10) || 0}%"></div>
                 </div>
-                ${job.progress || 0}%
+                ${parseInt(job.progress, 10) || 0}%
             </td>
-            <td>${job.processed_links || 0} / ${job.total_links || 0}</td>
+            <td>${parseInt(job.processed_links, 10) || 0} / ${parseInt(job.total_links, 10) || 0}</td>
             <td>${formatDate(job.created_at)}</td>
             <td>
                 <div class="action-buttons">
                     ${
                       job.status === 'completed'
-                        ? `<button class="btn btn-info btn-sm" onclick="viewJobReport('${job.id}')">
+                        ? `<button class="btn btn-info btn-sm" onclick="viewJobReport('${escapeHtml(job.id)}')">
                             <i class="fas fa-file-alt"></i> Отчет
                         </button>`
                         : ''
                     }
                     ${
                       job.status === 'error'
-                        ? `<button class="btn btn-warning btn-sm" onclick="retryJob('${job.id}')" title="Перезапустить задание">
+                        ? `<button class="btn btn-warning btn-sm" onclick="retryJob('${escapeHtml(job.id)}')" title="Перезапустить задание">
                             <i class="fas fa-redo"></i> Retry
                         </button>`
                         : ''
                     }
-                    <button class="btn btn-danger btn-sm" onclick="deleteJob('${job.id}')">
+                    <button class="btn btn-danger btn-sm" onclick="deleteJob('${escapeHtml(job.id)}')">
                         <i class="fas fa-trash"></i> Удалить
                     </button>
                 </div>
@@ -684,8 +688,7 @@ async function retryAllFailedJobs() {
     const response = await apiCall('/api/admin/jobs/retry-failed', 'POST');
     showSuccess(response.message || `Перезапущено ${response.retried_count || 0} заданий`);
 
-    // Refresh dashboard stats and current page if we're on jobs page
-    await loadDashboard();
+    // Refresh current page only (dashboard has cache, no need to force reload)
     const currentPage = getCurrentPageName();
     if (currentPage === 'jobs') {
       const status = document.getElementById('jobs-status-filter').value;
@@ -694,6 +697,8 @@ async function retryAllFailedJobs() {
       const activePageBtn = document.querySelector('#jobs-pagination .active');
       const currentPageNum = activePageBtn ? parseInt(activePageBtn.textContent, 10) || 1 : 1;
       await loadJobs(currentPageNum, status, search, email);
+    } else if (currentPage === 'dashboard') {
+      await loadDashboard();
     }
   } catch (error) {
     showError('Ошибка массового перезапуска: ' + error.message);
@@ -708,7 +713,8 @@ async function recoverStuckJobsNow() {
     showLoading();
     const response = await apiCall('/api/admin/jobs/recover-stuck', 'POST', { grace_minutes: 5 });
     showSuccess(`Восстановлено ${response.recovered || 0} заданий`);
-    await loadDashboard();
+
+    // Refresh current page only
     const currentPage = getCurrentPageName();
     if (currentPage === 'jobs') {
       const status = document.getElementById('jobs-status-filter').value;
@@ -717,6 +723,8 @@ async function recoverStuckJobsNow() {
       const activePageBtn = document.querySelector('#jobs-pagination .active');
       const currentPageNum = activePageBtn ? parseInt(activePageBtn.textContent, 10) || 1 : 1;
       await loadJobs(currentPageNum, status, search, email);
+    } else if (currentPage === 'dashboard') {
+      await loadDashboard();
     }
   } catch (error) {
     showError('Ошибка восстановления: ' + error.message);
@@ -755,22 +763,28 @@ function getCurrentPageName() {
   return activeMenuItem ? activeMenuItem.dataset.page : 'dashboard';
 }
 
-// Search functions
-async function searchUsers() {
-  const search = document.getElementById('users-search').value;
-  await loadUsers(1, search);
+// Search functions with debounce (300ms) to reduce API calls
+function searchUsers() {
+  clearTimeout(usersSearchTimeout);
+  usersSearchTimeout = setTimeout(async () => {
+    const search = document.getElementById('users-search').value;
+    await loadUsers(1, search);
+  }, 300);
 }
 
-async function searchJobs() {
-  const search = document.getElementById('jobs-search').value;
-  const status = document.getElementById('jobs-status-filter').value;
-  const email = document.getElementById('jobs-email-filter')?.value || '';
-  showJobsInlineLoading(true);
-  try {
-    await loadJobs(1, status, search, email);
-  } finally {
-    showJobsInlineLoading(false);
-  }
+function searchJobs() {
+  clearTimeout(jobsSearchTimeout);
+  jobsSearchTimeout = setTimeout(async () => {
+    const search = document.getElementById('jobs-search').value;
+    const status = document.getElementById('jobs-status-filter').value;
+    const email = document.getElementById('jobs-email-filter')?.value || '';
+    showJobsInlineLoading(true);
+    try {
+      await loadJobs(1, status, search, email);
+    } finally {
+      showJobsInlineLoading(false);
+    }
+  }, 300);
 }
 
 function clearJobFilters() {
@@ -849,8 +863,16 @@ function getStatusText(status) {
     completed: 'Завершено',
     error: 'Ошибка',
     queued: 'В очереди',
+    retrying: 'Повтор',
   };
   return statusMap[status] || status;
+}
+
+function escapeHtml(text) {
+  if (text == null) return '';
+  const div = document.createElement('div');
+  div.textContent = String(text);
+  return div.innerHTML;
 }
 
 function updatePagination(type, pagination) {
@@ -929,12 +951,37 @@ function hideLoading() {
   document.getElementById('loading-overlay').classList.remove('active');
 }
 
+function showToast(message, type = 'success') {
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.textContent = message;
+  document.body.appendChild(toast);
+
+  setTimeout(() => {
+    toast.style.animation = 'slideOut 0.3s ease forwards';
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
+}
+
 function showSuccess(message) {
-  // Simple alert for now - could be replaced with a toast notification
-  alert('✅ ' + message);
+  showToast(message, 'success');
 }
 
 function showError(message) {
-  // Simple alert for now - could be replaced with a toast notification
-  alert('❌ ' + message);
+  showToast(message, 'error');
+}
+
+// Mobile menu functions
+function toggleMobileMenu() {
+  const sidebar = document.querySelector('.sidebar');
+  const overlay = document.querySelector('.mobile-overlay');
+  sidebar.classList.toggle('open');
+  overlay.classList.toggle('active');
+}
+
+function closeMobileMenu() {
+  const sidebar = document.querySelector('.sidebar');
+  const overlay = document.querySelector('.mobile-overlay');
+  sidebar.classList.remove('open');
+  overlay.classList.remove('active');
 }
