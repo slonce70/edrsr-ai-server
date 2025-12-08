@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { logger, getClientIp } from '../utils.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
@@ -16,30 +17,68 @@ function getClient() {
   return supabase;
 }
 
+/**
+ * Attaches user information to the request object.
+ * Validates JWT token via Supabase and logs authentication events.
+ * @param {Request} req - Express request
+ * @param {Response} _res - Express response (unused)
+ * @param {Function} next - Next middleware
+ */
 export async function attachUser(req, _res, next) {
+  const ip = getClientIp(req) || req.ip || 'unknown';
+  const userAgent = req.headers['user-agent'] || 'unknown';
+
   try {
     const auth = req.headers['authorization'] || '';
     const token = auth.startsWith('Bearer ') ? auth.slice('Bearer '.length).trim() : null;
 
     if (!token) {
       req.user = null;
+      // Don't log missing token - it's normal for public endpoints
       return next();
     }
 
     const supa = getClient();
     if (!supa) {
       req.user = null;
+      logger.warn('[AUTH] Supabase client not configured - authentication disabled');
       return next();
     }
+
     const { data, error } = await supa.auth.getUser(token);
-    if (error || !data?.user) {
+
+    if (error) {
+      // Log authentication failure with details for monitoring
+      logger.warn('[AUTH] Token validation failed:', {
+        ip,
+        path: req.path,
+        error: error.message,
+        userAgent: userAgent.substring(0, 100), // Truncate long user agents
+      });
       req.user = null;
       return next();
     }
+
+    if (!data?.user) {
+      logger.warn('[AUTH] Token valid but no user data returned:', {
+        ip,
+        path: req.path,
+      });
+      req.user = null;
+      return next();
+    }
+
+    // Successful authentication
     req.user = { id: data.user.id, email: data.user.email };
+    logger.debug(`[AUTH] User authenticated: ${data.user.email} from ${ip}`);
     return next();
   } catch (e) {
-    // Fail closed only if explicitly required later
+    // Log unexpected errors
+    logger.error('[AUTH] Unexpected error during authentication:', {
+      ip,
+      path: req.path,
+      error: e.message,
+    });
     req.user = null;
     return next();
   }

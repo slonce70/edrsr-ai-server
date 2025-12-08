@@ -91,6 +91,23 @@ const CHAT_CLEANUP_INTERVAL_MS = Number.parseInt(
 ); // каждые 5 минут
 const activeWorkers = new Map(); // Для отслеживания активных воркеров: jobId -> worker
 
+// Автоочищення зависших воркерів кожні 5 хвилин (TTL 30 хвилин)
+const MAX_WORKER_AGE_MS = 30 * 60 * 1000; // 30 хв
+setInterval(
+  () => {
+    const now = Date.now();
+    for (const [jobId, data] of activeWorkers.entries()) {
+      if (now - data.startTime > MAX_WORKER_AGE_MS) {
+        logger.warn(
+          `[CLEANUP] Видаляю завислий воркер ${jobId} (вік: ${Math.round((now - data.startTime) / 60000)} хв)`
+        );
+        activeWorkers.delete(jobId);
+      }
+    }
+  },
+  5 * 60 * 1000
+);
+
 function truncate(str, max = 70) {
   if (!str) return '';
   const s = String(str).trim();

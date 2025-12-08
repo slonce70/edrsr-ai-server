@@ -7,7 +7,8 @@ import { getBatchSummary } from './batchProcessor.js';
 import { sleep } from './utils.js';
 import { logger } from './utils.js';
 
-const MAX_CONCURRENT_BATCHES = 3;
+// Зменшено з 3 до 2 для оптимізації памʼяті (3 batch × 1-2MB = 6MB одночасно)
+const MAX_CONCURRENT_BATCHES = parseInt(process.env.MAX_CONCURRENT_BATCHES, 10) || 2;
 
 /**
  * Class for managing parallel batch processing with order preservation
@@ -64,6 +65,10 @@ export class ParallelBatchProcessor {
         throw new Error(`Missing result for batch ${i + 1}`);
       }
     }
+
+    // Очищаємо Maps для звільнення памʼяті
+    this.completedResults.clear();
+    this.activeBatches.clear();
 
     logger.debug(`✅ Parallel processing completed: ${results.length} batches processed`);
     return results;

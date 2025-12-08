@@ -21,11 +21,12 @@ export function startCacheCleanupService() {
   // initial delayed run to avoid hammering on startup
   setTimeout(runOnce, Math.min(intervalMs, 60_000));
   cleanupTimer = setInterval(runOnce, intervalMs);
-  logger.info(`🧹 [MAINTENANCE] Cache cleanup service started. interval=${intervalMs}ms, keep=${maxEntries}`);
+  logger.info(
+    `🧹 [MAINTENANCE] Cache cleanup service started. interval=${intervalMs}ms, keep=${maxEntries}`
+  );
 }
 
 export function stopCacheCleanupService() {
   if (cleanupTimer) clearInterval(cleanupTimer);
   cleanupTimer = null;
 }
-
