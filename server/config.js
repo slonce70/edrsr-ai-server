@@ -551,3 +551,31 @@ export const OPTIMAL_BATCH_SIZE = parseInt(process.env.BATCH_SIZE) || 10;
 export const DELAY_BETWEEN_BATCHES = parseInt(process.env.BATCH_DELAY) || 1500;
 export const BATCH_THRESHOLD = parseInt(process.env.BATCH_THRESHOLD) || 15;
 export const MAX_TOKENS_PER_BATCH = parseInt(process.env.MAX_TOKENS_PER_BATCH) || 60000;
+
+// === CLIProxyAPI Configuration (PRIMARY) ===
+import { CLIProxyClient } from './cliProxyClient.js';
+
+export const CLI_PROXY_URL = process.env.CLI_PROXY_URL || '';
+export const CLI_PROXY_MODEL = process.env.CLI_PROXY_MODEL || 'gemini-3-pro-preview';
+export const ENABLE_CLI_PROXY = process.env.ENABLE_CLI_PROXY === 'true';
+
+function parseProxyKeys() {
+  const keys = process.env.CLI_PROXY_API_KEYS || process.env.CLI_PROXY_API_KEY || '';
+  return keys
+    .split(',')
+    .map((k) => k.trim())
+    .filter((k) => k.length > 0);
+}
+
+const proxyKeys = parseProxyKeys();
+export const cliProxyClient =
+  ENABLE_CLI_PROXY && CLI_PROXY_URL && proxyKeys.length > 0
+    ? new CLIProxyClient(CLI_PROXY_URL, proxyKeys)
+    : null;
+
+if (cliProxyClient) {
+  console.log(`🚀 [CONFIG] CLIProxyAPI PRIMARY: ${CLI_PROXY_MODEL} (${proxyKeys.length} ключів)`);
+  console.log(`📋 [CONFIG] Офіційні Gemini ключі = FALLBACK (${apiKeyManager.totalCount} шт)`);
+} else {
+  console.log(`📋 [CONFIG] CLIProxyAPI вимкнено, тільки офіційні ключі`);
+}

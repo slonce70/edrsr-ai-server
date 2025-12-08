@@ -9,6 +9,9 @@ import {
   FALLBACK_MODEL_NAME,
   GENERATION_CONFIG,
   SAFETY_SETTINGS,
+  cliProxyClient,
+  CLI_PROXY_MODEL,
+  ENABLE_CLI_PROXY,
 } from './config.js';
 import { PROMPT_TEMPLATES } from './prompts.js';
 import { createAnalysisPrompt, logger } from './utils.js';
@@ -25,6 +28,34 @@ const RATE_LIMIT_COOLDOWN_MS = 60000; // 60 seconds cooldown for rate-limited ke
  * @returns {string} - Generated content
  */
 async function generateContent(prompt, reservedKeyIndex = null) {
+  // ========== PHASE 1: CLIProxyAPI (PRIMARY) ==========
+  if (ENABLE_CLI_PROXY && cliProxyClient) {
+    try {
+      logger.info(
+        `🚀 CLIProxy PRIMARY (${CLI_PROXY_MODEL}, ключ ${cliProxyClient.currentKeyIndex + 1}/${cliProxyClient.totalCount})`
+      );
+
+      const response = await cliProxyClient.generateContent({
+        model: CLI_PROXY_MODEL,
+        contents: prompt,
+        config: GENERATION_CONFIG,
+      });
+
+      if (response.text?.trim()) {
+        logger.info(`✅ CLIProxy успіх! (${response.text.length} chars)`);
+        return response.text.trim();
+      }
+    } catch (proxyError) {
+      const status = proxyError.status || '';
+      logger.warn(`⚠️ CLIProxy помилка: ${proxyError.message}`);
+
+      if (status === 429 || status === 503) {
+        logger.info(`⚡ CLIProxy rate limited, переключаюсь на офіційні ключі...`);
+      }
+    }
+  }
+
+  // ========== PHASE 2: Офіційні Gemini ключі (FALLBACK) ==========
   let attempt = 0;
   const keysFullyTried = new Set(); // Ключі де обидві моделі не спрацювали
 
