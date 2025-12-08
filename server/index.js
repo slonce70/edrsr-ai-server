@@ -33,6 +33,21 @@ async function start() {
           14 * 60 * 1000
         ); // every 14 minutes
       }
+
+      // Keep-alive for CLIProxyAPI (prevents spin-down on free tier)
+      const CLI_PROXY_URL = process.env.CLI_PROXY_URL;
+      if (CLI_PROXY_URL) {
+        setInterval(
+          () => {
+            logger.debug('PINGING CLIProxyAPI to prevent sleep...');
+            got(`${CLI_PROXY_URL}/`).catch((err) => {
+              logger.warn('CLIProxy ping failed:', err.message);
+            });
+          },
+          14 * 60 * 1000
+        ); // every 14 minutes
+        logger.log(`🔗 CLIProxyAPI keep-alive enabled: ${CLI_PROXY_URL}`);
+      }
     });
   } catch (error) {
     logger.error('❌ Критична помилка ініціалізації:', error.message);
