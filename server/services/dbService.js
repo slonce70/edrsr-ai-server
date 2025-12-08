@@ -365,23 +365,53 @@ class DatabaseService {
   }
 
   async saveCaseToCache(caseData, userId = null) {
-    // Use ON CONFLICT to perform an "upsert" operation.
-    // If the URL already exists, it updates the case_data and updated_at fields.
     const sql = `
       INSERT INTO parsed_cases (url, case_data, created_at, updated_at, user_id)
       VALUES ($1, $2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $3)
-      ON CONFLICT(url) 
-      DO UPDATE SET 
-        case_data = EXCLUDED.case_data, 
+      ON CONFLICT(url)
+      DO UPDATE SET
+        case_data = EXCLUDED.case_data,
         updated_at = CURRENT_TIMESTAMP;
     `;
+    const timeoutMs = parseInt(process.env.CACHE_STATEMENT_TIMEOUT_MS || '5000', 10);
+    const tStart = Date.now();
+    const spans = {};
+
+    // JSON stringify timing (can dominate for large bodies)
+    const tStringifyStart = Date.now();
+    const caseDataJson = JSON.stringify(caseData);
+    spans.stringifyMs = Date.now() - tStringifyStart;
+
+    let client;
     try {
-      // The caseData object needs to be stringified for the JSON column
-      const caseDataJson = JSON.stringify(caseData);
-      await database.run(sql, [caseData.url, caseDataJson, userId]);
-      logger.info(`[CACHE] SAVED case for URL: ${caseData.url}`);
+      const tAcquireStart = Date.now();
+      client = await database.pool.connect();
+      spans.acquireMs = Date.now() - tAcquireStart;
+
+      await client.query('BEGIN');
+      if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
+        await client.query(`SET LOCAL statement_timeout = ${timeoutMs}`);
+      }
+
+      const tExecStart = Date.now();
+      await client.query(sql, [caseData.url, caseDataJson, userId]);
+      spans.execMs = Date.now() - tExecStart;
+
+      await client.query('COMMIT');
+      spans.totalMs = Date.now() - tStart;
+      logger.info(`[CACHE] SAVED case for URL: ${caseData.url} timings=${JSON.stringify(spans)}`);
     } catch (error) {
-      logger.error(`[CACHE] Error saving case to cache for URL ${caseData.url}:`, error);
+      try {
+        if (client) await client.query('ROLLBACK');
+      } catch (rollbackErr) {
+        logger.warn('[CACHE] ROLLBACK failed during saveCaseToCache:', rollbackErr);
+      }
+      logger.error(
+        `[CACHE] Error saving case to cache for URL ${caseData.url}: ${error.message || error}`,
+        { code: error.code, spans }
+      );
+    } finally {
+      if (client) client.release();
     }
   }
 
