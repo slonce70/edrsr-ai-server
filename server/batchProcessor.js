@@ -13,7 +13,8 @@ import {
 import { PROMPT_TEMPLATES } from './prompts.js';
 import { createAnalysisPrompt, logger } from './utils.js';
 
-const MAX_RETRIES = 5;
+// MAX_RETRIES should be at least totalKeys * 2 to try all keys with retries
+const MAX_RETRIES = parseInt(process.env.MAX_RETRIES, 10) || 15;
 const INITIAL_RETRY_DELAY_MS = 20000; // 20 seconds
 const RATE_LIMIT_COOLDOWN_MS = 60000; // 60 seconds cooldown for rate-limited keys
 
@@ -59,10 +60,31 @@ async function generateContent(prompt) {
         return text.trim(); // Успіх!
       } catch (error) {
         const message = String(error.message || '');
-        const isQuotaError = message.includes('429');
-        const isOverloadError = message.includes('503');
+        const statusCode = error.status || error.statusCode || (message.match(/\b(\d{3})\b/)?.[1]);
+
+        // Детальне логування помилки
+        logger.warn(`❌ [GEMINI] Ключ #${keyIndex + 1}, ${currentModel}: ${message.slice(0, 200)}`);
+        if (statusCode) {
+          logger.warn(`   HTTP Status: ${statusCode}`);
+        }
+
+        const isQuotaError = message.includes('429') || message.includes('RESOURCE_EXHAUSTED');
+        const isOverloadError = message.includes('503') || message.includes('overloaded');
+        const isInvalidKey =
+          message.includes('400') ||
+          message.includes('401') ||
+          message.includes('API_KEY_INVALID') ||
+          message.includes('INVALID_ARGUMENT');
 
         apiKeyManager.markError(keyIndex);
+
+        // Невалідний ключ - пропускаємо його повністю
+        if (isInvalidKey) {
+          logger.error(`🚫 [GEMINI] Ключ #${keyIndex + 1} НЕВАЛІДНИЙ! Перевірте ключ в Google AI Studio.`);
+          apiKeyManager.markRateLimited(keyIndex, 3600000); // 1 година cooldown
+          keysFullyTried.add(keyIndex);
+          break;
+        }
 
         if (isQuotaError || isOverloadError) {
           // Спробувати fallback модель на цьому ж ключі
