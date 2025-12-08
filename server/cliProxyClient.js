@@ -49,6 +49,7 @@ class CLIProxyClient {
         model,
         messages: [{ role: 'user', content: contents }],
         max_tokens: config?.maxOutputTokens || 65536,
+        reasoning_effort: 'high',
       }),
     });
 
