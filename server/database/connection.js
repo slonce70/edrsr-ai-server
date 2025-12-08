@@ -6,6 +6,66 @@ const { Pool } = pg;
 // Small helper for delays
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// --- SQL Injection Prevention for Dynamic Identifiers ---
+
+/**
+ * Allowed table names for migrations.
+ * Only these tables can be modified by dynamic migrations.
+ */
+const ALLOWED_TABLES = new Set([
+  'jobs',
+  'job_links',
+  'job_results',
+  'chat_messages',
+  'edrsr',
+  'parsed_cases',
+  'user_roles',
+  'admin_audit_log',
+]);
+
+/**
+ * Allowed column name pattern.
+ * Columns must be alphanumeric with underscores only.
+ */
+const VALID_IDENTIFIER_PATTERN = /^[a-z_][a-z0-9_]*$/i;
+
+/**
+ * Validates a SQL identifier (table or column name) against injection attacks.
+ * @param {string} identifier - The table or column name
+ * @param {'table'|'column'} type - Type of identifier
+ * @throws {Error} If identifier is invalid
+ * @returns {string} The validated identifier
+ */
+function validateSqlIdentifier(identifier, type = 'column') {
+  if (typeof identifier !== 'string' || identifier.length === 0) {
+    throw new Error(`Invalid ${type} name: must be a non-empty string`);
+  }
+
+  // Check for SQL injection patterns
+  if (identifier.includes(';') || identifier.includes('--') || identifier.includes('/*')) {
+    throw new Error(`Invalid ${type} name: contains forbidden characters`);
+  }
+
+  // Validate against pattern
+  if (!VALID_IDENTIFIER_PATTERN.test(identifier)) {
+    throw new Error(
+      `Invalid ${type} name "${identifier}": must contain only letters, numbers, and underscores`
+    );
+  }
+
+  // For tables, check against allowlist
+  if (type === 'table' && !ALLOWED_TABLES.has(identifier)) {
+    throw new Error(`Invalid table name "${identifier}": not in allowed list`);
+  }
+
+  // Additional length check (PostgreSQL max is 63 chars)
+  if (identifier.length > 63) {
+    throw new Error(`Invalid ${type} name: exceeds maximum length of 63 characters`);
+  }
+
+  return identifier;
+}
+
 function isTransientPgError(error) {
   if (!error) return false;
   const code = error.code;
@@ -53,13 +113,32 @@ class Database {
       // rotate connections periodically to avoid stale ones behind NAT/pgBouncer
       maxUses: parseInt(process.env.PG_MAX_USES || '7500', 10),
     };
+    // SSL Configuration
+    // Determine if SSL is required based on environment variables or Supabase URL
     const wantSSL =
       process.env.PGSSL === 'true' ||
       process.env.PGSSLMODE === 'require' ||
       (process.env.DATABASE_URL || '').includes('supabase.com');
+
     if (wantSSL) {
-      // For Supabase often rejectUnauthorized=false is acceptable in app clients
-      poolConfig.ssl = { rejectUnauthorized: false };
+      // SSL certificate validation configuration
+      // In production: validate certificates by default for security (MITM protection)
+      // Can be overridden with PG_SSL_REJECT_UNAUTHORIZED=false for specific cloud providers
+      const rejectUnauthorized =
+        process.env.PG_SSL_REJECT_UNAUTHORIZED !== 'false' && process.env.NODE_ENV === 'production';
+
+      poolConfig.ssl = { rejectUnauthorized };
+
+      // Log SSL configuration for transparency
+      if (!rejectUnauthorized) {
+        console.warn(
+          '⚠️ [SECURITY] SSL certificate validation is DISABLED. ' +
+            'This is acceptable for trusted cloud providers like Supabase, ' +
+            'but reduces MITM protection. Set PG_SSL_REJECT_UNAUTHORIZED=true in production for stricter security.'
+        );
+      } else {
+        console.log('✅ [SECURITY] SSL certificate validation is ENABLED');
+      }
     }
 
     this.pool = new Pool(poolConfig);
@@ -264,15 +343,20 @@ class Database {
 
     for (const table of tables) {
       try {
+        // Validate table name against allowlist to prevent SQL injection
+        const safeTable = validateSqlIdentifier(table, 'table');
+
+        // Use parameterized query for the check
         const checkColumnSql = `
           SELECT column_name
           FROM information_schema.columns
-          WHERE table_name='${table}' AND column_name='user_id';
+          WHERE table_name = $1 AND column_name = 'user_id';
         `;
-        const result = await this.get(checkColumnSql);
+        const result = await this.get(checkColumnSql, [safeTable]);
         if (!result) {
-          console.log(` MIGRATING: Adding 'user_id' column to '${table}' table...`);
-          const addColumnSql = `ALTER TABLE ${table} ADD COLUMN user_id UUID NULL;`;
+          console.log(` MIGRATING: Adding 'user_id' column to '${safeTable}' table...`);
+          // Safe to use validated identifier in DDL (ALTER TABLE doesn't support parameters)
+          const addColumnSql = `ALTER TABLE "${safeTable}" ADD COLUMN user_id UUID NULL;`;
           await this.query(addColumnSql);
           console.log('    ...done.');
         }
@@ -446,15 +530,32 @@ class Database {
 
   async runMigration_addQueueColumns() {
     // Adds columns used for DB-backed leasing/queueing
+    // Allowed type definitions for queue columns (prevents injection via typeSql)
+    const ALLOWED_TYPES = new Set([
+      'TEXT NULL',
+      'TIMESTAMPTZ NULL',
+      'INTEGER DEFAULT 0',
+      'INTEGER DEFAULT 3',
+    ]);
+
     const addColumnIfMissing = async (table, column, typeSql) => {
       try {
+        // Validate all identifiers
+        const safeTable = validateSqlIdentifier(table, 'table');
+        const safeColumn = validateSqlIdentifier(column, 'column');
+
+        // Validate type against allowlist
+        if (!ALLOWED_TYPES.has(typeSql)) {
+          throw new Error(`Invalid column type: ${typeSql}`);
+        }
+
         const exists = await this.get(
           `SELECT column_name FROM information_schema.columns WHERE table_name=$1 AND column_name=$2`,
-          [table, column]
+          [safeTable, safeColumn]
         );
         if (!exists) {
-          await this.query(`ALTER TABLE ${table} ADD COLUMN ${column} ${typeSql}`);
-          console.log(`✅ Added column ${column} to ${table}`);
+          await this.query(`ALTER TABLE "${safeTable}" ADD COLUMN "${safeColumn}" ${typeSql}`);
+          console.log(`✅ Added column ${safeColumn} to ${safeTable}`);
         }
       } catch (e) {
         console.error(`Migration error (addQueueColumn ${table}.${column}):`, e.message);

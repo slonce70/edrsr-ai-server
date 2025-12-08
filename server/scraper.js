@@ -140,9 +140,7 @@ function detectCharset(buffer, contentTypeHeader = '') {
     }
   }
 
-  const snippet = buffer
-    .toString('ascii', 0, Math.min(buffer.length, 2048))
-    .replace(/\s+/g, ' ');
+  const snippet = buffer.toString('ascii', 0, Math.min(buffer.length, 2048)).replace(/\s+/g, ' ');
 
   const metaCharsetMatch = snippet.match(/<meta[^>]+charset=['"]?([^\s"'>]+)/i);
   if (metaCharsetMatch) {
@@ -178,16 +176,7 @@ function decodeHtmlBody(buffer, contentTypeHeader = '') {
 
 function stripNonContentElements($) {
   if (!$) return;
-  const selectors = [
-    'script',
-    'style',
-    'noscript',
-    'iframe',
-    'object',
-    'embed',
-    'canvas',
-    'svg',
-  ];
+  const selectors = ['script', 'style', 'noscript', 'iframe', 'object', 'embed', 'canvas', 'svg'];
   for (const selector of selectors) {
     $(selector).remove();
   }
@@ -924,19 +913,29 @@ export async function downloadAll(urls, cookie = '', onProgress = () => {}, abor
       processedCount++;
       await onProgress(processedCount);
 
-      // Memory usage logging (removed forced GC)
-      if (processedCount % 20 === 0) {
-        // Check every 20 items
+      // Профілактичний GC кожні 10 справ для запобігання OOM
+      if (processedCount % 10 === 0) {
         const memUsage = process.memoryUsage();
         const memUsedMB = Math.round(memUsage.heapUsed / 1024 / 1024);
+        const memWarningMB = parseInt(process.env.MEMORY_WARNING_MB, 10) || 200;
+        const memLimitMB = parseInt(process.env.MEMORY_LIMIT_MB, 10) || 400;
+
         console.log(
-          `📊 [MEMORY] Heap used: ${memUsedMB}MB / RSS: ${Math.round(memUsage.rss / 1024 / 1024)}MB`
+          `📊 [MEMORY] Heap: ${memUsedMB}MB / RSS: ${Math.round(memUsage.rss / 1024 / 1024)}MB`
         );
 
-        // If memory usage is getting high, add a small delay
-        if (memUsedMB > (parseInt(process.env.MEMORY_LIMIT_MB) || 500)) {
-          console.warn(`⚠️ [MEMORY] High memory usage detected (${memUsedMB}MB), adding delay...`);
-          await delay(2000); // 2 second delay to allow memory cleanup
+        // Профілактичний GC при досягненні warning порогу
+        if (memUsedMB > memWarningMB && global.gc) {
+          console.log(`🗑️ [MEMORY] Профілактичний GC при ${memUsedMB}MB > ${memWarningMB}MB`);
+          global.gc();
+          const memAfterGC = process.memoryUsage();
+          console.log(`🗑️ [MEMORY] Після GC: ${Math.round(memAfterGC.heapUsed / 1024 / 1024)}MB`);
+        }
+
+        // Затримка при критичному рівні памʼяті
+        if (memUsedMB > memLimitMB) {
+          console.warn(`⚠️ [MEMORY] Критичний рівень памʼяті (${memUsedMB}MB), додаю затримку...`);
+          await delay(2000);
         }
       }
     } catch (error) {

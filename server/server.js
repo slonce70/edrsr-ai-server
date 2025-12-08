@@ -15,6 +15,73 @@ import { securityHeaders } from './middleware/security.js';
 import { logger } from './utils.js';
 import { startCacheCleanupService } from './services/maintenance.js';
 
+// --- Security Configuration ---
+
+/**
+ * Allowed CORS origins for the API.
+ * Configure via CORS_ALLOWED_ORIGINS env var (comma-separated list).
+ * Falls back to permissive mode in development only.
+ */
+const getAllowedOrigins = () => {
+  // Check for explicit configuration
+  if (process.env.CORS_ALLOWED_ORIGINS) {
+    return process.env.CORS_ALLOWED_ORIGINS.split(',').map((origin) => origin.trim());
+  }
+
+  // Production/staging: require explicit configuration or use restrictive defaults
+  if (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging') {
+    logger.warn(
+      '[SECURITY] CORS_ALLOWED_ORIGINS not set in production/staging. Using restrictive defaults.'
+    );
+    // Return only the expected production domains
+    return [
+      'https://reyestr.court.gov.ua', // EDRSR website
+    ];
+  }
+
+  // Development: allow localhost variations
+  return [
+    'http://localhost:3000',
+    'http://localhost:4000',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:4000',
+  ];
+};
+
+/**
+ * CORS configuration with origin validation.
+ * Chrome extensions are handled specially as they don't send standard origins.
+ */
+const corsOptions = {
+  origin: (origin, callback) => {
+    const allowedOrigins = getAllowedOrigins();
+
+    // Allow requests with no origin (e.g., mobile apps, Postman, server-to-server)
+    // Chrome extensions also may not send origin headers
+    if (!origin) {
+      return callback(null, true);
+    }
+
+    // Check if origin matches allowed list
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    // Allow chrome-extension:// origins (browser extensions)
+    if (origin.startsWith('chrome-extension://')) {
+      return callback(null, true);
+    }
+
+    // Log rejected origins for debugging
+    logger.warn(`[SECURITY] CORS rejected origin: ${origin}`);
+    callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  maxAge: 86400, // 24 hours - cache preflight requests
+};
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -33,7 +100,7 @@ export function createServer() {
       threshold: 1024, // compress payloads >1KB
     })
   );
-  app.use(cors());
+  app.use(cors(corsOptions));
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
   app.use((req, res, next) => {

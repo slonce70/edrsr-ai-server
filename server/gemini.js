@@ -14,7 +14,7 @@
 import { createTokenAwareBatches, sleep, logger } from './utils.js';
 import { getBatchSummary, createFinalAnalysis } from './batchProcessor.js';
 import { validateBatchProcessing, generateQualityReport } from './qualityControl.js';
-import { OPTIMAL_BATCH_SIZE, MAX_TOKENS_PER_BATCH, genAI, modelName } from './config.js';
+import { OPTIMAL_BATCH_SIZE, MAX_TOKENS_PER_BATCH, apiKeyManager, modelName } from './config.js';
 import { ParallelBatchProcessor } from './parallelBatchProcessor.js';
 
 /* -------------------------------------------------------------------------- */
@@ -109,11 +109,14 @@ async function analyzeCases(cases, userPrompt = null, updateStatusCallback = () 
  */
 async function answerChatQuestion(jobId, analysisText, history, question, chatSessions) {
   let chat;
-  const model = genAI.getGenerativeModel({ model: modelName });
 
   if (chatSessions.has(jobId)) {
-    chat = chatSessions.get(jobId);
+    chat = chatSessions.get(jobId).chat;
   } else {
+    // Отримуємо клієнт з ротацією для нової сесії
+    const { client, keyIndex } = apiKeyManager.getNextClient();
+    const model = client.getGenerativeModel({ model: modelName });
+    logger.info(`[Chat] Нова сесія ${jobId} використовує API ключ #${keyIndex + 1}`);
     // Створюємо нову сесію з початковим контекстом (звітом)
     const initialHistory = [
       {
@@ -130,7 +133,7 @@ async function answerChatQuestion(jobId, analysisText, history, question, chatSe
       },
     ];
     chat = model.startChat({ history: initialHistory });
-    chatSessions.set(jobId, chat);
+    chatSessions.set(jobId, { chat, keyIndex });
   }
 
   try {
@@ -147,11 +150,14 @@ async function answerChatQuestion(jobId, analysisText, history, question, chatSe
 
 /**
  * Перевірка зʼєднання з Gemini – корисно для health‑чеків.
+ * Використовує ротацію ключів для перевірки доступності.
  */
 async function testGeminiConnection() {
   try {
-    const model = genAI.getGenerativeModel({ model: modelName });
+    const { client, keyIndex } = apiKeyManager.getNextClient();
+    const model = client.getGenerativeModel({ model: modelName });
     await model.generateContent('ping');
+    logger.info(`[Health] Gemini OK (ключ #${keyIndex + 1})`);
     return true;
   } catch (error) {
     console.error('Помилка перевірки зʼєднання з Gemini:', error);

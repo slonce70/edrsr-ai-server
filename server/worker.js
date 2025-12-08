@@ -4,16 +4,27 @@ import { downloadAll } from './scraper.js';
 import { analyzeCases } from './gemini.js';
 
 // --- Request-Response Mechanism for Main Thread Communication ---
-const pendingAcks = new Map();
+const pendingAcks = new Map(); // requestId -> { resolve, createdAt }
 let nextRequestId = 0;
 const abortController = new globalThis.AbortController();
 let isJobCancelled = false;
 
+// Автоочищення старих pendingAcks кожні 30 сек (TTL 60 сек)
+const PENDING_ACK_TTL_MS = 60000;
+setInterval(() => {
+  const now = Date.now();
+  for (const [reqId, data] of pendingAcks.entries()) {
+    if (now - data.createdAt > PENDING_ACK_TTL_MS) {
+      pendingAcks.delete(reqId);
+    }
+  }
+}, 30000);
+
 parentPort.on('message', (msg) => {
   if (msg.type === 'statusUpdateAck') {
-    const resolve = pendingAcks.get(msg.requestId);
-    if (resolve) {
-      resolve();
+    const pending = pendingAcks.get(msg.requestId);
+    if (pending) {
+      pending.resolve();
       pendingAcks.delete(msg.requestId);
     }
   } else if (msg.type === 'cancelJob') {
@@ -63,7 +74,7 @@ parentPort.on('message', (msg) => {
 function postStatusUpdate(status, progress, message, extra = {}) {
   const requestId = nextRequestId++;
   const promise = new Promise((resolve) => {
-    pendingAcks.set(requestId, resolve);
+    pendingAcks.set(requestId, { resolve, createdAt: Date.now() });
   });
 
   parentPort.postMessage({
@@ -87,8 +98,8 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
   // Разрешенное общее время задачи и таймаут отсутствия прогресса (можно переопределить через env)
   const MAX_JOB_DURATION = parseInt(process.env.MAX_JOB_DURATION_MS, 10) || 25 * 60 * 1000; // за замовчуванням 25 хв
   const MAX_STALL_DURATION = parseInt(process.env.MAX_STALL_DURATION_MS, 10) || 20 * 60 * 1000; // за замовчуванням 20 хв без прогресу
-  const MAX_MEMORY_MB = 400; // Максимум памʼяті в MB (зменшено з 500)
-  const MEMORY_WARNING_MB = 300; // Попередження про памʼять
+  const MAX_MEMORY_MB = parseInt(process.env.MAX_MEMORY_MB, 10) || 400; // Максимум памʼяті в MB
+  const MEMORY_WARNING_MB = parseInt(process.env.MEMORY_WARNING_MB, 10) || 200; // Знижено з 300 для раннього GC
 
   let lastProgressTime = Date.now();
   let lastProcessedCount = 0;
@@ -97,7 +108,10 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
   let lastNotifiedProcessed = 0;
   // Notify roughly every 10% of total or at least every 3 items
   const NOTIFY_EVERY = Math.max(3, Math.ceil(links.length / 10));
-  const MIN_STATUS_UPDATE_INTERVAL_MS = parseInt(process.env.STATUS_UPDATE_INTERVAL_MS || '2000', 10);
+  const MIN_STATUS_UPDATE_INTERVAL_MS = parseInt(
+    process.env.STATUS_UPDATE_INTERVAL_MS || '2000',
+    10
+  );
   let lastStatusUpdateAt = Date.now();
 
   // Глобальный таймаут для всей задачи
@@ -160,8 +174,8 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
 
     await postStatusUpdate('downloading', 10, `Инициализация загрузки ${links.length} дел...`);
 
-    // Пакетная обработка: разделяем ссылки на пакеты по ENV или 5 по умолчанию
-    const BATCH_SIZE = parseInt(process.env.BATCH_SIZE, 10) || 25;
+    // Пакетная обработка: зменшено для оптимізації памʼяті (було 25)
+    const BATCH_SIZE = parseInt(process.env.BATCH_SIZE, 10) || 10;
     const batches = [];
     for (let i = 0; i < links.length; i += BATCH_SIZE) {
       batches.push(links.slice(i, i + BATCH_SIZE));
@@ -218,7 +232,10 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
           const isJobEnd = currentTotalProcessed >= links.length;
           const intervalElapsed = now - lastStatusUpdateAt >= MIN_STATUS_UPDATE_INTERVAL_MS;
 
-          if ((progressedEnough || processedEnough || isBatchEnd || isJobEnd) && (intervalElapsed || isBatchEnd || isJobEnd)) {
+          if (
+            (progressedEnough || processedEnough || isBatchEnd || isJobEnd) &&
+            (intervalElapsed || isBatchEnd || isJobEnd)
+          ) {
             await postStatusUpdate(
               'downloading',
               progress,

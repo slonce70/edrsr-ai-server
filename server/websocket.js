@@ -14,6 +14,61 @@ function getSupabase() {
   return supabase;
 }
 
+// --- WebSocket Security Configuration ---
+
+/**
+ * Get allowed WebSocket origins.
+ * Configure via WS_ALLOWED_ORIGINS env var (comma-separated list).
+ */
+const getAllowedWsOrigins = () => {
+  if (process.env.WS_ALLOWED_ORIGINS) {
+    return process.env.WS_ALLOWED_ORIGINS.split(',').map((origin) => origin.trim());
+  }
+
+  // Production/staging: use restrictive defaults
+  if (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging') {
+    return ['https://reyestr.court.gov.ua'];
+  }
+
+  // Development: allow localhost
+  return [
+    'http://localhost:3000',
+    'http://localhost:4000',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:4000',
+  ];
+};
+
+/**
+ * Verify WebSocket connection origin.
+ * Allows chrome-extension:// origins for browser extensions.
+ * @param {Object} info - Connection info with origin
+ * @returns {boolean} Whether to allow the connection
+ */
+const verifyClient = (info) => {
+  const origin = info.origin || info.req?.headers?.origin;
+
+  // Allow connections without origin (server-to-server, some clients)
+  if (!origin) {
+    return true;
+  }
+
+  // Allow chrome extensions
+  if (origin.startsWith('chrome-extension://')) {
+    return true;
+  }
+
+  // Check against allowed origins
+  const allowedOrigins = getAllowedWsOrigins();
+  if (allowedOrigins.includes(origin)) {
+    return true;
+  }
+
+  // Log rejected connections
+  logger.warn(`[WS-SECURITY] Rejected WebSocket connection from origin: ${origin}`);
+  return false;
+};
+
 let clientsInstance;
 let wssInstance;
 
@@ -21,7 +76,15 @@ function initWebSocket(server) {
   if (wssInstance) return { wss: wssInstance, clients: clientsInstance };
 
   const clients = new Map();
-  const wss = new WebSocketServer({ server });
+  const wss = new WebSocketServer({
+    server,
+    verifyClient,
+    perMessageDeflate: {
+      // Enable compression for large messages
+      zlibDeflateOptions: { level: 6 },
+      threshold: 1024, // Only compress messages > 1KB
+    },
+  });
 
   wss.on('connection', (ws) => {
     const clientId = uuid();

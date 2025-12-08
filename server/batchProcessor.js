@@ -4,7 +4,7 @@
  */
 
 import {
-  genAI,
+  apiKeyManager,
   modelName,
   FALLBACK_MODEL_NAME,
   GENERATION_CONFIG,
@@ -12,26 +12,32 @@ import {
 } from './config.js';
 import { PROMPT_TEMPLATES } from './prompts.js';
 import { createAnalysisPrompt, logger } from './utils.js';
-import { GoogleGenerativeAIError } from '@google/generative-ai';
 
 const MAX_RETRIES = 5;
 const INITIAL_RETRY_DELAY_MS = 20000; // 20 seconds
+const RATE_LIMIT_COOLDOWN_MS = 60000; // 60 seconds cooldown for rate-limited keys
 
 /**
- * Generate content using Gemini AI with retry and fallback logic.
+ * Generate content using Gemini AI with retry, fallback, and API key rotation.
  * @param {string} prompt - The prompt to send to Gemini
  * @returns {string} - Generated content
  */
 async function generateContent(prompt) {
   let currentModelName = modelName;
+  let lastKeyIndex = -1;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    // Отримати наступний доступний API ключ (round-robin)
+    const { client, keyIndex } = apiKeyManager.getNextClient();
+    lastKeyIndex = keyIndex;
+
     logger.info(
-      `🚀 Відправка запиту до Gemini (Спроба ${attempt}/${MAX_RETRIES}, Модель: ${currentModelName})...`
+      `🚀 Відправка запиту до Gemini (Спроба ${attempt}/${MAX_RETRIES}, ` +
+        `Модель: ${currentModelName}, Ключ: #${keyIndex + 1}/${apiKeyManager.totalCount})...`
     );
     logger.info(`📏 Промпт: ~${(prompt.length / 4).toFixed(0)} токенів.`);
 
-    const model = genAI.getGenerativeModel({
+    const model = client.getGenerativeModel({
       model: currentModelName,
       generationConfig: GENERATION_CONFIG,
       safetySettings: SAFETY_SETTINGS,
@@ -47,7 +53,8 @@ async function generateContent(prompt) {
       return text.trim();
     } catch (error) {
       console.error(
-        `❌ Помилка виклику Gemini (Спроба ${attempt}/${MAX_RETRIES}, Модель: ${currentModelName}): ${error.message}`
+        `❌ Помилка виклику Gemini (Спроба ${attempt}/${MAX_RETRIES}, ` +
+          `Модель: ${currentModelName}, Ключ: #${keyIndex + 1}): ${error.message}`
       );
 
       const message = String(error.message || '');
@@ -59,10 +66,26 @@ async function generateContent(prompt) {
       const isEmptyResponse =
         message.includes('порожню відповідь') || message.toLowerCase().includes('empty');
 
+      // Позначити помилку в статистиці
+      apiKeyManager.markError(keyIndex);
+
       if (
         (isOverloadError || isQuotaError || isInternalError || isNetworkError || isEmptyResponse) &&
         attempt < MAX_RETRIES
       ) {
+        // Rate limit (429) - позначити ключ на cooldown і спробувати інший
+        if (isQuotaError) {
+          apiKeyManager.markRateLimited(keyIndex, RATE_LIMIT_COOLDOWN_MS);
+
+          // Якщо є інші доступні ключі - спробувати негайно
+          if (apiKeyManager.availableCount > 0) {
+            logger.info(
+              `[KEY ROTATION] Ключ #${keyIndex + 1} rate limited, переключаюсь на інший...`
+            );
+            continue;
+          }
+        }
+
         // Fallback logic (only for overload/quota)
         if (
           FALLBACK_MODEL_NAME &&
@@ -73,7 +96,6 @@ async function generateContent(prompt) {
             `[FALLBACK] Основна модель перевантажена. Переключення на резервну модель: ${FALLBACK_MODEL_NAME}`
           );
           currentModelName = FALLBACK_MODEL_NAME;
-          // Try immediately with the fallback model
           continue;
         }
 

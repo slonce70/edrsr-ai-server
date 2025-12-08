@@ -78,14 +78,35 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // --- Marked.js Configuration for new tabs ---
+  // HTML escape helper to prevent XSS
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
   const renderer = new marked.Renderer();
   renderer.link = (href, title, text) => {
-    // Basic security: only allow http/https links
-    if (href.startsWith('http')) {
-      return `<a href="${href}" title="${title || ''}" target="_blank">${text}</a>`;
+    // Validate and sanitize URL
+    let safeHref = '';
+    try {
+      const url = new URL(href, window.location.origin);
+      // Only allow http/https protocols
+      if (url.protocol === 'http:' || url.protocol === 'https:') {
+        safeHref = url.href;
+      }
+    } catch {
+      // Invalid URL - don't render link
+      return escapeHtml(text);
     }
-    // Return an empty string or some placeholder for non-http links
-    return '';
+
+    if (!safeHref) {
+      return escapeHtml(text);
+    }
+
+    // Escape attributes to prevent XSS
+    const safeTitle = title ? ` title="${escapeHtml(title)}"` : '';
+    return `<a href="${escapeHtml(safeHref)}"${safeTitle} target="_blank" rel="noopener noreferrer">${escapeHtml(text)}</a>`;
   };
   marked.setOptions({ renderer });
 
