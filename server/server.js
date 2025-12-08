@@ -34,9 +34,7 @@ const getAllowedOrigins = () => {
     const configuredOrigins = process.env.CORS_ALLOWED_ORIGINS.split(',').map((origin) =>
       origin.trim()
     );
-    const allOrigins = [...new Set([...baseOrigins, ...configuredOrigins])];
-    logger.info(`[CORS] Allowed origins: ${allOrigins.join(', ')}`);
-    return allOrigins;
+    return [...new Set([...baseOrigins, ...configuredOrigins])];
   }
 
   // Development: add localhost
@@ -50,7 +48,6 @@ const getAllowedOrigins = () => {
     ];
   }
 
-  logger.info(`[CORS] Using default origins: ${baseOrigins.join(', ')}`);
   return baseOrigins;
 };
 
@@ -78,8 +75,7 @@ const corsOptions = {
       return callback(null, true);
     }
 
-    // Log rejected origins for debugging
-    logger.warn(`[SECURITY] CORS rejected origin: ${origin}`);
+    // Reject unknown origins silently
     callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
