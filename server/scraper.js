@@ -771,15 +771,21 @@ export async function fetchCase(url, cookie = '', signal = null, options = {}) {
     };
 
     // Етап 2: Інтелектуальний збір для заповнення прогалин
-    // Оптимізація: витягуємо текст тільки з таблиці #info де є метадані, а не весь body
-    const bodyTextStart = Date.now();
-    // fullPageText потрібен для extractLegalMetadata та emergency search
-    let fullPageText = $('body').text();
-    // Для enhancer беремо тільки #info (метадані на початку) - набагато швидше
-    const metadataText = $('#info').text() || $('#divcasecat').text() || fullPageText.substring(0, 10000);
-    const bodyTextTime = Date.now() - bodyTextStart;
-    if (bodyTextTime > 100) {
-      console.warn(`⚠️ [${caseData.id}] Повільний text extraction: ${bodyTextTime}ms`);
+    // Оптимізація: спочатку пробуємо маленькі селектори, $('body').text() тільки як fallback
+    let metadataText = $('#info').text();
+    if (!metadataText || metadataText.length < 50) {
+      metadataText = $('#divcasecat').text();
+    }
+    // fullPageText створюємо lazy - тільки якщо #info пустий або для extractLegalMetadata
+    let fullPageText = null;
+    const getFullPageText = () => {
+      if (fullPageText === null) {
+        fullPageText = $('body').text();
+      }
+      return fullPageText;
+    };
+    if (!metadataText || metadataText.length < 50) {
+      metadataText = getFullPageText().substring(0, 10000);
     }
 
     caseData = enhanceMetadataFromText(caseData, metadataText);
@@ -854,7 +860,7 @@ export async function fetchCase(url, cookie = '', signal = null, options = {}) {
       );
 
       // Дополнительная попытка поиска через весь текст страницы
-      const emergencyContent = fullPageText.match(
+      const emergencyContent = getFullPageText().match(
         /(?:УХВАЛА|РІШЕННЯ|ПОСТАНОВА)[\s\S]*?(?:оскарженню не підлягає|суддя:|СУДДЯ|підлягає|$)/gi
       );
       if (emergencyContent && emergencyContent[0] && emergencyContent[0].length > 1000) {
@@ -894,7 +900,7 @@ ${caseData.body}
     }
 
     // Етап 4: Вилучення правових метаданих
-    caseData = extractLegalMetadata(caseData, fullPageText);
+    caseData = extractLegalMetadata(caseData, getFullPageText());
     // Release large page text buffer
     fullPageText = null;
 
