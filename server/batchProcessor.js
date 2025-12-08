@@ -23,91 +23,83 @@ const RATE_LIMIT_COOLDOWN_MS = 60000; // 60 seconds cooldown for rate-limited ke
  * @returns {string} - Generated content
  */
 async function generateContent(prompt) {
-  let currentModelName = modelName;
   let attempt = 0;
-  let keysTriedThisRound = new Set();
+  let keysFullyTried = new Set(); // Ключі де обидві моделі не спрацювали
 
   while (attempt < MAX_RETRIES) {
     attempt++;
 
-    // Отримати наступний доступний API ключ (round-robin)
+    // Отримати наступний доступний API ключ
     const { client, keyIndex } = apiKeyManager.getNextClient();
 
-    logger.info(
-      `🚀 Gemini запит (Спроба ${attempt}/${MAX_RETRIES}, Ключ #${keyIndex + 1}/${apiKeyManager.totalCount})`
-    );
+    // Спробувати спочатку основну модель, потім fallback
+    const modelsToTry = [modelName];
+    if (FALLBACK_MODEL_NAME && FALLBACK_MODEL_NAME !== modelName) {
+      modelsToTry.push(FALLBACK_MODEL_NAME);
+    }
 
-    const model = client.getGenerativeModel({
-      model: currentModelName,
-      generationConfig: GENERATION_CONFIG,
-      safetySettings: SAFETY_SETTINGS,
-    });
+    for (const currentModel of modelsToTry) {
+      logger.info(
+        `🚀 Gemini (Спроба ${attempt}/${MAX_RETRIES}, Ключ #${keyIndex + 1}/${apiKeyManager.totalCount}, Модель: ${currentModel})`
+      );
 
-    try {
-      const result = await model.generateContent(prompt);
-      const text = result?.response?.text?.();
+      const model = client.getGenerativeModel({
+        model: currentModel,
+        generationConfig: GENERATION_CONFIG,
+        safetySettings: SAFETY_SETTINGS,
+      });
 
-      if (!text?.trim()) {
-        throw new Error('Gemini повернув порожню відповідь.');
-      }
-      return text.trim();
-    } catch (error) {
-      const message = String(error.message || '');
-      const isQuotaError = message.includes('429');
-      const isOverloadError = message.includes('503');
-      const isInternalError = message.includes('500');
-      const isNetworkError =
-        message.includes('fetch failed') || message.includes('ENET') || message.includes('ECONN');
-      const isEmptyResponse =
-        message.includes('порожню відповідь') || message.toLowerCase().includes('empty');
+      try {
+        const result = await model.generateContent(prompt);
+        const text = result?.response?.text?.();
 
-      // Позначити помилку в статистиці
-      apiKeyManager.markError(keyIndex);
+        if (!text?.trim()) {
+          throw new Error('Gemini повернув порожню відповідь.');
+        }
+        return text.trim(); // Успіх!
+      } catch (error) {
+        const message = String(error.message || '');
+        const isQuotaError = message.includes('429');
+        const isOverloadError = message.includes('503');
 
-      // Rate limit (429) - спробувати інший ключ БЕЗ збільшення attempt
-      if (isQuotaError) {
-        apiKeyManager.markRateLimited(keyIndex, RATE_LIMIT_COOLDOWN_MS);
-        keysTriedThisRound.add(keyIndex);
+        apiKeyManager.markError(keyIndex);
 
-        // Якщо є інші ключі які ще не пробували
-        if (keysTriedThisRound.size < apiKeyManager.totalCount) {
-          logger.info(`⚠️ Ключ #${keyIndex + 1} rate limited, пробую інший...`);
-          attempt--; // Не рахувати як спробу
-          await new Promise((resolve) => setTimeout(resolve, 1000)); // 1 сек пауза
-          continue;
+        if (isQuotaError || isOverloadError) {
+          // Спробувати fallback модель на цьому ж ключі
+          if (currentModel === modelName && modelsToTry.length > 1) {
+            logger.info(`⚠️ ${currentModel} rate limited, пробую fallback модель...`);
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            continue; // Спробувати наступну модель
+          }
+
+          // Обидві моделі не спрацювали на цьому ключі
+          apiKeyManager.markRateLimited(keyIndex, RATE_LIMIT_COOLDOWN_MS);
+          keysFullyTried.add(keyIndex);
+          logger.info(`⚠️ Ключ #${keyIndex + 1} повністю rate limited, пробую інший ключ...`);
+          break; // Вийти з циклу моделей, спробувати інший ключ
         }
 
-        // Всі ключі вже спробовані - почекати і скинути
-        logger.warn(`⚠️ Всі ${apiKeyManager.totalCount} ключів rate limited, чекаю 30 сек...`);
-        keysTriedThisRound.clear();
-        await new Promise((resolve) => setTimeout(resolve, 30000));
-        continue;
-      }
+        // Інші помилки
+        const isNetworkError =
+          message.includes('fetch failed') || message.includes('ENET') || message.includes('ECONN');
+        const isInternalError = message.includes('500');
 
-      // Fallback на іншу модель
-      if (
-        FALLBACK_MODEL_NAME &&
-        currentModelName !== FALLBACK_MODEL_NAME &&
-        (isOverloadError || isQuotaError)
-      ) {
-        logger.info(`[FALLBACK] Переключення на ${FALLBACK_MODEL_NAME}`);
-        currentModelName = FALLBACK_MODEL_NAME;
-        continue;
-      }
+        if ((isNetworkError || isInternalError) && attempt < MAX_RETRIES) {
+          const delay = INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt - 1);
+          logger.info(`[RETRY] Помилка, повтор через ${Math.round(delay / 1000)} сек...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          break;
+        }
 
-      // Інші помилки - retry з затримкою
-      if (
-        (isOverloadError || isInternalError || isNetworkError || isEmptyResponse) &&
-        attempt < MAX_RETRIES
-      ) {
-        const delay = INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt - 1);
-        logger.info(`[RETRY] Помилка, повтор через ${Math.round(delay / 1000)} сек...`);
-        await new Promise((resolve) => setTimeout(resolve, delay));
-        continue;
+        throw error;
       }
+    }
 
-      // Критична помилка
-      throw error;
+    // Якщо всі ключі вичерпані
+    if (keysFullyTried.size >= apiKeyManager.totalCount) {
+      logger.warn(`⚠️ Всі ${apiKeyManager.totalCount} ключів rate limited, чекаю 60 сек...`);
+      keysFullyTried.clear();
+      await new Promise((resolve) => setTimeout(resolve, 60000));
     }
   }
 
