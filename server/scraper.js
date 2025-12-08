@@ -812,8 +812,14 @@ export async function fetchCase(url, cookie = '', signal = null, options = {}) {
       caseData.body = extractMainContent($);
     }
 
+    // Зберігаємо fullPageText ДО очищення $ (потрібен для extractLegalMetadata та emergency search)
+    const cachedFullPageText = getFullPageText();
+
     // Explicitly release Cheerio reference after extraction
     $ = null;
+
+    // Оновлюємо getFullPageText щоб повертав кешований текст
+    fullPageText = cachedFullPageText;
 
     // Keep full case text - no size limitations (already gated by MAX_HTML_BYTES)
 
