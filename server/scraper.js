@@ -614,9 +614,18 @@ function enhanceMetadataFromText(caseData, fullPageText) {
 
   // Покращуємо Дату
   if (caseData.date === 'Дата не знайдена' || !caseData.date) {
+    console.log(`[Enhancer] [${caseId}] Шукаю дату... (текст: ${fullPageText.length} символів)`);
+
     // Шукаємо дату в пріоритетному порядку: спочатку дата набрання сили, потім дата реєстрації.
+    const dateStart1 = Date.now();
     const dateEffectiveMatch = fullPageText.match(COMPILED_REGEX.dateEffective);
+    const dateTime1 = Date.now() - dateStart1;
+
+    const dateStart2 = Date.now();
     const dateRegisteredMatch = fullPageText.match(COMPILED_REGEX.dateRegistered);
+    const dateTime2 = Date.now() - dateStart2;
+
+    console.log(`[Enhancer] [${caseId}] Regex час: dateEffective=${dateTime1}ms, dateRegistered=${dateTime2}ms`);
 
     if (dateEffectiveMatch && dateEffectiveMatch[1]) {
       caseData.date = dateEffectiveMatch[1].trim();
@@ -625,6 +634,8 @@ function enhanceMetadataFromText(caseData, fullPageText) {
       caseData.date = dateRegisteredMatch[1].trim();
       console.log(`[Enhancer] [${caseId}] Знайдено дату (реєстрації) з тексту: ${caseData.date}`);
     }
+  } else {
+    console.log(`[Enhancer] [${caseId}] Дата вже є: ${caseData.date}`);
   }
 
   const elapsed = Date.now() - startTime;
