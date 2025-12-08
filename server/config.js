@@ -204,11 +204,11 @@ export const apiKeyManager = new ApiKeyManager(apiKeys);
 export const genAI = apiKeyManager.clients[0];
 
 // Model configuration from environment
-export const modelName = process.env.MODEL_NAME || 'gemini-2.0-flash';
+export const modelName = process.env.MODEL_NAME || 'gemini-2.5-flash';
 // Fallback модель - якщо основна rate limited, спробувати цю
 export const FALLBACK_MODEL_NAME =
   process.env.FALLBACK_MODEL_NAME ||
-  (modelName === 'gemini-2.0-flash' ? 'gemini-1.5-flash' : 'gemini-2.0-flash');
+  (modelName === 'gemini-2.5-pro' ? 'gemini-2.5-flash' : 'gemini-2.5-pro');
 
 // Логування конфігурації моделей при запуску
 console.log(`📋 [CONFIG] Основна модель: ${modelName}`);
