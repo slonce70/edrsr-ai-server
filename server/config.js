@@ -5,7 +5,7 @@
  */
 
 import dotenv from 'dotenv';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from '@google/genai';
 
 // Load environment variables first
 dotenv.config({ override: true });
@@ -26,7 +26,7 @@ class ApiKeyManager {
     }
 
     this.keys = keys;
-    this.clients = keys.map((key) => new GoogleGenerativeAI(key));
+    this.clients = keys.map((key) => new GoogleGenAI({ apiKey: key }));
     this.currentIndex = 0;
     this.cooldowns = new Map(); // keyIndex → cooldown until timestamp
     this.invalidKeys = new Set(); // keyIndex → permanently invalid keys (400/401 errors)
@@ -39,7 +39,7 @@ class ApiKeyManager {
 
   /**
    * Отримати наступний доступний клієнт (round-robin з пропуском cooldown)
-   * @returns {{ client: GoogleGenerativeAI, keyIndex: number }}
+   * @returns {{ client: GoogleGenAI, keyIndex: number }}
    */
   getNextClient() {
     const startIndex = this.currentIndex;
@@ -231,7 +231,7 @@ class ApiKeyManager {
    * Резервувати унікальний ключ для batch (для паралельної обробки)
    * Кожен batch отримує свій ключ, щоб уникнути колізій
    * @param {string} batchId - Унікальний ідентифікатор batch
-   * @returns {{ client: GoogleGenerativeAI, keyIndex: number, release: () => void }}
+   * @returns {{ client: GoogleGenAI, keyIndex: number, release: () => void }}
    */
   reserveKeyForBatch(batchId) {
     const now = Date.now();
@@ -246,7 +246,9 @@ class ApiKeyManager {
         if (currentActive > 0) {
           this.activeRequests.set(keyIndex, currentActive - 1);
         }
-        console.warn(`⚠️ [GEMINI] Зарезервований ключ #${keyIndex + 1} став invalid, шукаю новий...`);
+        console.warn(
+          `⚠️ [GEMINI] Зарезервований ключ #${keyIndex + 1} став invalid, шукаю новий...`
+        );
       } else {
         return {
           client: this.clients[keyIndex],
@@ -337,7 +339,7 @@ class ApiKeyManager {
    * Отримати клієнт по конкретному індексу (для використання зарезервованого ключа)
    * Якщо ключ invalid або на cooldown - автоматично fallback на round-robin
    * @param {number} keyIndex - Індекс ключа
-   * @returns {{ client: GoogleGenerativeAI, keyIndex: number }}
+   * @returns {{ client: GoogleGenAI, keyIndex: number }}
    */
   getClientByIndex(keyIndex) {
     if (keyIndex < 0 || keyIndex >= this.clients.length) {
@@ -356,7 +358,9 @@ class ApiKeyManager {
     const cooldownUntil = this.cooldowns.get(keyIndex);
     if (cooldownUntil && now < cooldownUntil) {
       const remainingSeconds = Math.ceil((cooldownUntil - now) / 1000);
-      console.warn(`⚠️ [GEMINI] Ключ #${keyIndex + 1} на cooldown (${remainingSeconds}с), шукаю інший...`);
+      console.warn(
+        `⚠️ [GEMINI] Ключ #${keyIndex + 1} на cooldown (${remainingSeconds}с), шукаю інший...`
+      );
       return this.getNextClient();
     }
 
@@ -433,9 +437,7 @@ function parseApiKeys() {
   // Валідація формату ключів
   const validKeys = rawKeys.filter((key, index) => isValidKeyFormat(key, index));
 
-  console.log(
-    `📋 [CONFIG] Знайдено ${rawKeys.length} API ключів, валідних: ${validKeys.length}`
-  );
+  console.log(`📋 [CONFIG] Знайдено ${rawKeys.length} API ключів, валідних: ${validKeys.length}`);
 
   if (validKeys.length === 0) {
     throw new Error(
@@ -480,23 +482,23 @@ export const GENERATION_CONFIG = {
   maxOutputTokens: parseInt(process.env.MAX_TOKENS) || 65536,
 };
 
-// Safety settings
+// Safety settings (using enums from @google/genai)
 export const SAFETY_SETTINGS = [
   {
-    category: 'HARM_CATEGORY_HARASSMENT',
-    threshold: 'BLOCK_MEDIUM_AND_ABOVE',
+    category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
   },
   {
-    category: 'HARM_CATEGORY_HATE_SPEECH',
-    threshold: 'BLOCK_MEDIUM_AND_ABOVE',
+    category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
   },
   {
-    category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
-    threshold: 'BLOCK_MEDIUM_AND_ABOVE',
+    category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
   },
   {
-    category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
-    threshold: 'BLOCK_MEDIUM_AND_ABOVE',
+    category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
   },
 ];
 

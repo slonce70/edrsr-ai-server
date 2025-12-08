@@ -20,7 +20,9 @@ const MAX_SAFE_CONCURRENT = parseInt(process.env.MAX_CONCURRENT_BATCHES, 10) || 
 function getOptimalConcurrency() {
   const availableKeys = apiKeyManager.totalCount;
   const optimalConcurrency = Math.min(availableKeys, MAX_SAFE_CONCURRENT);
-  logger.debug(`📊 Optimal concurrency: ${optimalConcurrency} (keys: ${availableKeys}, max: ${MAX_SAFE_CONCURRENT})`);
+  logger.debug(
+    `📊 Optimal concurrency: ${optimalConcurrency} (keys: ${availableKeys}, max: ${MAX_SAFE_CONCURRENT})`
+  );
   return optimalConcurrency;
 }
 
@@ -159,7 +161,9 @@ export class ParallelBatchProcessor {
       reservedKeyIndex: keyIndex,
     });
 
-    logger.debug(`🚀 Starting batch ${batchIndex + 1}/${this.totalBatches} with key #${keyIndex + 1}`);
+    logger.debug(
+      `🚀 Starting batch ${batchIndex + 1}/${this.totalBatches} with key #${keyIndex + 1}`
+    );
 
     try {
       const result = await this._processSingleBatch(
@@ -175,7 +179,9 @@ export class ParallelBatchProcessor {
       release(); // Звільняємо ключ після успішного завершення
 
       const duration = Date.now() - startTime;
-      logger.debug(`✅ Batch ${batchIndex + 1} completed in ${duration}ms (key #${keyIndex + 1} released)`);
+      logger.debug(
+        `✅ Batch ${batchIndex + 1} completed in ${duration}ms (key #${keyIndex + 1} released)`
+      );
 
       // Update progress only after completion
       this._updateProgressSummary();
@@ -202,13 +208,25 @@ export class ParallelBatchProcessor {
    * @param {string} userPrompt - User's prompt
    * @param {number|null} reservedKeyIndex - Reserved API key index for this batch
    */
-  async _processSingleBatch(batchCases, batchNumber, totalBatches, userPrompt, reservedKeyIndex = null) {
+  async _processSingleBatch(
+    batchCases,
+    batchNumber,
+    totalBatches,
+    userPrompt,
+    reservedKeyIndex = null
+  ) {
     // Add small delay to prevent overwhelming the API
     if (batchNumber > 1) {
       await sleep(200);
     }
 
-    return await getBatchSummary(batchCases, batchNumber, totalBatches, userPrompt, reservedKeyIndex);
+    return await getBatchSummary(
+      batchCases,
+      batchNumber,
+      totalBatches,
+      userPrompt,
+      reservedKeyIndex
+    );
   }
 
   /**
