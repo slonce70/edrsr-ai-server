@@ -803,6 +803,16 @@ ${caseData.body}
     // Release large page text buffer
     fullPageText = null;
 
+    // Етап 5: Обмеження розміру тексту для оптимізації пам'яті
+    // 50KB на справу - достатньо для аналізу, але не перевантажує RAM
+    const MAX_CASE_TEXT_LENGTH = parseInt(process.env.MAX_CASE_TEXT_LENGTH, 10) || 50000;
+    if (caseData.body.length > MAX_CASE_TEXT_LENGTH) {
+      console.log(
+        `✂️ [${caseData.id}] Текст обрізано: ${caseData.body.length} → ${MAX_CASE_TEXT_LENGTH} символів`
+      );
+      caseData.body = caseData.body.substring(0, MAX_CASE_TEXT_LENGTH) + '\n\n[... Текст обрізано для оптимізації ...]';
+    }
+
     console.log(`✅ Завантажено та оброблено: ${caseData.id} (${caseData.body.length} символів)`);
 
     // 2. Save to cache after successful processing
