@@ -39,10 +39,12 @@ class CLIProxyClient {
   async generateContent({ model, contents, config }) {
     const triedKeys = new Set();
     let lastError = null;
+    let tries = 0;
 
     // Спробувати всі ключі перед fallback на офіційні
     while (triedKeys.size < this.apiKeys.length) {
       const { key, keyIndex } = this.getNextKey();
+      tries++;
 
       // Якщо вже пробували цей ключ - пропустити
       if (triedKeys.has(keyIndex)) {
@@ -96,6 +98,8 @@ class CLIProxyClient {
     // Всі ключі вичерпані
     const err = lastError || new Error('CLIProxy: всі ключі вичерпані');
     err.allKeysExhausted = true;
+    err.tried = tries;
+    err.total = this.apiKeys.length;
     throw err;
   }
 
