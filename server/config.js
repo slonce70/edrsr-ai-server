@@ -558,6 +558,10 @@ import { CLIProxyClient } from './cliProxyClient.js';
 export const CLI_PROXY_URL = process.env.CLI_PROXY_URL || '';
 export const CLI_PROXY_MODEL = process.env.CLI_PROXY_MODEL || 'gemini-3-pro-preview';
 export const ENABLE_CLI_PROXY = process.env.ENABLE_CLI_PROXY === 'true';
+export const CLI_PROXY_MAX_ATTEMPTS_PER_KEY = parseInt(
+  process.env.CLI_PROXY_MAX_ATTEMPTS_PER_KEY || '1',
+  10
+);
 
 function parseProxyKeys() {
   const keys = process.env.CLI_PROXY_API_KEYS || process.env.CLI_PROXY_API_KEY || '';
@@ -570,7 +574,7 @@ function parseProxyKeys() {
 const proxyKeys = parseProxyKeys();
 export const cliProxyClient =
   ENABLE_CLI_PROXY && CLI_PROXY_URL && proxyKeys.length > 0
-    ? new CLIProxyClient(CLI_PROXY_URL, proxyKeys)
+    ? new CLIProxyClient(CLI_PROXY_URL, proxyKeys, CLI_PROXY_MAX_ATTEMPTS_PER_KEY)
     : null;
 
 if (cliProxyClient) {
