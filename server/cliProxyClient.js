@@ -2,6 +2,7 @@
  * CLIProxyAPI Client - PRIMARY AI провайдер
  * OpenAI-сумісний API для Gemini 3 Pro через OAuth токени
  */
+/* global fetch */
 
 class CLIProxyClient {
   constructor(baseUrl, apiKeys, maxAttemptsPerKey = 1) {
@@ -65,7 +66,7 @@ class CLIProxyClient {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${key}`,
+            Authorization: `Bearer ${key}`,
           },
           body: JSON.stringify({
             model,

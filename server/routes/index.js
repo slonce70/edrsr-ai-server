@@ -83,8 +83,8 @@ const chatSessions = new Map(); // jobId -> ChatSession
 const chatMeta = new Map(); // jobId -> { createdAt: number, lastUsed: number }
 
 // Настройки лимитов/TTL для чат‑сессий
-const CHAT_MAX_SESSIONS = Number.parseInt(process.env.CHAT_MAX_SESSIONS || '100', 10);
-const CHAT_TTL_MS = Number.parseInt(process.env.CHAT_TTL_MS || String(4 * 60 * 60 * 1000), 10); // по умолчанию 4 часа
+const CHAT_MAX_SESSIONS = Number.parseInt(process.env.CHAT_MAX_SESSIONS || '5', 10);
+const CHAT_TTL_MS = Number.parseInt(process.env.CHAT_TTL_MS || String(15 * 60 * 1000), 10); // по умолчанию 15 минут
 const CHAT_CLEANUP_INTERVAL_MS = Number.parseInt(
   process.env.CHAT_CLEANUP_INTERVAL_MS || String(5 * 60 * 1000),
   10
@@ -262,7 +262,8 @@ function startWorker({ jobId, links, cookie, prompt, claimed = false }) {
           logger.warn(
             `[HEALTH_CHECK] Критическое потребление памяти воркером ${jobId}: ${msg.memoryUsedMB}MB`
           );
-          // Можно добавить логику принудительного завершения при критической памяти
+          // Жестко завершаем, чтобы избежать OOM на 512MB инстансе
+          forceTerminateWorker(jobId, 'Critical memory reported by worker');
         }
       }
     } else if (msg.type === 'jobSuccess') {

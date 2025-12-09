@@ -46,10 +46,10 @@ const DEFAULT_CASE_TIMEOUT_MS = parsePositiveInt(
 );
 
 // Defensive guards against bad/huge pages
-const MAX_HTML_BYTES = parseInt(process.env.MAX_HTML_BYTES, 10) || 3_500_000; // ~3.5 MB
+const MAX_HTML_BYTES = parseInt(process.env.MAX_HTML_BYTES, 10) || 3_000_000; // ~3.0 MB
 const MAX_SCRIPT_TAGS = parseInt(process.env.MAX_SCRIPT_TAGS, 10) || 200;
-const MAX_HTML_LINE_LENGTH = parseInt(process.env.MAX_HTML_LINE_LENGTH, 10) || 200_000;
-const MAX_JS_KEYWORDS = parseInt(process.env.MAX_JS_KEYWORDS, 10) || 1500; // occurrences of "function("
+const MAX_HTML_LINE_LENGTH = parseInt(process.env.MAX_HTML_LINE_LENGTH, 10) || 120_000;
+const MAX_JS_KEYWORDS = parseInt(process.env.MAX_JS_KEYWORDS, 10) || 3000; // occurrences of "function("
 
 // Предкомпилированные регулярные выражения для производительности
 const COMPILED_REGEX = {
@@ -986,14 +986,15 @@ ${caseData.body}
 
     // Етап 5: Обмеження розміру тексту для оптимізації пам'яті
     // 50KB на справу - достатньо для аналізу, але не перевантажує RAM
-    const MAX_CASE_TEXT_LENGTH = parseInt(process.env.MAX_CASE_TEXT_LENGTH, 10) || 50000;
-    if (caseData.body.length > MAX_CASE_TEXT_LENGTH) {
-      console.log(
-        `✂️ [${caseData.id}] Текст обрізано: ${caseData.body.length} → ${MAX_CASE_TEXT_LENGTH} символів`
-      );
-      caseData.body =
-        caseData.body.substring(0, MAX_CASE_TEXT_LENGTH) +
-        '\n\n[... Текст обрізано для оптимізації ...]';
+    const MAX_CASE_TEXT_LENGTH = parseInt(process.env.MAX_CASE_TEXT_LENGTH, 10);
+    // Якщо MAX_CASE_TEXT_LENGTH <= 0 або не заданий — не обрізаємо текст
+    if (Number.isFinite(MAX_CASE_TEXT_LENGTH) && MAX_CASE_TEXT_LENGTH > 0) {
+      if (caseData.body.length > MAX_CASE_TEXT_LENGTH) {
+        console.log(
+          `⚠️ [${caseData.id}] Текст перевищує ліміт ${MAX_CASE_TEXT_LENGTH}, без обрізання (залишаємо повністю)`
+        );
+        // НЕ обрізаємо — лише попереджаємо
+      }
     }
 
     console.log(`✅ Завантажено та оброблено: ${caseData.id} (${caseData.body.length} символів)`);

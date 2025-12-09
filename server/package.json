@@ -6,7 +6,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "node index.js",
-    "start": "node --max-old-space-size=2048 --expose-gc --trace-warnings --enable-source-maps index.js",
+    "start": "node --max-old-space-size=448 --expose-gc --trace-warnings --enable-source-maps index.js",
     "start:optimized": "node start-optimized.js",
     "start:basic": "node index.js",
     "start:monitor": "ENABLE_MEMORY_MONITORING=true node start-optimized.js",

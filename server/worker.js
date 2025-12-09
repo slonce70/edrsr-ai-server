@@ -100,6 +100,7 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
   const MAX_STALL_DURATION = parseInt(process.env.MAX_STALL_DURATION_MS, 10) || 20 * 60 * 1000; // за замовчуванням 20 хв без прогресу
   const MAX_MEMORY_MB = parseInt(process.env.MAX_MEMORY_MB, 10) || 400; // Максимум памʼяті в MB
   const MEMORY_WARNING_MB = parseInt(process.env.MEMORY_WARNING_MB, 10) || 200; // Знижено з 300 для раннього GC
+  const CRITICAL_MEMORY_MB = parseInt(process.env.CRITICAL_MEMORY_MB, 10) || 420; // Жорстке відсікання для Render free tier
 
   let lastProgressTime = Date.now();
   let lastProcessedCount = 0;
@@ -269,9 +270,21 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
                   `Перевищено ліміт памʼяті: ${memAfterGCMB}MB > ${MAX_MEMORY_MB}MB після GC`
                 );
               }
+
+              if (memAfterGCMB > CRITICAL_MEMORY_MB) {
+                throw new Error(
+                  `Перевищено критичний ліміт памʼяті: ${memAfterGCMB}MB > ${CRITICAL_MEMORY_MB}MB`
+                );
+              }
             } else if (memUsedMB > MAX_MEMORY_MB) {
               throw new Error(`Перевищено ліміт памʼяті: ${memUsedMB}MB > ${MAX_MEMORY_MB}MB`);
             }
+          }
+
+          if (memUsedMB > CRITICAL_MEMORY_MB) {
+            throw new Error(
+              `Перевищено критичний ліміт памʼяті: ${memUsedMB}MB > ${CRITICAL_MEMORY_MB}MB`
+            );
           }
         },
         abortController.signal

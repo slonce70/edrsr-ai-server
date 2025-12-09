@@ -10,7 +10,7 @@ import { logger } from './utils.js';
 
 // Memory optimization flags for Node.js (render.com compatible)
 const NODE_OPTIONS = [
-  '--max-old-space-size=2048', // Limit heap to 2GB (render.com has plenty of memory)
+  '--max-old-space-size=448', // Render free tier: keep well under 512MB
   '--expose-gc', // Enable global.gc() for manual garbage collection
   '--trace-warnings', // Show deprecation warnings for debugging
   '--enable-source-maps', // Better error stack traces
@@ -26,7 +26,7 @@ const RENDER_INCOMPATIBLE_FLAGS = [
 const ENV_VARS = {
   ...process.env,
   NODE_ENV: process.env.NODE_ENV || 'production',
-  UV_THREADPOOL_SIZE: '16', // Increase thread pool for I/O operations
+  UV_THREADPOOL_SIZE: process.env.UV_THREADPOOL_SIZE || '4', // Keep small on 512MB tier
   NODE_OPTIONS: NODE_OPTIONS.join(' '),
 };
 
@@ -50,17 +50,17 @@ function checkSystemMemory() {
 
       if (totalMem < 1024) {
         ENV_VARS.NODE_OPTIONS = ENV_VARS.NODE_OPTIONS.replace(
-          '--max-old-space-size=2048',
-          '--max-old-space-size=512'
+          '--max-old-space-size=448',
+          '--max-old-space-size=384'
         );
         logger.info('🔧 Reduced heap size for low-memory system');
       } else if (totalMem > 16384) {
-        // Render.com or high-memory systems - increase heap size
+        // High-memory systems - allow a slightly larger heap when safe
         ENV_VARS.NODE_OPTIONS = ENV_VARS.NODE_OPTIONS.replace(
-          '--max-old-space-size=2048',
-          '--max-old-space-size=3072'
+          '--max-old-space-size=448',
+          '--max-old-space-size=1024'
         );
-        logger.info('🚀 Increased heap size for high-memory system (3GB)');
+        logger.info('🚀 Increased heap size for high-memory system (1GB)');
       }
     }
   } catch (error) {
