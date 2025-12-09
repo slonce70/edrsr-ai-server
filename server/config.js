@@ -562,7 +562,7 @@ export const ENABLE_CLI_PROXY = process.env.ENABLE_CLI_PROXY === 'true';
 function parseProxyKeys() {
   const keys = process.env.CLI_PROXY_API_KEYS || process.env.CLI_PROXY_API_KEY || '';
   return keys
-    .split(',')
+    .split(/[,\s\n\r;]+/)
     .map((k) => k.trim())
     .filter((k) => k.length > 0);
 }

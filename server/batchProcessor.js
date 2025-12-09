@@ -47,7 +47,10 @@ async function generateContent(prompt, reservedKeyIndex = null) {
       }
     } catch (proxyError) {
       if (proxyError.allKeysExhausted) {
-        logger.warn(`⚠️ CLIProxy: всі ${cliProxyClient.totalCount} ключів вичерпані, fallback на офіційні...`);
+        const tried = proxyError.tried || cliProxyClient.totalCount;
+        logger.warn(
+          `⚠️ CLIProxy: всі ${cliProxyClient.totalCount} ключів вичерпані (спроб: ${tried}), fallback на офіційні...`
+        );
       } else {
         logger.warn(`⚠️ CLIProxy помилка: ${proxyError.message}`);
       }
