@@ -4,9 +4,10 @@
  */
 
 class CLIProxyClient {
-  constructor(baseUrl, apiKeys) {
+  constructor(baseUrl, apiKeys, maxAttemptsPerKey = 1) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
     this.apiKeys = apiKeys;
+    this.maxAttemptsPerKey = Math.max(1, parseInt(maxAttemptsPerKey, 10) || 1);
     this.currentKeyIndex = 0;
     this.cooldowns = new Map(); // keyIndex → timestamp
     this.stats = apiKeys.map(() => ({ requests: 0, errors: 0 }));
@@ -40,17 +41,23 @@ class CLIProxyClient {
     const triedKeys = new Set();
     let lastError = null;
     let tries = 0;
+    const attempts = Array(this.apiKeys.length).fill(0);
+    const maxTotalAttempts = this.apiKeys.length * this.maxAttemptsPerKey;
 
-    // Спробувати всі ключі перед fallback на офіційні
-    while (triedKeys.size < this.apiKeys.length) {
+    // Спробувати кожен ключ до maxAttemptsPerKey разів перед fallback
+    while (tries < maxTotalAttempts) {
       const { key, keyIndex } = this.getNextKey();
       tries++;
 
-      // Якщо вже пробували цей ключ - пропустити
-      if (triedKeys.has(keyIndex)) {
-        // Всі ключі на cooldown
-        break;
+      if (attempts[keyIndex] >= this.maxAttemptsPerKey) {
+        triedKeys.add(keyIndex);
+        // Якщо всі ключі вичерпали ліміт спроб — виходимо
+        if (triedKeys.size >= this.apiKeys.length) break;
+        continue;
       }
+
+      attempts[keyIndex] += 1;
+      triedKeys.add(keyIndex);
       triedKeys.add(keyIndex);
 
       try {
@@ -100,6 +107,7 @@ class CLIProxyClient {
     err.allKeysExhausted = true;
     err.tried = tries;
     err.total = this.apiKeys.length;
+    err.maxAttemptsPerKey = this.maxAttemptsPerKey;
     throw err;
   }
 
