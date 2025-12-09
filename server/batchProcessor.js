@@ -31,7 +31,7 @@ async function generateContent(prompt, reservedKeyIndex = null) {
   // ========== PHASE 1: CLIProxyAPI (PRIMARY) ==========
   if (ENABLE_CLI_PROXY && cliProxyClient) {
     try {
-      logger.info(
+      logger.debug(
         `🚀 CLIProxy PRIMARY (${CLI_PROXY_MODEL}, доступно ${cliProxyClient.availableCount}/${cliProxyClient.totalCount} ключів)`
       );
 
@@ -186,7 +186,7 @@ async function getBatchSummary(
   finalUserPrompt = null,
   reservedKeyIndex = null
 ) {
-  logger.info(
+  logger.debug(
     `📦 Summarizing batch ${batchNumber}/${totalBatches} (${batchCases.length} cases) for task: ${finalUserPrompt || 'default'}`
   );
 
