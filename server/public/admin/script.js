@@ -389,7 +389,7 @@ async function loadJobs(page = 1, status = '', search = '', email = '') {
             <td>
                 <div class="job-title-cell">
                     <span id="title-${escapeHtml(job.id)}">${escapeHtml(job.title) || 'Без названия'}</span>
-                    <button class="btn btn-link btn-sm" onclick="editJobTitle('${escapeHtml(job.id)}', '${escapeHtml((job.title || '').replace(/'/g, "\\'"))}')">
+                    <button class="btn btn-link btn-sm" onclick="editJobTitle('${escapeHtml(job.id)}', '${escapeHtml((job.title || '').replace(/'/g, "\\'"))}')" aria-label="Редактировать название">
                         <i class="fas fa-edit"></i>
                     </button>
                 </div>
@@ -890,19 +890,19 @@ function updatePagination(type, pagination) {
   let html = '';
 
   // Previous button
-  html += `<button ${page <= 1 ? 'disabled' : ''} onclick="changePage('${type}', ${page - 1})">
+  html += `<button ${page <= 1 ? 'disabled' : ''} onclick="changePage('${type}', ${page - 1})" aria-label="Предыдущая страница">
                 <i class="fas fa-chevron-left"></i>
              </button>`;
 
   // Page numbers
   for (let i = Math.max(1, page - 2); i <= Math.min(totalPages, page + 2); i++) {
-    html += `<button class="${i === page ? 'active' : ''}" onclick="changePage('${type}', ${i})">
+    html += `<button class="${i === page ? 'active' : ''}" onclick="changePage('${type}', ${i})" aria-label="Страница ${i}" ${i === page ? 'aria-current="page"' : ''}>
                     ${i}
                  </button>`;
   }
 
   // Next button
-  html += `<button ${page >= totalPages ? 'disabled' : ''} onclick="changePage('${type}', ${page + 1})">
+  html += `<button ${page >= totalPages ? 'disabled' : ''} onclick="changePage('${type}', ${page + 1})" aria-label="Следующая страница">
                 <i class="fas fa-chevron-right"></i>
              </button>`;
 
