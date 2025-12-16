@@ -688,7 +688,28 @@ export async function fetchCase(url, cookie = '', signal = null, options = {}) {
 
   // 1. Check cache first
   const cachedCase = await dbService.getCachedCaseByUrl(url);
+  let useCache = false;
+
   if (cachedCase) {
+    if (cachedCase.error && cachedCase.isTemporary) {
+      // If it's a temporary error (like timeout), check if it expired
+      const errorTTL = parsePositiveInt(process.env.CACHE_ERROR_TTL_MS, 30 * 60 * 1000); // 30 minutes default
+      const cachedAt = cachedCase.cachedAt ? new Date(cachedCase.cachedAt).getTime() : 0;
+      const age = Date.now() - cachedAt;
+
+      if (age < errorTTL) {
+        useCache = true;
+      } else {
+        logger.info(
+          `[CACHE] Expired temporary error for ${url} (age=${age}ms > ${errorTTL}ms), retrying...`
+        );
+      }
+    } else {
+      useCache = true;
+    }
+  }
+
+  if (useCache) {
     logger.info(`[T][${caseId}] cache-hit total=${Date.now() - t0}ms`);
     return { ...cachedCase, fromCache: true };
   }
