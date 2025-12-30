@@ -1,0 +1,59 @@
+[
+  {
+    "caseNumber": "123/456/24",
+    "url": "https://reyestr.court.gov.ua/Review/111111111",
+    "decisionDate": "01.01.2025",
+    "court": "Supreme Court",
+    "judge": "Ivanov",
+    "metadata": {
+      "lawArticles": ["Art. 123"],
+      "caseType": "Civil",
+      "claimAmount": "10000",
+      "parties": {
+        "plaintiffs": ["Alice"],
+        "defendants": ["Bob"],
+        "thirdParties": []
+      },
+      "decisionDate": "01.01.2025"
+    },
+    "body": "Claim about contract termination. Plaintiff argues breach. Defendant argues no breach. Court analyzes evidence and statutes. Result: claim denied."
+  },
+  {
+    "caseNumber": "789/101/23",
+    "url": "https://reyestr.court.gov.ua/Review/222222222",
+    "decisionDate": "15.03.2024",
+    "court": "Kyiv Court",
+    "judge": "Petrenko",
+    "metadata": {
+      "lawArticles": ["Art. 55"],
+      "caseType": "Administrative",
+      "claimAmount": "0",
+      "parties": {
+        "plaintiffs": ["Company X"],
+        "defendants": ["Agency Y"],
+        "thirdParties": []
+      },
+      "decisionDate": "15.03.2024"
+    },
+    "body": "Appeal against administrative fine. Plaintiff cites procedural violation and lack of notice. Defendant argues proper notice and legality. Court finds violation. Result: claim satisfied."
+  },
+  {
+    "caseNumber": "555/666/22",
+    "url": "https://reyestr.court.gov.ua/Review/333333333",
+    "decisionDate": "30.06.2023",
+    "court": "Lviv Court",
+    "judge": "Koval",
+    "metadata": {
+      "lawArticles": ["Art. 321"],
+      "caseType": "Commercial",
+      "claimAmount": "50000",
+      "parties": {
+        "plaintiffs": ["Supplier A"],
+        "defendants": ["Buyer B"],
+        "thirdParties": []
+      },
+      "decisionDate": "30.06.2023"
+    },
+    "body": "Dispute over unpaid invoices. Plaintiff provides invoices and delivery records. Defendant disputes quantity and quality. Court partially accepts claim. Result: partially satisfied."
+  }
+]
