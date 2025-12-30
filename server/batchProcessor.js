@@ -19,7 +19,6 @@ import { createAnalysisPrompt, logger } from './utils.js';
 // MAX_RETRIES should be at least totalKeys * 2 to try all keys with retries
 const MAX_RETRIES = parseInt(process.env.MAX_RETRIES, 10) || 15;
 const INITIAL_RETRY_DELAY_MS = 20000; // 20 seconds
-const RATE_LIMIT_COOLDOWN_MS = 60000; // 60 seconds cooldown for rate-limited keys
 
 /**
  * Generate content using Gemini AI with retry, fallback, and API key rotation.

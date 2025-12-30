@@ -87,45 +87,39 @@ async function transferJobsToUser(targetEmail) {
 
     // Update jobs
     if (stats.jobs.count > 0) {
-      const result1 = await database.run('UPDATE jobs SET user_id = $1 WHERE user_id IS NULL', [
-        targetUser.id,
-      ]);
+      await database.run('UPDATE jobs SET user_id = $1 WHERE user_id IS NULL', [targetUser.id]);
       console.log(`✅ Перенесено ${stats.jobs.count} заданий`);
     }
 
     // Update job_links
     if (stats.jobLinks.count > 0) {
-      const result2 = await database.run(
-        'UPDATE job_links SET user_id = $1 WHERE user_id IS NULL',
-        [targetUser.id]
-      );
+      await database.run('UPDATE job_links SET user_id = $1 WHERE user_id IS NULL', [
+        targetUser.id,
+      ]);
       console.log(`✅ Перенесено ${stats.jobLinks.count} ссылок заданий`);
     }
 
     // Update job_results
     if (stats.jobResults.count > 0) {
-      const result3 = await database.run(
-        'UPDATE job_results SET user_id = $1 WHERE user_id IS NULL',
-        [targetUser.id]
-      );
+      await database.run('UPDATE job_results SET user_id = $1 WHERE user_id IS NULL', [
+        targetUser.id,
+      ]);
       console.log(`✅ Перенесено ${stats.jobResults.count} результатов заданий`);
     }
 
     // Update chat_messages
     if (stats.chatMessages.count > 0) {
-      const result4 = await database.run(
-        'UPDATE chat_messages SET user_id = $1 WHERE user_id IS NULL',
-        [targetUser.id]
-      );
+      await database.run('UPDATE chat_messages SET user_id = $1 WHERE user_id IS NULL', [
+        targetUser.id,
+      ]);
       console.log(`✅ Перенесено ${stats.chatMessages.count} сообщений чата`);
     }
 
     // Update parsed_cases
     if (stats.parsedCases.count > 0) {
-      const result5 = await database.run(
-        'UPDATE parsed_cases SET user_id = $1 WHERE user_id IS NULL',
-        [targetUser.id]
-      );
+      await database.run('UPDATE parsed_cases SET user_id = $1 WHERE user_id IS NULL', [
+        targetUser.id,
+      ]);
       console.log(`✅ Перенесено ${stats.parsedCases.count} parsed cases`);
     }
 

@@ -48,7 +48,7 @@ export function validateCollectRequest(req, res, next) {
     }
 
     return next();
-  } catch (e) {
+  } catch {
     return res.status(400).json({ error: 'Некорректный запрос' });
   }
 }
@@ -63,7 +63,7 @@ export function validateChatMessage(req, res, next) {
       return res.status(422).json({ error: 'Сообщение слишком длинное' });
     }
     return next();
-  } catch (e) {
+  } catch {
     return res.status(400).json({ error: 'Некорректный запрос' });
   }
 }

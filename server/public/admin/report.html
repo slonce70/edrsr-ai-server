@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="ru">
+<html lang="uk">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Отчет по заданию - EDRSR-AI Admin</title>
+    <title data-i18n="reportPage.title">Отчет по заданию - EDRSR-AI Admin</title>
     <link
       href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
       rel="stylesheet"
@@ -302,30 +302,36 @@
   <body>
     <div class="container">
       <header class="header">
-        <h1 id="jobTitle">Загрузка отчета...</h1>
+        <h1 id="jobTitle" data-i18n="reportPage.loadingTitle">Загрузка отчета...</h1>
         <div class="header-actions">
-          <div id="statusBadge" class="status-badge status-completed">Завершено</div>
+          <div id="statusBadge" class="status-badge status-completed" data-i18n="common.loading">
+            Загрузка...
+          </div>
           <a href="/admin" class="btn btn-light">
-            <i class="fas fa-arrow-left"></i> Назад к админке
+            <i class="fas fa-arrow-left"></i>
+            <span data-i18n="reportPage.backToAdmin">Назад к админке</span>
           </a>
         </div>
       </header>
 
       <main class="main-content">
         <aside class="sidebar">
-          <h3>Информация о задании</h3>
+          <h3 data-i18n="report.metadataTitle">Інформація про завдання</h3>
           <ul id="jobMetadata">
             <!-- Metadata will be rendered here -->
           </ul>
           <div class="controls">
             <button id="copyBtn" class="button button-primary">
-              <i class="fas fa-copy"></i> Копировать отчет
+              <i class="fas fa-copy"></i>
+              <span data-i18n="reportPage.copyBtn">Копировать отчет</span>
             </button>
             <button id="downloadBtn" class="button button-secondary">
-              <i class="fas fa-download"></i> Скачать TXT
+              <i class="fas fa-download"></i>
+              <span data-i18n="reportPage.downloadBtn">Скачать TXT</span>
             </button>
             <button id="printBtn" class="button button-secondary">
-              <i class="fas fa-print"></i> Печать
+              <i class="fas fa-print"></i>
+              <span data-i18n="reportPage.printBtn">Печать</span>
             </button>
           </div>
         </aside>
@@ -333,13 +339,14 @@
           <div id="analysisResult" class="result-content">
             <div class="loading">
               <div class="spinner"></div>
-              <p>Загрузка отчета...</p>
+              <p data-i18n="reportPage.loadingBody">Загрузка отчета...</p>
             </div>
           </div>
         </section>
       </main>
     </div>
 
+    <script src="i18n.js"></script>
     <script src="report.js"></script>
   </body>
 </html>

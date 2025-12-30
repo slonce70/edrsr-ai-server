@@ -1,8 +1,18 @@
+/* eslint-disable no-console */
 // --- EDRSR-AI Service Worker v2.1 ---
 // This service worker uses a modern, robust architecture with WebSockets
 // and long-lived port connections to ensure reliability and prevent termination.
 import { API_BASE_URL, WS_URL } from './config.js';
 import { getAccessToken, isAuthenticated, forceRefresh } from './auth.js';
+import { initI18n, setLocale, t } from './i18n.js';
+
+void initI18n();
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.locale?.newValue) {
+    void setLocale(changes.locale.newValue);
+  }
+});
 
 let socket = null;
 let popupPort = null;
@@ -79,7 +89,7 @@ function connectWebSocket() {
               if (analysis) jobData = { ...jobData, analysis };
             }
           }
-        } catch (_e) {
+        } catch {
           // best-effort enrichment; ignore fetch errors here
         }
         const storageKey = `job_status_${jobData.id}`;
@@ -89,7 +99,7 @@ function connectWebSocket() {
         const oldStatus = oldData[storageKey]?.status;
 
         // Create a "light" version for storage to avoid exceeding quota.
-        const { analysis, links, ...jobDataForStorage } = jobData;
+        const { analysis: _analysis, links: _links, ...jobDataForStorage } = jobData;
 
         // Store the latest light status
         chrome.storage.local.set({ [storageKey]: jobDataForStorage });
@@ -110,7 +120,7 @@ function connectWebSocket() {
         const jobData = message.payload;
 
         // Create a "light" version for storage
-        const { analysis, links, ...jobDataForStorage } = jobData;
+        const { analysis: _analysis, links: _links, ...jobDataForStorage } = jobData;
         chrome.storage.local.set({ [`job_status_${jobData.id}`]: jobDataForStorage });
 
         // Create a standard JOB_UPDATE message to broadcast
@@ -189,8 +199,8 @@ async function updateBadge(job, oldStatus = null) {
   if (job.status === 'completed' && oldStatus !== 'completed') {
     badgeText = '✓';
     showNotification(
-      '🎉 Анализ завершён!',
-      `Задание ${job.id.substring(0, 8)}... успешно завершено.`
+      t('notifications.analysisCompleteTitle'),
+      t('notifications.analysisCompleteMessage', { id: job.id.substring(0, 8) })
     );
     // Notify the specific tab that its job is complete
     const tabId = jobToTabMap.get(job.id);
@@ -208,8 +218,8 @@ async function updateBadge(job, oldStatus = null) {
   } else if (job.status === 'error' && oldStatus !== 'error') {
     badgeText = '❌';
     showNotification(
-      '❌ Ошибка анализа',
-      `Задание ${job.id.substring(0, 8)}... завершилось с ошибкой.`
+      t('notifications.analysisErrorTitle'),
+      t('notifications.analysisErrorMessage', { id: job.id.substring(0, 8) })
     );
   } else if (job.status === 'error') {
     badgeText = '❌';
@@ -282,7 +292,7 @@ async function handlePortMessage(message, port, sendResponse) {
         // Ensure the user is authenticated when called from content script (no popupPort)
         const authed = await isAuthenticated();
         if (!authed) {
-          const msg = 'Требуется вход. Откройте попап расширения и выполните вход.';
+          const msg = t('bg.authRequired');
           if (popupPort) {
             popupPort.postMessage({ type: 'AUTH_REQUIRED' });
           }
@@ -303,9 +313,7 @@ async function handlePortMessage(message, port, sendResponse) {
         }
 
         if (version !== CURRENT_VERSION) {
-          throw new Error(
-            `Версия скрипта на странице устарела. Пожалуйста, полностью обновите страницу (Ctrl+F5) и попробуйте снова.`
-          );
+          throw new Error(t('bg.contentScriptOutdated'));
         }
 
         // Optional filters (server-side safety net)
@@ -324,13 +332,13 @@ async function handlePortMessage(message, port, sendResponse) {
           if (payload.ignoreSessionVisited === true) {
             linksToSend = linksToSend.filter((l) => l && l.url && !sessionVisited.has(l.url));
           }
-        } catch (_e) {
+        } catch {
           // intentionally ignore optional filtering errors to keep UX smooth
           void 0;
         }
 
         if (!Array.isArray(linksToSend) || linksToSend.length === 0) {
-          throw new Error('Нет дел для отправки на анализ с выбранными фильтрами.');
+          throw new Error(t('bg.noLinksForFilters'));
         }
 
         const response = await apiFetch(`${API_BASE_URL}/collect`, {
@@ -351,7 +359,7 @@ async function handlePortMessage(message, port, sendResponse) {
         // Mark as visited in this session to avoid repeat submits
         try {
           linksToSend.forEach((l) => l?.url && sessionVisited.add(l.url));
-        } catch (_e) {
+        } catch {
           // ignore sessionVisited cache issues
           void 0;
         }
@@ -415,13 +423,13 @@ async function handlePortMessage(message, port, sendResponse) {
           updateBadge(jobData, oldStatus);
 
           // Also, update the local storage with this fresh data.
-          const { analysis, links, ...jobDataForStorage } = jobData;
+          const { analysis: _analysis, links: _links, ...jobDataForStorage } = jobData;
           await chrome.storage.local.set({ [storageKey]: jobDataForStorage });
         } catch (error) {
           console.error(`[BG] Failed to fetch job status for ${jobId}:`, error);
           port.postMessage({
             type: 'ERROR',
-            payload: { message: `Не удалось загрузить статус задания: ${error.message}` },
+            payload: { message: t('bg.fetchStatusError', { message: error.message }) },
           });
         }
         break;
@@ -469,7 +477,7 @@ async function handlePortMessage(message, port, sendResponse) {
               const analJson = await analRes.json();
               analysis = analJson.analysis || null;
             }
-          } catch (_e) {
+          } catch {
             // analysis may be absent while job is still in progress; ignore
           }
 
@@ -479,13 +487,13 @@ async function handlePortMessage(message, port, sendResponse) {
           port.postMessage({ type: 'JOB_UPDATE', payload: jobData });
 
           // Store light version for badge/popup
-          const { analysis: _a, links, ...jobDataForStorage } = jobData;
+          const { analysis: _analysis, links: _links, ...jobDataForStorage } = jobData;
           await chrome.storage.local.set({ [storageKey]: jobDataForStorage });
         } catch (error) {
           console.error(`[BG] Failed to fetch job status for ${jobId}:`, error);
           port.postMessage({
             type: 'ERROR',
-            payload: { message: `Не удалось загрузить данные задания: ${error.message}` },
+            payload: { message: t('bg.fetchJobError', { message: error.message }) },
           });
         }
         break;
@@ -558,7 +566,7 @@ async function handlePortMessage(message, port, sendResponse) {
           const oldStatus = oldJob.status;
 
           // Store light version in local storage
-          const oldDataForStorage = (({ analysis, links, ...o }) => o)(oldJob);
+          const oldDataForStorage = (({ analysis: _analysis, links: _links, ...o }) => o)(oldJob);
           await chrome.storage.local.set({ [storageKey]: oldDataForStorage });
 
           // Now update title
@@ -584,13 +592,15 @@ async function handlePortMessage(message, port, sendResponse) {
 
           updateBadge(result.job, oldStatus);
 
-          const jobDataForStorage = (({ analysis, links, ...o }) => o)(result.job);
+          const jobDataForStorage = (({ analysis: _analysis, links: _links, ...o }) => o)(
+            result.job
+          );
           await chrome.storage.local.set({ [storageKey]: jobDataForStorage });
         } catch (error) {
           console.error(`[BG] Failed to update title for job ${jobId}:`, error);
           port.postMessage({
             type: 'ERROR',
-            payload: { message: `Не вдалося оновити назву: ${error.message}` },
+            payload: { message: t('bg.updateTitleError', { message: error.message }) },
           });
         }
         break;
@@ -674,7 +684,7 @@ async function handlePortMessage(message, port, sendResponse) {
     } else if (typeof sendResponse === 'function') {
       try {
         sendResponse({ success: false, error: error.message });
-      } catch (_e) {
+      } catch {
         // ignore sendResponse errors
       }
     }
@@ -705,7 +715,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse(data);
       } catch (e) {
         // If user is not authenticated, degrade gracefully with empty list
-        if (String(e?.message || '') === 'Authentication required') {
+        if (String(e?.message || '') === t('bg.authRequired')) {
           sendResponse({ success: true, urls: [] });
         } else {
           sendResponse({ success: false, error: e.message });
@@ -753,7 +763,7 @@ async function apiFetch(path, init = {}) {
   let token = await getAccessToken();
   if (!token) {
     if (popupPort) popupPort.postMessage({ type: 'AUTH_REQUIRED' });
-    throw new Error('Authentication required');
+    throw new Error(t('bg.authRequired'));
   }
 
   let res = await attempt(token);
@@ -766,7 +776,7 @@ async function apiFetch(path, init = {}) {
       if (socket && socket.readyState === WebSocket.OPEN) {
         try {
           socket.send(JSON.stringify({ type: 'auth', token }));
-        } catch (_e) {
+        } catch {
           // best-effort WS re-auth; ignore transient failures
           void 0;
         }

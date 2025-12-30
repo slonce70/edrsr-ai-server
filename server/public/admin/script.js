@@ -2,6 +2,15 @@
 let currentPage = 'dashboard';
 let authToken = null;
 let currentUser = null;
+const adminI18n = window.AdminI18n || {
+  t: (key) => key,
+  applyTranslations: () => {},
+  getLocale: () => 'uk',
+  setLocale: () => 'uk',
+  formatDate: (value) => value,
+  formatDateTime: (value) => value,
+};
+const { t, applyTranslations, getLocale, setLocale, formatDate, formatDateTime } = adminI18n;
 
 // Initialize app
 document.addEventListener('DOMContentLoaded', function () {
@@ -9,6 +18,16 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 
 async function initializeApp() {
+  applyTranslations(document);
+  const localeSelect = document.getElementById('admin-locale');
+  if (localeSelect) {
+    localeSelect.value = getLocale();
+    localeSelect.addEventListener('change', () => {
+      setLocale(localeSelect.value);
+      updatePageTitle(currentPage);
+    });
+  }
+
   // Setup login form listener first
   setupLoginListener();
 
@@ -37,7 +56,7 @@ async function initializeApp() {
     }
 
     if (!response.ok) {
-      throw new Error('Failed to verify admin access');
+      throw new Error(t('login.verifyFailed'));
     }
 
     // Token is valid, initialize interface
@@ -137,7 +156,7 @@ async function handleLogin(e) {
 
     if (!authResponse.ok) {
       const error = await authResponse.json();
-      throw new Error(error.error || 'Authentication failed');
+      throw new Error(error.error || t('login.authFailed'));
     }
 
     const authData = await authResponse.json();
@@ -151,11 +170,11 @@ async function handleLogin(e) {
     });
 
     if (adminResponse.status === 403) {
-      throw new Error('У вас нет прав администратора');
+      throw new Error(t('login.noAdmin'));
     }
 
     if (!adminResponse.ok) {
-      throw new Error('Failed to access admin panel');
+      throw new Error(t('login.accessFailed'));
     }
 
     // Success
@@ -198,19 +217,23 @@ function navigateToPage(page) {
   // Show target page
   document.getElementById(`${page}-page`).classList.add('active');
 
-  // Update page title
-  const titles = {
-    dashboard: 'Дашборд',
-    users: 'Пользователи',
-    jobs: 'Задания',
-    system: 'Система',
-    audit: 'Аудит',
-    security: 'Безопасность',
-  };
-  document.getElementById('page-title').textContent = titles[page];
+  updatePageTitle(page);
 
   currentPage = page;
   loadPageData(page);
+}
+
+function updatePageTitle(page) {
+  const titles = {
+    dashboard: t('nav.dashboard'),
+    users: t('nav.users'),
+    jobs: t('nav.jobs'),
+    system: t('nav.system'),
+    audit: t('nav.audit'),
+    security: t('nav.security'),
+  };
+  const titleEl = document.getElementById('page-title');
+  if (titleEl) titleEl.textContent = titles[page] || titles.dashboard;
 }
 
 // Jobs page state for sorting
@@ -246,7 +269,7 @@ async function loadPageData(page) {
     }
   } catch (error) {
     console.error(`Error loading ${page}:`, error);
-    showError(`Ошибка загрузки данных: ${error.message}`);
+    showError(t('messages.loadError', { message: error.message }));
   } finally {
     hideLoading();
   }
@@ -262,12 +285,13 @@ async function loadCurrentUser() {
     if (authToken) {
       const payload = JSON.parse(atob(authToken.split('.')[1]));
       currentUser = { id: payload.sub, email: payload.email };
-      document.getElementById('current-user').textContent = currentUser.email || 'Администратор';
+      document.getElementById('current-user').textContent =
+        currentUser.email || t('sidebar.adminLabel');
     } else {
-      document.getElementById('current-user').textContent = 'Администратор';
+      document.getElementById('current-user').textContent = t('sidebar.adminLabel');
     }
-  } catch (error) {
-    document.getElementById('current-user').textContent = 'Администратор';
+  } catch {
+    document.getElementById('current-user').textContent = t('sidebar.adminLabel');
   }
 }
 
@@ -285,12 +309,14 @@ async function loadDashboard() {
 
   // Update dashboard cards
   document.getElementById('jobs-today').textContent = data.jobs_today || 0;
-  document.getElementById('avg-duration').textContent = data.avg_job_duration
-    ? formatDurationSeconds(data.avg_job_duration)
-    : '-';
-  document.getElementById('uptime').textContent = data.uptime_hours
-    ? data.uptime_hours.toFixed(1) + 'ч'
-    : '-';
+  document.getElementById('avg-duration').textContent =
+    data.avg_job_duration !== null && data.avg_job_duration !== undefined
+      ? formatDurationSeconds(data.avg_job_duration)
+      : '-';
+  document.getElementById('uptime').textContent =
+    data.uptime_hours !== null && data.uptime_hours !== undefined
+      ? `${data.uptime_hours.toFixed(1)} ${t('common.hoursShort')}`
+      : '-';
 }
 
 async function loadUsers(page = 1, search = '') {
@@ -301,7 +327,7 @@ async function loadUsers(page = 1, search = '') {
   const tbody = document.getElementById('users-table-body');
 
   if (response.users.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="5" class="loading">Пользователи не найдены</td></tr>';
+    tbody.innerHTML = `<tr><td colspan="5" class="loading">${t('users.empty')}</td></tr>`;
     return;
   }
 
@@ -311,12 +337,12 @@ async function loadUsers(page = 1, search = '') {
         <tr>
             <td>${escapeHtml(user.email)}</td>
             <td>${formatDate(user.created_at)}</td>
-            <td>${user.last_sign_in_at ? formatDate(user.last_sign_in_at) : 'Никогда'}</td>
+            <td>${user.last_sign_in_at ? formatDate(user.last_sign_in_at) : t('common.never')}</td>
             <td>
                 ${
                   user.is_admin
-                    ? '<span class="status-badge status-completed">Admin</span>'
-                    : '<span class="status-badge status-pending">User</span>'
+                    ? `<span class="status-badge status-completed">${t('common.admin')}</span>`
+                    : `<span class="status-badge status-pending">${t('common.user')}</span>`
                 }
             </td>
             <td>
@@ -324,18 +350,18 @@ async function loadUsers(page = 1, search = '') {
                     ${
                       !user.is_admin
                         ? `<button class="btn btn-primary btn-sm" onclick="makeAdmin('${escapeHtml(user.id)}')">
-                            <i class="fas fa-user-shield"></i> Сделать админом
+                            <i class="fas fa-user-shield"></i> ${t('actions.makeAdmin')}
                         </button>`
                         : user.id !== currentUser?.id
                           ? `<button class="btn btn-warning btn-sm" onclick="revokeAdmin('${escapeHtml(user.id)}')">
-                                <i class="fas fa-user-times"></i> Отозвать права
+                                <i class="fas fa-user-times"></i> ${t('actions.revokeAdmin')}
                             </button>`
-                          : '<span class="status-badge status-completed">Вы</span>'
+                          : `<span class="status-badge status-completed">${t('common.you')}</span>`
                     }
                     ${
                       user.id !== currentUser?.id
                         ? `<button class="btn btn-danger btn-sm" onclick="deleteUser('${escapeHtml(user.id)}', '${escapeHtml(user.email)}')">
-                            <i class="fas fa-trash"></i> Удалить
+                            <i class="fas fa-trash"></i> ${t('common.delete')}
                         </button>`
                         : ''
                     }
@@ -374,11 +400,14 @@ async function loadJobs(page = 1, status = '', search = '', email = '') {
   }
 
   if (jobs.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" class="loading">Задания не найдены</td></tr>';
+    tbody.innerHTML = `<tr><td colspan="7" class="loading">${t('jobs.empty')}</td></tr>`;
     updatePagination('jobs', response.pagination);
     // Update total count
     const countEl = document.getElementById('jobs-results-count');
-    if (countEl) countEl.textContent = `Найдено: ${response.pagination.total || 0}`;
+    if (countEl)
+      countEl.textContent = t('common.foundCount', {
+        count: response.pagination?.total || 0,
+      });
     return;
   }
 
@@ -388,13 +417,13 @@ async function loadJobs(page = 1, status = '', search = '', email = '') {
         <tr>
             <td>
                 <div class="job-title-cell">
-                    <span id="title-${escapeHtml(job.id)}">${escapeHtml(job.title) || 'Без названия'}</span>
+                    <span id="title-${escapeHtml(job.id)}">${escapeHtml(job.title) || t('common.untitled')}</span>
                     <button class="btn btn-link btn-sm" onclick="editJobTitle('${escapeHtml(job.id)}', '${escapeHtml((job.title || '').replace(/'/g, "\\'"))}')" aria-label="Редактировать название">
                         <i class="fas fa-edit"></i>
                     </button>
                 </div>
             </td>
-            <td>${job.user_email ? escapeHtml(job.user_email) : '<span class="muted">N/A</span>'}</td>
+            <td>${job.user_email ? escapeHtml(job.user_email) : `<span class="muted">${t('common.na')}</span>`}</td>
             <td><span class="status-badge status-${escapeHtml(job.status)}">${getStatusText(job.status)}</span></td>
             <td>
                 <div class="progress-bar">
@@ -409,19 +438,19 @@ async function loadJobs(page = 1, status = '', search = '', email = '') {
                     ${
                       job.status === 'completed'
                         ? `<button class="btn btn-info btn-sm" onclick="viewJobReport('${escapeHtml(job.id)}')">
-                            <i class="fas fa-file-alt"></i> Отчет
+                            <i class="fas fa-file-alt"></i> ${t('common.report')}
                         </button>`
                         : ''
                     }
                     ${
                       job.status === 'error'
-                        ? `<button class="btn btn-warning btn-sm" onclick="retryJob('${escapeHtml(job.id)}')" title="Перезапустить задание">
-                            <i class="fas fa-redo"></i> Retry
+                        ? `<button class="btn btn-warning btn-sm" onclick="retryJob('${escapeHtml(job.id)}')" title="${t('actions.retryJob')}">
+                            <i class="fas fa-redo"></i> ${t('actions.retryShort')}
                         </button>`
                         : ''
                     }
                     <button class="btn btn-danger btn-sm" onclick="deleteJob('${escapeHtml(job.id)}')">
-                        <i class="fas fa-trash"></i> Удалить
+                        <i class="fas fa-trash"></i> ${t('common.delete')}
                     </button>
                 </div>
             </td>
@@ -434,7 +463,10 @@ async function loadJobs(page = 1, status = '', search = '', email = '') {
   updatePagination('jobs', response.pagination);
   // Update total count
   const countEl = document.getElementById('jobs-results-count');
-  if (countEl) countEl.textContent = `Найдено: ${response.pagination.total || 0}`;
+  if (countEl)
+    countEl.textContent = t('common.foundCount', {
+      count: response.pagination?.total || 0,
+    });
   return { jobsLength: jobs.length, pagination: response.pagination };
 }
 
@@ -444,24 +476,27 @@ async function loadSystemStats() {
 
   statsDiv.innerHTML = `
         <div class="stat-row">
-            <strong>Память:</strong> ${response.system.memory.used} МБ используется / ${response.system.memory.heap_total} МБ выделено
+            ${t('system.statsMemory', {
+              used: response.system.memory.used,
+              total: response.system.memory.heap_total,
+            })}
         </div>
         <div class="stat-row">
-            <strong>Время работы:</strong> ${response.system.uptime.formatted}
+            ${t('system.statsUptime', { value: response.system.uptime.formatted })}
         </div>
         <div class="stat-row">
-            <strong>Node.js:</strong> ${response.system.node_version}
+            ${t('system.statsNode', { value: response.system.node_version })}
         </div>
         <div class="stat-row">
-            <strong>Платформа:</strong> ${response.system.platform}
+            ${t('system.statsPlatform', { value: response.system.platform })}
         </div>
         <br>
-        <h4>Статистика базы данных:</h4>
+        <h4>${t('system.statsDbTitle')}</h4>
         ${response.database
           .map(
             (item) => `
             <div class="stat-row">
-                <strong>${item.table_name}:</strong> ${item.count} записей
+                ${t('system.statsRecords', { table: item.table_name, count: item.count })}
             </div>
         `
           )
@@ -474,7 +509,7 @@ async function loadAuditLog(page = 1) {
   const tbody = document.getElementById('audit-table-body');
 
   if (response.logs.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="5" class="loading">Логи аудита не найдены</td></tr>';
+    tbody.innerHTML = `<tr><td colspan="5" class="loading">${t('audit.empty')}</td></tr>`;
     return;
   }
 
@@ -489,8 +524,8 @@ async function loadAuditLog(page = 1) {
                 <td>${formatDateTime(log.created_at)}</td>
                 <td>${userDisplay}</td>
                 <td>${log.action}</td>
-                <td>${log.target_type || 'N/A'}${log.target_id ? ':' + log.target_id : ''}</td>
-                <td>${log.ip_address || 'N/A'}</td>
+                <td>${log.target_type || t('common.na')}${log.target_id ? ':' + log.target_id : ''}</td>
+                <td>${log.ip_address || t('common.na')}</td>
             </tr>
         `;
     })
@@ -511,14 +546,19 @@ async function loadSecurityStats() {
           (item) => `
                 <div class="blocked-item">
                     <strong>${item.target}</strong><br>
-                    <small>Причина: ${item.reason === 'email_attempts' ? 'Много попыток входа' : 'Подозрительная активность IP'}</small><br>
-                    <small>Осталось времени: ${item.remainingTime} мин</small>
+                    <small>${t('securityReasons.reason', {
+                      reason:
+                        item.reason === 'email_attempts'
+                          ? t('securityReasons.emailAttempts')
+                          : t('securityReasons.ipSuspicious'),
+                    })}</small><br>
+                    <small>${t('securityReasons.remainingTime', { minutes: item.remainingTime })}</small>
                 </div>
             `
         )
         .join('');
     } else {
-      blockedList.innerHTML = '<p class="no-data">Нет заблокированных адресов</p>';
+      blockedList.innerHTML = `<p class="no-data">${t('security.blockedEmpty')}</p>`;
     }
 
     // Update failed attempts
@@ -529,68 +569,63 @@ async function loadSecurityStats() {
           (item) => `
                 <div class="attempt-item">
                     <strong>${item.target}</strong><br>
-                    <small>Попыток: ${item.count}</small><br>
-                    <small>Последняя: ${formatDateTime(item.lastAttempt)}</small>
+                    <small>${t('securityReasons.attemptsCount', { count: item.count })}</small><br>
+                    <small>${t('securityReasons.lastAttempt', { time: formatDateTime(item.lastAttempt) })}</small>
                 </div>
             `
         )
         .join('');
     } else {
-      attemptsList.innerHTML = '<p class="no-data">Нет подозрительной активности</p>';
+      attemptsList.innerHTML = `<p class="no-data">${t('security.attemptsEmpty')}</p>`;
     }
   } catch (error) {
-    showError('Ошибка загрузки статистики безопасности: ' + error.message);
+    showError(t('messages.securityLoadError', { message: error.message }));
   }
 }
 
 // Action functions
 async function makeAdmin(userId) {
-  if (!confirm('Предоставить права администратора этому пользователю?')) return;
+  if (!confirm(t('confirm.grantAdmin'))) return;
 
   try {
     await apiCall(`/api/admin/users/${userId}/make-admin`, 'POST');
-    showSuccess('Права администратора предоставлены');
+    showSuccess(t('messages.adminGranted'));
     await loadUsers();
   } catch (error) {
-    showError('Ошибка предоставления прав: ' + error.message);
+    showError(t('messages.adminGrantError', { message: error.message }));
   }
 }
 
 async function revokeAdmin(userId) {
-  if (!confirm('Отозвать права администратора у этого пользователя?')) return;
+  if (!confirm(t('confirm.revokeAdmin'))) return;
 
   try {
     await apiCall(`/api/admin/users/${userId}/admin-role`, 'DELETE');
-    showSuccess('Права администратора отозваны');
+    showSuccess(t('messages.adminRevoked'));
     await loadUsers();
   } catch (error) {
-    showError('Ошибка отзыва прав: ' + error.message);
+    showError(t('messages.adminRevokeError', { message: error.message }));
   }
 }
 
 async function deleteUser(userId, email) {
-  if (
-    !confirm(
-      `Удалить пользователя ${email}? Это действие нельзя отменить и удалит все данные пользователя.`
-    )
-  )
-    return;
+  if (!confirm(t('confirm.deleteUser', { email }))) return;
 
   try {
     await apiCall(`/api/admin/users/${userId}`, 'DELETE');
-    showSuccess('Пользователь удален');
+    showSuccess(t('messages.userDeleted'));
     await loadUsers();
   } catch (error) {
-    showError('Ошибка удаления пользователя: ' + error.message);
+    showError(t('messages.userDeleteError', { message: error.message }));
   }
 }
 
 async function deleteJob(jobId) {
-  if (!confirm('Удалить это задание? Это действие нельзя отменить.')) return;
+  if (!confirm(t('confirm.deleteJob'))) return;
 
   try {
     await apiCall(`/api/admin/jobs/${jobId}`, 'DELETE');
-    showSuccess('Задание удалено');
+    showSuccess(t('messages.jobDeleted'));
     // Preserve current page and filters; if page becomes empty, go back 1 page
     const status = document.getElementById('jobs-status-filter').value;
     const search = document.getElementById('jobs-search').value;
@@ -603,19 +638,16 @@ async function deleteJob(jobId) {
       await loadJobs(currentPage - 1, status, search, email);
     }
   } catch (error) {
-    showError('Ошибка удаления задания: ' + error.message);
+    showError(t('messages.jobDeleteError', { message: error.message }));
   }
 }
 
 async function retryJob(jobId) {
-  if (
-    !confirm('Перезапустить это задание? Оно будет поставлено в очередь на повторное выполнение.')
-  )
-    return;
+  if (!confirm(t('confirm.retryJob'))) return;
 
   try {
-    const response = await apiCall(`/api/admin/jobs/${jobId}/retry`, 'POST');
-    showSuccess(response.message || 'Задание поставлено на повторное выполнение');
+    await apiCall(`/api/admin/jobs/${jobId}/retry`, 'POST');
+    showSuccess(t('messages.jobRetryQueued', { message: null }));
 
     // Refresh current page to show updated status
     const status = document.getElementById('jobs-status-filter').value;
@@ -626,17 +658,17 @@ async function retryJob(jobId) {
 
     await loadJobs(currentPage, status, search, email);
   } catch (error) {
-    showError('Ошибка перезапуска задания: ' + error.message);
+    showError(t('messages.jobRetryError', { message: error.message }));
   }
 }
 
 async function editJobTitle(jobId, currentTitle) {
-  const newTitle = prompt('Введите новое название задания:', currentTitle);
+  const newTitle = prompt(t('actions.editTitlePrompt'), currentTitle);
   if (!newTitle || newTitle === currentTitle) return;
 
   try {
     await apiCall(`/api/admin/jobs/${jobId}/title`, 'PUT', { title: newTitle });
-    showSuccess('Название задания обновлено');
+    showSuccess(t('messages.jobTitleUpdated'));
 
     // Обновляем название в таблице без перезагрузки
     const titleElement = document.getElementById(`title-${jobId}`);
@@ -644,7 +676,7 @@ async function editJobTitle(jobId, currentTitle) {
       titleElement.textContent = newTitle;
     }
   } catch (error) {
-    showError('Ошибка обновления названия: ' + error.message);
+    showError(t('messages.jobTitleError', { message: error.message }));
   }
 }
 
@@ -656,9 +688,9 @@ async function viewJobReport(jobId) {
 
 async function performCleanup(type) {
   const confirmMessages = {
-    old_jobs: 'Удалить все задания старше 90 дней?',
-    failed_jobs: 'Удалить все проваленные задания старше 7 дней?',
-    old_cache: 'Очистить кеш старше 30 дней?',
+    old_jobs: t('confirm.cleanupOldJobs'),
+    failed_jobs: t('confirm.cleanupFailedJobs'),
+    old_cache: t('confirm.cleanupOldCache'),
   };
 
   if (!confirm(confirmMessages[type])) return;
@@ -666,27 +698,22 @@ async function performCleanup(type) {
   try {
     showLoading();
     const response = await apiCall('/api/admin/system/cleanup', 'POST', { cleanupType: type });
-    showSuccess(response.message);
+    showSuccess(t('messages.cleanupSuccess', { count: response.cleaned || 0 }));
     await loadSystemStats();
   } catch (error) {
-    showError('Ошибка очистки: ' + error.message);
+    showError(t('messages.cleanupError', { message: error.message }));
   } finally {
     hideLoading();
   }
 }
 
 async function retryAllFailedJobs() {
-  if (
-    !confirm(
-      'Перезапустить все задания с временными ошибками? Они будут поставлены в очередь на повторное выполнение.'
-    )
-  )
-    return;
+  if (!confirm(t('confirm.retryAllFailed'))) return;
 
   try {
     showLoading();
     const response = await apiCall('/api/admin/jobs/retry-failed', 'POST');
-    showSuccess(response.message || `Перезапущено ${response.retried_count || 0} заданий`);
+    showSuccess(t('messages.retryAllSuccess', { count: response.retried_count || 0 }));
 
     // Refresh current page only (dashboard has cache, no need to force reload)
     const currentPage = getCurrentPageName();
@@ -701,18 +728,18 @@ async function retryAllFailedJobs() {
       await loadDashboard();
     }
   } catch (error) {
-    showError('Ошибка массового перезапуска: ' + error.message);
+    showError(t('messages.retryAllError', { message: error.message }));
   } finally {
     hideLoading();
   }
 }
 
 async function recoverStuckJobsNow() {
-  if (!confirm('Восстановить зависшие задания (без ожидания lease)?')) return;
+  if (!confirm(t('confirm.recoverStuck'))) return;
   try {
     showLoading();
     const response = await apiCall('/api/admin/jobs/recover-stuck', 'POST', { grace_minutes: 5 });
-    showSuccess(`Восстановлено ${response.recovered || 0} заданий`);
+    showSuccess(t('messages.recoverSuccess', { count: response.recovered || 0 }));
 
     // Refresh current page only
     const currentPage = getCurrentPageName();
@@ -727,7 +754,7 @@ async function recoverStuckJobsNow() {
       await loadDashboard();
     }
   } catch (error) {
-    showError('Ошибка восстановления: ' + error.message);
+    showError(t('messages.recoverError', { message: error.message }));
   } finally {
     hideLoading();
   }
@@ -739,7 +766,7 @@ async function viewErrorJobs() {
     const response = await apiCall('/api/admin/jobs/errors?limit=50');
 
     if (response.jobs.length === 0) {
-      showSuccess('Заданий с ошибками не найдено!');
+      showSuccess(t('messages.errorJobsEmpty'));
       return;
     }
 
@@ -750,9 +777,9 @@ async function viewErrorJobs() {
     document.getElementById('jobs-email-filter').value = '';
     await loadJobs(1, 'error', '', '');
 
-    showSuccess(`Найдено ${response.jobs.length} заданий с ошибками`);
+    showSuccess(t('messages.errorJobsFound', { count: response.jobs.length }));
   } catch (error) {
-    showError('Ошибка загрузки заданий с ошибками: ' + error.message);
+    showError(t('messages.errorJobsLoadError', { message: error.message }));
   } finally {
     hideLoading();
   }
@@ -823,7 +850,7 @@ async function apiCall(url, method = 'GET', body = null) {
 
   if (response.status === 401 || response.status === 403) {
     logout();
-    throw new Error('Сессия истекла. Пожалуйста, войдите снова.');
+    throw new Error(t('messages.sessionExpired'));
   }
 
   if (!response.ok) {
@@ -834,16 +861,6 @@ async function apiCall(url, method = 'GET', body = null) {
   return await response.json();
 }
 
-function formatDate(dateString) {
-  if (!dateString) return 'N/A';
-  return new Date(dateString).toLocaleDateString('ru-RU');
-}
-
-function formatDateTime(dateString) {
-  if (!dateString) return 'N/A';
-  return new Date(dateString).toLocaleString('ru-RU');
-}
-
 // Format duration provided in seconds into human-readable string
 function formatDurationSeconds(totalSeconds) {
   const seconds = Math.max(0, Math.floor(totalSeconds));
@@ -851,21 +868,15 @@ function formatDurationSeconds(totalSeconds) {
   const hours = Math.floor(minutes / 60);
   const s = seconds % 60;
   const m = minutes % 60;
-  if (hours > 0) return `${hours}ч ${m}м`;
-  if (minutes > 0) return `${minutes}м ${s}с`;
-  return `${s}с`;
+  if (hours > 0) return `${hours}${t('common.hoursShort')} ${m}${t('common.minutesShort')}`;
+  if (minutes > 0) return `${minutes}${t('common.minutesShort')} ${s}${t('common.secondsShort')}`;
+  return `${s}${t('common.secondsShort')}`;
 }
 
 function getStatusText(status) {
-  const statusMap = {
-    pending: 'Ожидание',
-    processing: 'Обработка',
-    completed: 'Завершено',
-    error: 'Ошибка',
-    queued: 'В очереди',
-    retrying: 'Повтор',
-  };
-  return statusMap[status] || status;
+  const key = `status.${status}`;
+  const value = t(key);
+  return value === key ? status : value;
 }
 
 function escapeHtml(text) {
@@ -985,3 +996,22 @@ function closeMobileMenu() {
   sidebar.classList.remove('open');
   overlay.classList.remove('active');
 }
+
+Object.assign(window, {
+  makeAdmin,
+  revokeAdmin,
+  deleteUser,
+  deleteJob,
+  retryJob,
+  editJobTitle,
+  viewJobReport,
+  performCleanup,
+  retryAllFailedJobs,
+  recoverStuckJobsNow,
+  viewErrorJobs,
+  clearJobFilters,
+  refreshCurrentPage,
+  changePage,
+  toggleMobileMenu,
+  closeMobileMenu,
+});

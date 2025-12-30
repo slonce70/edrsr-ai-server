@@ -2,6 +2,8 @@ import got from 'got';
 import * as cheerio from 'cheerio';
 import iconv from 'iconv-lite';
 import pLimit from 'p-limit';
+import { JSDOM } from 'jsdom';
+import { Readability } from '@mozilla/readability';
 import 'dotenv/config';
 import dbService from './services/dbService.js'; // Import the dbService
 import { isValidEDRSRUrl, logger } from './utils.js';
@@ -32,6 +34,10 @@ const STRUCTURE_TEXT_MAX = parsePositiveInt(process.env.STRUCTURE_TEXT_MAX, 2000
 const RETRY_LIMIT = parsePositiveInt(process.env.GOT_RETRY_LIMIT, 1);
 const RETRY_BACKOFF_MS = parsePositiveInt(process.env.GOT_RETRY_BACKOFF_MS, 800);
 const MEMORY_CHECK_INTERVAL = parsePositiveInt(process.env.MEMORY_CHECK_INTERVAL, 10);
+const DEDUPE_MAX_LINE_LENGTH = parsePositiveInt(process.env.DEDUPE_MAX_LINE_LENGTH, 200);
+const ENABLE_TEXT_DEDUP = process.env.ENABLE_TEXT_DEDUP === 'true';
+const ENABLE_TEXT_STRUCTURING = process.env.ENABLE_TEXT_STRUCTURING === 'true';
+const ENABLE_TECHNICAL_STRIP = process.env.ENABLE_TECHNICAL_STRIP === 'true';
 
 function parsePositiveInt(value, fallback) {
   const parsed = parseInt(value, 10);
@@ -50,6 +56,9 @@ const MAX_HTML_BYTES = parseInt(process.env.MAX_HTML_BYTES, 10) || 3_000_000; //
 const MAX_SCRIPT_TAGS = parseInt(process.env.MAX_SCRIPT_TAGS, 10) || 200;
 const MAX_HTML_LINE_LENGTH = parseInt(process.env.MAX_HTML_LINE_LENGTH, 10) || 120_000;
 const MAX_JS_KEYWORDS = parseInt(process.env.MAX_JS_KEYWORDS, 10) || 3000; // occurrences of "function("
+const READABILITY_MAX_HTML_BYTES =
+  parseInt(process.env.READABILITY_MAX_HTML_BYTES, 10) || Math.min(MAX_HTML_BYTES, 1_500_000);
+const CONTENT_TYPE_ALLOWLIST = ['text/html', 'application/xhtml+xml'];
 
 // Предкомпилированные регулярные выражения для производительности
 const COMPILED_REGEX = {
@@ -60,15 +69,15 @@ const COMPILED_REGEX = {
 
   // Legal articles (создаем новые экземпляры для каждого использования)
   ukArticles: () =>
-    /стать[яі]\s*(\d+(?:\.\d+)?)\s*(?:УК|Уголовного\s*кодекса|Кримінального\s*кодекса)/gi,
+    /(?:статт[яі]|стать[яі])\s*(\d+(?:\.\d+)?)\s*(?:УК|Уголовного\s*кодекса|Кримінального\s*кодекса)/gi,
   gkArticles: () =>
-    /стать[яі]\s*(\d+(?:\.\d+)?)\s*(?:ГК|Гражданского\s*кодекса|Цивільного\s*кодекса)/gi,
+    /(?:статт[яі]|стать[яі])\s*(\d+(?:\.\d+)?)\s*(?:ГК|Гражданского\s*кодекса|Цивільного\s*кодекса)/gi,
   kasArticles: () =>
-    /стать[яі]\s*(\d+(?:\.\d+)?)\s*(?:КАС|Кодекса\s*адміністративного\s*судочинства)/gi,
+    /(?:статт[яі]|стать[яі])\s*(\d+(?:\.\d+)?)\s*(?:КАС|Кодекса\s*адміністративного\s*судочинства)/gi,
   gpkArticles: () =>
-    /стать[яі]\s*(\d+(?:\.\d+)?)\s*(?:ГПК|Цивільного\s*процесуального\s*кодекса)/gi,
+    /(?:статт[яі]|стать[яі])\s*(\d+(?:\.\d+)?)\s*(?:ГПК|Цивільного\s*процесуального\s*кодекса)/gi,
   kpkArticles: () =>
-    /стать[яі]\s*(\d+(?:\.\d+)?)\s*(?:КПК|Кримінального\s*процесуального\s*кодекса)/gi,
+    /(?:статт[яі]|стать[яі])\s*(\d+(?:\.\d+)?)\s*(?:КПК|Кримінального\s*процесуального\s*кодекса)/gi,
 
   // Financial amounts
   uahAmounts: () => /(\d+(?:\s*\d+)*(?:[.,]\d+)?)\s*(?:грн|гривен[ьи]?|UAH)/gi,
@@ -170,8 +179,7 @@ function analyzeRawHtmlForHazards(rawHtml) {
   let funcCount = 0;
   {
     const reFunc = /function\s*\(/gi;
-    let m;
-    while ((m = reFunc.exec(rawHtml))) {
+    while (reFunc.exec(rawHtml)) {
       funcCount++;
       if (funcCount > MAX_JS_KEYWORDS) {
         return { skip: true, reason: `Too many JS functions: ${funcCount}` };
@@ -225,6 +233,40 @@ function decodeHtmlBody(buffer, contentTypeHeader = '') {
   } catch (error) {
     console.warn(`⚠️ [DECODE] Failed to decode using charset ${charset}: ${error.message}`);
     return buffer.toString('utf8');
+  }
+}
+
+function isAllowedContentType(contentType) {
+  if (!contentType) return true;
+  const lower = contentType.toLowerCase();
+  return CONTENT_TYPE_ALLOWLIST.some((type) => lower.includes(type));
+}
+
+function extractWithReadability(html, url) {
+  if (!html || html.length < 200) return null;
+  if (READABILITY_MAX_HTML_BYTES > 0 && safeByteLength(html) > READABILITY_MAX_HTML_BYTES) {
+    return null;
+  }
+
+  let dom = null;
+  try {
+    dom = new JSDOM(html, { url: url || 'https://reyestr.court.gov.ua/' });
+    const reader = new Readability(dom.window.document, {
+      charThreshold: 300,
+    });
+    const article = reader.parse();
+    if (!article?.textContent) return null;
+    const cleaned = removeResidualScripts(article.textContent.trim());
+    return cleaned.length > 0 ? cleaned : null;
+  } catch (error) {
+    logger.warn(`[READABILITY] Extraction failed: ${error.message}`);
+    return null;
+  } finally {
+    try {
+      if (dom?.window) dom.window.close();
+    } catch {
+      // ignore cleanup errors
+    }
   }
 }
 
@@ -290,6 +332,21 @@ function removeResidualScripts(text) {
   return filteredLines.join('\n');
 }
 
+function containsCourtKeyword(text) {
+  if (!text) return false;
+  return /(ухвала|рішення|постанова|визначення)/i.test(text);
+}
+
+function extractDecisionHeader(fullPageText) {
+  if (!fullPageText) return null;
+  const match = fullPageText.match(
+    /(?:^|\n|\r)\s*(УХВАЛА|РІШЕННЯ|ПОСТАНОВА|ВИЗНАЧЕННЯ)(\s+ІМЕНЕМ\s+УКРАЇНИ)?/i
+  );
+  if (!match || !match[1]) return null;
+  const suffix = match[2] ? match[2].toUpperCase() : '';
+  return `${match[1].toUpperCase()}${suffix}`.trim();
+}
+
 /**
  * Конвертує HTML в Markdown за допомогою Turndown.
  * Використовує Cheerio для витягування контенту з селектора.
@@ -324,6 +381,9 @@ function extractAsMarkdown($, targetSelector = '#divdocument') {
       .replace(/^\s*[-*]\s*$/gm, '') // Пусті list items
       .replace(/\n{3,}/g, '\n\n') // Надлишкові переноси
       .trim();
+
+    // Додаткова фільтрація JS‑рядків після Markdown конвертації
+    markdown = removeResidualScripts(markdown);
 
     return markdown;
   } catch (err) {
@@ -425,20 +485,28 @@ function extractMainContent($) {
 
   let cleanText = combinedContent;
 
-  // Удаление дубликатов (если один и тот же текст попал из разных селекторов)
-  const lines = cleanText.split('\n');
-  const uniqueLines = [];
-  const seenLines = new Set();
+  if (ENABLE_TEXT_DEDUP) {
+    // Удаление дубликатов (если один и тот же текст попал из разных селекторов)
+    const lines = cleanText.split('\n');
+    const uniqueLines = [];
+    const seenLines = new Set();
 
-  for (const line of lines) {
-    const normalizedLine = line.trim().toLowerCase();
-    if (normalizedLine.length > 10 && !seenLines.has(normalizedLine)) {
-      uniqueLines.push(line.trim());
-      seenLines.add(normalizedLine);
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const normalizedLine = trimmed.toLowerCase();
+      if (normalizedLine.length > DEDUPE_MAX_LINE_LENGTH) {
+        uniqueLines.push(trimmed);
+        continue;
+      }
+      if (normalizedLine.length > 10 && !seenLines.has(normalizedLine)) {
+        uniqueLines.push(trimmed);
+        seenLines.add(normalizedLine);
+      }
     }
-  }
 
-  cleanText = uniqueLines.join('\n');
+    cleanText = uniqueLines.join('\n');
+  }
 
   // УСИЛЕННАЯ ОЧИСТКА ОТ HTML ТЕГОВ И ТЕХНИЧЕСКОГО МУСОРА
   // 1. Убираем оставшиеся HTML теги (на случай если они попали в текст)
@@ -488,21 +556,25 @@ function extractMainContent($) {
 
   // Шаг 2: Если нашли JS, обрезаем до начала блока
   if (junkIndex !== -1) {
-    // Ищем ближайший конец предложения перед JS блоком
-    const beforeJunk = cleanText.substring(0, junkIndex);
-    const lastSentenceEnd = Math.max(
-      beforeJunk.lastIndexOf('.'),
-      beforeJunk.lastIndexOf('!'),
-      beforeJunk.lastIndexOf('?'),
-      beforeJunk.lastIndexOf('\n')
-    );
+    const tail = cleanText.substring(junkIndex);
+    const jsLinesInTail = tail.split('\n').filter(looksLikeJavascriptLine).length;
+    if (jsLinesInTail >= 3) {
+      // Ищем ближайший конец предложения перед JS блоком
+      const beforeJunk = cleanText.substring(0, junkIndex);
+      const lastSentenceEnd = Math.max(
+        beforeJunk.lastIndexOf('.'),
+        beforeJunk.lastIndexOf('!'),
+        beforeJunk.lastIndexOf('?'),
+        beforeJunk.lastIndexOf('\n')
+      );
 
-    if (lastSentenceEnd > beforeJunk.length * 0.8) {
-      // Если нашли конец предложения близко к JS, обрезаем там
-      cleanText = cleanText.substring(0, lastSentenceEnd + 1);
-    } else {
-      // Иначе просто обрезаем до начала JS
-      cleanText = cleanText.substring(0, junkIndex);
+      if (lastSentenceEnd > beforeJunk.length * 0.8) {
+        // Если нашли конец предложения близко к JS, обрезаем там
+        cleanText = cleanText.substring(0, lastSentenceEnd + 1);
+      } else {
+        // Иначе просто обрезаем до начала JS
+        cleanText = cleanText.substring(0, junkIndex);
+      }
     }
   }
 
@@ -518,8 +590,10 @@ function extractMainContent($) {
     /^Єдиний державний реєстр судових рішень\s*$/gm,
   ];
 
-  for (const regex of linesToRemove) {
-    cleanText = cleanText.replace(regex, '');
+  if (ENABLE_TECHNICAL_STRIP) {
+    for (const regex of linesToRemove) {
+      cleanText = cleanText.replace(regex, '');
+    }
   }
 
   // Усовершенствованная очистка текста
@@ -533,7 +607,12 @@ function extractMainContent($) {
     .trim();
 
   // Финальное структурирование контента
-  if (cleanText && cleanText.length > 100 && cleanText.length <= STRUCTURE_TEXT_MAX) {
+  if (
+    ENABLE_TEXT_STRUCTURING &&
+    cleanText &&
+    cleanText.length > 100 &&
+    cleanText.length <= STRUCTURE_TEXT_MAX
+  ) {
     cleanText = structureCourtDecision(cleanText);
   }
 
@@ -686,32 +765,13 @@ export async function fetchCase(url, cookie = '', signal = null, options = {}) {
   let tCacheEnd;
   let statusCode = null;
 
-  // 1. Check cache first
-  const cachedCase = await dbService.getCachedCaseByUrl(url);
-  let useCache = false;
-
-  if (cachedCase) {
-    if (cachedCase.error && cachedCase.isTemporary) {
-      // If it's a temporary error (like timeout), check if it expired
-      const errorTTL = parsePositiveInt(process.env.CACHE_ERROR_TTL_MS, 30 * 60 * 1000); // 30 minutes default
-      const cachedAt = cachedCase.cachedAt ? new Date(cachedCase.cachedAt).getTime() : 0;
-      const age = Date.now() - cachedAt;
-
-      if (age < errorTTL) {
-        useCache = true;
-      } else {
-        logger.info(
-          `[CACHE] Expired temporary error for ${url} (age=${age}ms > ${errorTTL}ms), retrying...`
-        );
-      }
-    } else {
-      useCache = true;
+  // 1. Check cache first (unless explicitly skipped)
+  if (!options.skipCache) {
+    const cachedCase = await dbService.getCachedCaseByUrl(url);
+    if (cachedCase) {
+      logger.info(`[T][${caseId}] cache-hit total=${Date.now() - t0}ms`);
+      return { ...cachedCase, fromCache: true };
     }
-  }
-
-  if (useCache) {
-    logger.info(`[T][${caseId}] cache-hit total=${Date.now() - t0}ms`);
-    return { ...cachedCase, fromCache: true };
   }
 
   // Строгая проверка URL до сетевых запросов
@@ -795,7 +855,7 @@ export async function fetchCase(url, cookie = '', signal = null, options = {}) {
 
     // Content-Type sanity check
     const contentType = (response.headers['content-type'] || '').toLowerCase();
-    if (contentType && !contentType.includes('text/html')) {
+    if (!isAllowedContentType(contentType)) {
       const errMsg = `Non-HTML content-type: ${contentType}`;
       console.warn(`🚫 [SKIP] ${url} -> ${errMsg}`);
       const skipped = {
@@ -881,6 +941,8 @@ export async function fetchCase(url, cookie = '', signal = null, options = {}) {
       metadataText = getFullPageText().substring(0, 10000);
     }
 
+    const decisionHeader = extractDecisionHeader(getFullPageText());
+
     caseData = enhanceMetadataFromText(caseData, metadataText);
     tMetadataEnd = Date.now();
 
@@ -905,6 +967,20 @@ export async function fetchCase(url, cookie = '', signal = null, options = {}) {
     } else {
       caseData.body = extractMainContent($);
     }
+
+    if (caseData.body.length < 200) {
+      const readabilityText = extractWithReadability(decodedHtml, url);
+      if (readabilityText && readabilityText.length > caseData.body.length) {
+        caseData.body = readabilityText;
+        logger.info(
+          `[READABILITY] [${caseData.id}] Fallback used (${readabilityText.length} chars)`
+        );
+      }
+    }
+
+    if (decisionHeader && !containsCourtKeyword(caseData.body)) {
+      caseData.body = `=== ${decisionHeader} ===\n\n${caseData.body}`;
+    }
     tBodyEnd = Date.now();
 
     // Зберігаємо fullPageText ДО очищення $ (потрібен для extractLegalMetadata та emergency search)
@@ -920,11 +996,7 @@ export async function fetchCase(url, cookie = '', signal = null, options = {}) {
 
     // УМНАЯ ПРОВЕРКА: определяем тип контента на основе множественных критериев
     const bodyLength = caseData.body.length;
-    const hasCourtKeywords =
-      caseData.body.includes('УХВАЛА') ||
-      caseData.body.includes('РІШЕННЯ') ||
-      caseData.body.includes('ПОСТАНОВА') ||
-      caseData.body.includes('ВИЗНАЧЕННЯ');
+    const hasCourtKeywords = containsCourtKeyword(caseData.body) || Boolean(decisionHeader);
 
     const hasCourtProcedure =
       caseData.body.includes('ВСТАНОВИВ') ||
@@ -1426,3 +1498,22 @@ function extractLegalMetadata(caseData, fullPageText) {
     return caseData;
   }
 }
+
+// Test-only exports for pure parsing helpers (no DB access required)
+export const __test = {
+  analyzeRawHtmlForHazards,
+  containsCourtKeyword,
+  decodeHtmlBody,
+  detectCharset,
+  extractDecisionHeader,
+  isAllowedContentType,
+  extractWithReadability,
+  stripNonContentElements,
+  extractAsMarkdown,
+  extractMainContent,
+  structureCourtDecision,
+  enhanceMetadataFromText,
+  removeResidualScripts,
+  looksLikeJavascriptLine,
+  extractLegalMetadata,
+};

@@ -254,6 +254,11 @@ MAX_HTML_BYTES=3500000
 MAX_SCRIPT_TAGS=200
 MAX_HTML_LINE_LENGTH=200000
 MAX_JS_KEYWORDS=1500
+# Parsing Behavior (full-text vs structured cleanup)
+USE_MARKDOWN_EXTRACTION=false
+ENABLE_TEXT_DEDUP=false
+ENABLE_TEXT_STRUCTURING=false
+ENABLE_TECHNICAL_STRIP=false
 
 # =============================================================================
 # LOGGING AND MONITORING

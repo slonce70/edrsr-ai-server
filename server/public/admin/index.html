@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="ru">
+<html lang="uk">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>EDRSR-AI - Админская панель</title>
+    <title data-i18n="title">EDRSR-AI - Админская панель</title>
     <link rel="stylesheet" href="styles.css" />
     <link
       href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
@@ -27,32 +27,38 @@
         <ul class="sidebar-menu">
           <li>
             <a href="#dashboard" class="menu-item active" data-page="dashboard">
-              <i class="fas fa-tachometer-alt"></i> Дашборд
+              <i class="fas fa-tachometer-alt"></i>
+              <span data-i18n="nav.dashboard">Дашборд</span>
             </a>
           </li>
           <li>
             <a href="#users" class="menu-item" data-page="users">
-              <i class="fas fa-users"></i> Пользователи
+              <i class="fas fa-users"></i>
+              <span data-i18n="nav.users">Пользователи</span>
             </a>
           </li>
           <li>
             <a href="#jobs" class="menu-item" data-page="jobs">
-              <i class="fas fa-tasks"></i> Задания
+              <i class="fas fa-tasks"></i>
+              <span data-i18n="nav.jobs">Задания</span>
             </a>
           </li>
           <li>
             <a href="#system" class="menu-item" data-page="system">
-              <i class="fas fa-cogs"></i> Система
+              <i class="fas fa-cogs"></i>
+              <span data-i18n="nav.system">Система</span>
             </a>
           </li>
           <li>
             <a href="#audit" class="menu-item" data-page="audit">
-              <i class="fas fa-clipboard-list"></i> Аудит
+              <i class="fas fa-clipboard-list"></i>
+              <span data-i18n="nav.audit">Аудит</span>
             </a>
           </li>
           <li>
             <a href="#security" class="menu-item" data-page="security">
-              <i class="fas fa-shield-alt"></i> Безопасность
+              <i class="fas fa-shield-alt"></i>
+              <span data-i18n="nav.security">Безопасность</span>
             </a>
           </li>
         </ul>
@@ -60,10 +66,11 @@
         <div class="sidebar-footer">
           <div class="user-info">
             <i class="fas fa-user-shield"></i>
-            <span id="current-user">Загрузка...</span>
+            <span id="current-user" data-i18n="sidebar.currentUserLoading">Загрузка...</span>
           </div>
           <button class="btn-logout" onclick="logout()">
-            <i class="fas fa-sign-out-alt"></i> Выйти
+            <i class="fas fa-sign-out-alt"></i>
+            <span data-i18n="sidebar.logout">Выйти</span>
           </button>
         </div>
       </nav>
@@ -75,10 +82,14 @@
           <button class="mobile-menu-btn" onclick="toggleMobileMenu()" aria-label="Открыть меню">
             <i class="fas fa-bars"></i>
           </button>
-          <h1 id="page-title">Дашборд</h1>
+          <h1 id="page-title" data-i18n="nav.dashboard">Дашборд</h1>
           <div class="header-actions">
+            <select id="admin-locale" class="lang-select" aria-label="Language">
+              <option value="uk">UA</option>
+              <option value="ru">RU</option>
+            </select>
             <button class="btn btn-refresh" onclick="refreshCurrentPage()">
-              <i class="fas fa-sync-alt"></i><span> Обновить</span>
+              <i class="fas fa-sync-alt"></i><span data-i18n="header.refresh"> Обновить</span>
             </button>
           </div>
         </header>
@@ -94,7 +105,7 @@
                 </div>
                 <div class="stat-info">
                   <h3 id="total-users">-</h3>
-                  <p>Всего пользователей</p>
+                  <p data-i18n="dashboard.totalUsers">Всего пользователей</p>
                 </div>
               </div>
 
@@ -104,7 +115,7 @@
                 </div>
                 <div class="stat-info">
                   <h3 id="total-jobs">-</h3>
-                  <p>Всего заданий</p>
+                  <p data-i18n="dashboard.totalJobs">Всего заданий</p>
                 </div>
               </div>
 
@@ -114,7 +125,7 @@
                 </div>
                 <div class="stat-info">
                   <h3 id="completed-jobs">-</h3>
-                  <p>Завершено</p>
+                  <p data-i18n="dashboard.completed">Завершено</p>
                 </div>
               </div>
 
@@ -124,7 +135,7 @@
                 </div>
                 <div class="stat-info">
                   <h3 id="failed-jobs">-</h3>
-                  <p>С ошибками</p>
+                  <p data-i18n="dashboard.failed">С ошибками</p>
                 </div>
               </div>
 
@@ -134,7 +145,7 @@
                 </div>
                 <div class="stat-info">
                   <h3 id="retryable-jobs">-</h3>
-                  <p>Можно повторить</p>
+                  <p data-i18n="dashboard.retryable">Можно повторить</p>
                 </div>
               </div>
 
@@ -144,24 +155,24 @@
                 </div>
                 <div class="stat-info">
                   <h3 id="memory-usage">-</h3>
-                  <p>Память (МБ)</p>
+                  <p data-i18n="dashboard.memory">Память (МБ)</p>
                 </div>
               </div>
             </div>
 
             <div class="dashboard-grid">
               <div class="dashboard-card">
-                <h3>Задания за сегодня (Kyiv)</h3>
+                <h3 data-i18n="dashboard.jobsToday">Задания за сегодня (Kyiv)</h3>
                 <div class="big-number" id="jobs-today">-</div>
               </div>
 
               <div class="dashboard-card">
-                <h3>Среднее время выполнения</h3>
+                <h3 data-i18n="dashboard.avgDuration">Среднее время выполнения</h3>
                 <div class="big-number" id="avg-duration">-</div>
               </div>
 
               <div class="dashboard-card">
-                <h3>Время работы системы</h3>
+                <h3 data-i18n="dashboard.uptime">Время работы системы</h3>
                 <div class="big-number" id="uptime">-</div>
               </div>
             </div>
@@ -172,7 +183,12 @@
             <div class="page-header">
               <div class="search-bar">
                 <label for="users-search" class="visually-hidden">Поиск пользователей</label>
-                <input type="text" id="users-search" placeholder="Поиск пользователей..." />
+                <input
+                  type="text"
+                  id="users-search"
+                  data-i18n-placeholder="users.searchPlaceholder"
+                  placeholder="Поиск пользователей..."
+                />
                 <button onclick="searchUsers()" aria-label="Найти пользователей">
                   <i class="fas fa-search"></i>
                 </button>
@@ -183,16 +199,16 @@
               <table class="data-table">
                 <thead>
                   <tr>
-                    <th>Email</th>
-                    <th>Дата регистрации</th>
-                    <th>Последний вход</th>
-                    <th>Роли</th>
-                    <th>Действия</th>
+                    <th data-i18n="users.thEmail">Email</th>
+                    <th data-i18n="users.thRegistered">Дата регистрации</th>
+                    <th data-i18n="users.thLastLogin">Последний вход</th>
+                    <th data-i18n="users.thRoles">Роли</th>
+                    <th data-i18n="users.thActions">Действия</th>
                   </tr>
                 </thead>
                 <tbody id="users-table-body">
                   <tr>
-                    <td colspan="5" class="loading">Загрузка...</td>
+                    <td colspan="5" class="loading" data-i18n="users.loading">Загрузка...</td>
                   </tr>
                 </tbody>
               </table>
@@ -207,26 +223,37 @@
               <div class="filters">
                 <label for="jobs-status-filter" class="visually-hidden">Фильтр по статусу</label>
                 <select id="jobs-status-filter">
-                  <option value="">Все статусы</option>
-                  <option value="queued">В очереди</option>
-                  <option value="retrying">Повтор</option>
-                  <option value="processing">Обработка</option>
-                  <option value="completed">Завершено</option>
-                  <option value="error">Ошибка</option>
+                  <option value="" data-i18n="jobs.statusAll">Все статусы</option>
+                  <option value="queued" data-i18n="jobs.statusQueued">В очереди</option>
+                  <option value="retrying" data-i18n="jobs.statusRetrying">Повтор</option>
+                  <option value="processing" data-i18n="jobs.statusProcessing">Обработка</option>
+                  <option value="completed" data-i18n="jobs.statusCompleted">Завершено</option>
+                  <option value="error" data-i18n="jobs.statusError">Ошибка</option>
                 </select>
-
                 <label for="jobs-email-filter" class="visually-hidden">Фильтр по email</label>
-                <input type="text" id="jobs-email-filter" placeholder="Фильтр по email..." />
+                <input
+                  type="text"
+                  id="jobs-email-filter"
+                  data-i18n-placeholder="jobs.emailFilterPlaceholder"
+                  placeholder="Фильтр по email..."
+                />
                 <label for="jobs-search" class="visually-hidden">Поиск заданий</label>
-                <input type="text" id="jobs-search" placeholder="Поиск заданий..." />
+                <input
+                  type="text"
+                  id="jobs-search"
+                  data-i18n-placeholder="jobs.searchPlaceholder"
+                  placeholder="Поиск заданий..."
+                />
                 <button id="jobs-search-btn" onclick="searchJobs()" aria-label="Найти задания">
                   <i class="fas fa-search"></i>
                 </button>
                 <button id="jobs-clear-btn" class="btn btn-secondary" onclick="clearJobFilters()">
-                  <i class="fas fa-times-circle"></i> Очистить
+                  <i class="fas fa-times-circle"></i>
+                  <span data-i18n="jobs.clearFilters">Очистить</span>
                 </button>
                 <span id="jobs-filter-loading" class="inline-loading" style="display: none">
-                  <i class="fas fa-circle-notch fa-spin"></i> Поиск...
+                  <i class="fas fa-circle-notch fa-spin"></i>
+                  <span data-i18n="jobs.searching">Поиск...</span>
                 </span>
               </div>
               <div class="results-count"><span id="jobs-results-count"></span></div>
@@ -236,18 +263,18 @@
               <table class="data-table">
                 <thead>
                   <tr>
-                    <th>Название</th>
-                    <th id="jobs-email-header" class="sortable">Email</th>
-                    <th>Статус</th>
-                    <th>Прогресс</th>
-                    <th>Ссылок</th>
-                    <th>Создано</th>
-                    <th>Действия</th>
+                    <th data-i18n="jobs.thTitle">Название</th>
+                    <th id="jobs-email-header" class="sortable" data-i18n="jobs.thEmail">Email</th>
+                    <th data-i18n="jobs.thStatus">Статус</th>
+                    <th data-i18n="jobs.thProgress">Прогресс</th>
+                    <th data-i18n="jobs.thLinks">Ссылок</th>
+                    <th data-i18n="jobs.thCreated">Создано</th>
+                    <th data-i18n="jobs.thActions">Действия</th>
                   </tr>
                 </thead>
                 <tbody id="jobs-table-body">
                   <tr>
-                    <td colspan="7" class="loading">Загрузка...</td>
+                    <td colspan="7" class="loading" data-i18n="jobs.loading">Загрузка...</td>
                   </tr>
                 </tbody>
               </table>
@@ -260,46 +287,56 @@
           <div id="system-page" class="page">
             <div class="system-grid">
               <div class="system-card">
-                <h3>Очистка данных</h3>
-                <p>Удаление старых заданий и кеша для оптимизации производительности</p>
+                <h3 data-i18n="system.cleanupTitle">Очистка данных</h3>
+                <p data-i18n="system.cleanupDesc">
+                  Удаление старых заданий и кеша для оптимизации производительности
+                </p>
 
                 <div class="cleanup-options">
                   <button class="btn btn-warning" onclick="performCleanup('old_jobs')">
-                    <i class="fas fa-trash"></i> Старые задания (90+ дней)
+                    <i class="fas fa-trash"></i>
+                    <span data-i18n="system.cleanupOldJobs">Старые задания (90+ дней)</span>
                   </button>
 
                   <button class="btn btn-warning" onclick="performCleanup('failed_jobs')">
-                    <i class="fas fa-exclamation-triangle"></i> Проваленные задания (7+ дней)
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <span data-i18n="system.cleanupFailedJobs">Проваленные задания (7+ дней)</span>
                   </button>
 
                   <button class="btn btn-warning" onclick="performCleanup('old_cache')">
-                    <i class="fas fa-database"></i> Старый кеш (30+ дней)
+                    <i class="fas fa-database"></i>
+                    <span data-i18n="system.cleanupOldCache">Старый кеш (30+ дней)</span>
                   </button>
                 </div>
               </div>
 
               <div class="system-card">
-                <h3>Восстановление заданий</h3>
-                <p>Автоматическое восстановление и повторный запуск проблемных заданий</p>
+                <h3 data-i18n="system.recoveryTitle">Восстановление заданий</h3>
+                <p data-i18n="system.recoveryDesc">
+                  Автоматическое восстановление и повторный запуск проблемных заданий
+                </p>
 
                 <div class="cleanup-options">
                   <button class="btn btn-primary" onclick="recoverStuckJobsNow()">
-                    <i class="fas fa-first-aid"></i> Восстановить зависшие сейчас
+                    <i class="fas fa-first-aid"></i>
+                    <span data-i18n="system.recoverStuck">Восстановить зависшие сейчас</span>
                   </button>
                   <button class="btn btn-success" onclick="retryAllFailedJobs()">
-                    <i class="fas fa-redo"></i> Retry всех failed заданий
+                    <i class="fas fa-redo"></i>
+                    <span data-i18n="system.retryFailed">Retry всех failed заданий</span>
                   </button>
 
                   <button class="btn btn-info" onclick="viewErrorJobs()">
-                    <i class="fas fa-exclamation-circle"></i> Просмотр заданий с ошибками
+                    <i class="fas fa-exclamation-circle"></i>
+                    <span data-i18n="system.viewErrorJobs">Просмотр заданий с ошибками</span>
                   </button>
                 </div>
               </div>
 
               <div class="system-card">
-                <h3>Статистика системы</h3>
+                <h3 data-i18n="system.statsTitle">Статистика системы</h3>
                 <div id="system-stats">
-                  <div class="loading">Загрузка...</div>
+                  <div class="loading" data-i18n="system.loading">Загрузка...</div>
                 </div>
               </div>
             </div>
@@ -311,16 +348,16 @@
               <table class="data-table">
                 <thead>
                   <tr>
-                    <th>Время</th>
-                    <th>Пользователь</th>
-                    <th>Действие</th>
-                    <th>Объект</th>
-                    <th>IP адрес</th>
+                    <th data-i18n="audit.thTime">Время</th>
+                    <th data-i18n="audit.thUser">Пользователь</th>
+                    <th data-i18n="audit.thAction">Действие</th>
+                    <th data-i18n="audit.thObject">Объект</th>
+                    <th data-i18n="audit.thIp">IP адрес</th>
                   </tr>
                 </thead>
                 <tbody id="audit-table-body">
                   <tr>
-                    <td colspan="5" class="loading">Загрузка...</td>
+                    <td colspan="5" class="loading" data-i18n="audit.loading">Загрузка...</td>
                   </tr>
                 </tbody>
               </table>
@@ -331,27 +368,38 @@
 
           <!-- Security Page -->
           <div id="security-page" class="page">
-            <h2>Мониторинг безопасности</h2>
+            <h2 data-i18n="security.title">Мониторинг безопасности</h2>
 
             <div class="security-stats">
               <div class="stat-card alert">
-                <h3><i class="fas fa-ban"></i> Заблокированные IP/Аккаунты</h3>
+                <h3>
+                  <i class="fas fa-ban"></i>
+                  <span data-i18n="security.blockedTitle">Заблокированные IP/Аккаунты</span>
+                </h3>
                 <div id="blocked-list" class="blocked-list">
-                  <p class="no-data">Нет заблокированных адресов</p>
+                  <p class="no-data" data-i18n="security.blockedEmpty">
+                    Нет заблокированных адресов
+                  </p>
                 </div>
               </div>
 
               <div class="stat-card warning">
-                <h3><i class="fas fa-exclamation-triangle"></i> Попытки взлома</h3>
+                <h3>
+                  <i class="fas fa-exclamation-triangle"></i>
+                  <span data-i18n="security.attemptsTitle">Попытки взлома</span>
+                </h3>
                 <div id="failed-attempts-list" class="attempts-list">
-                  <p class="no-data">Нет подозрительной активности</p>
+                  <p class="no-data" data-i18n="security.attemptsEmpty">
+                    Нет подозрительной активности
+                  </p>
                 </div>
               </div>
             </div>
 
             <div class="security-actions">
               <button class="btn btn-info" onclick="loadSecurityStats()">
-                <i class="fas fa-sync"></i> Обновить статистику
+                <i class="fas fa-sync"></i>
+                <span data-i18n="security.refresh">Обновить статистику</span>
               </button>
             </div>
           </div>
@@ -362,19 +410,19 @@
     <!-- Login Modal -->
     <div id="login-modal" class="modal">
       <div class="modal-content">
-        <h2>Авторизация в админ панели</h2>
+        <h2 data-i18n="login.title">Авторизация в админ панели</h2>
         <form id="login-form">
           <div class="form-group">
-            <label for="email">Email:</label>
+            <label for="email" data-i18n="login.emailLabel">Email:</label>
             <input type="email" id="email" required />
           </div>
 
           <div class="form-group">
-            <label for="password">Пароль:</label>
+            <label for="password" data-i18n="login.passwordLabel">Пароль:</label>
             <input type="password" id="password" required />
           </div>
 
-          <button type="submit" class="btn btn-primary">Войти</button>
+          <button type="submit" class="btn btn-primary" data-i18n="login.submit">Войти</button>
         </form>
 
         <div id="login-error" class="error-message"></div>
@@ -386,6 +434,7 @@
       <div class="spinner"></div>
     </div>
 
+    <script src="i18n.js"></script>
     <script src="script.js"></script>
   </body>
 </html>

@@ -1,10 +1,33 @@
+/* eslint-disable no-console */
 // --- EDRSR-AI Results Page Script v2.0 ---
 /* global html2canvas */
 // This script uses a modern, robust architecture with a long-lived port
 // connection to the service worker for receiving job data.
-import { getPromptName } from './prompt-definitions.js';
+import {
+  applyTranslations,
+  formatReportDate,
+  formatUiDate,
+  initI18n,
+  setLocale,
+  t,
+} from './i18n.js';
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  await initI18n();
+  applyTranslations(document);
+  document.title = t('results.pageTitle');
+
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes.locale?.newValue) {
+      setLocale(changes.locale.newValue)
+        .then(() => {
+          applyTranslations(document);
+          document.title = t('results.pageTitle');
+          if (currentJobData) renderPage(currentJobData);
+        })
+        .catch(() => {});
+    }
+  });
   // --- Minimal HTML sanitizer (DOMPurify alternative for MV3) ---
   const ALLOWED_TAGS = new Set([
     'p',
@@ -133,18 +156,20 @@ document.addEventListener('DOMContentLoaded', () => {
     chatSendBtn: document.getElementById('chatSendBtn'),
   };
 
+  const tReport = (key, vars = {}) => t(key, vars, 'uk');
+  const getStatusLabel = (status) => {
+    const key = `status.${status}`;
+    const text = t(key);
+    return text === key ? status : text;
+  };
+
   const checkEnablePdfButton = () => {
     // Enable button when report is rendered; we'll lazy-load libs if user picks image
     if (reportRendered) {
       elements.downloadPdfBtn.disabled = false;
-      elements.pdfBtnText.textContent = '📄 Скачать отчёт';
+      elements.pdfBtnText.textContent = t('results.pdfBtnReady');
     }
   };
-
-  // No-op placeholder retained for compatibility (jsPDF is preloaded)
-  async function ensureImageLibsLoaded() {
-    return true;
-  }
 
   async function ensureUnicodeFontRegistered(pdf) {
     if (unicodeFontReady) return true;
@@ -194,7 +219,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let currentJobData = null;
 
   if (!jobId) {
-    document.body.innerHTML = '<h1>Ошибка: ID задания не найден.</h1>';
+    document.body.innerHTML = `<h1>${t('results.errorNoJobId')}</h1>`;
     return;
   }
 
@@ -220,22 +245,23 @@ document.addEventListener('DOMContentLoaded', () => {
       console.log(`[RESULTS] Redirecting to ${payload.url}`);
       window.location.href = payload.url;
     } else if (type === 'ERROR') {
-      alert(`Ошибка: ${payload.message}`);
+      alert(t('common.errorPrefix', { message: payload.message }));
     }
   });
 
   // --- UI Rendering ---
   function renderPage(job) {
     if (!job) {
-      elements.jobTitle.textContent = `Задание ${jobId.substring(0, 8)}...`;
-      elements.statusBadge.textContent = 'Загрузка...';
+      elements.jobTitle.textContent = t('results.jobTitleFallback', { id: jobId.substring(0, 8) });
+      elements.statusBadge.textContent = t('common.loading');
       elements.statusBadge.className = 'status-badge status-loading';
       return;
     }
 
     currentJobData = job; // Make sure currentJobData is updated
-    elements.jobTitle.textContent = job.title || `Отчёт анализа задания: ${job.id}`;
-    elements.statusBadge.textContent = job.status;
+    elements.jobTitle.textContent =
+      job.title || t('results.jobTitleFallback', { id: job.id.substring(0, 8) });
+    elements.statusBadge.textContent = getStatusLabel(job.status);
     elements.statusBadge.className = `status-badge status-${job.status}`;
 
     // The report title is now part of the analysis content itself.
@@ -243,11 +269,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Render metadata
     const metadataHTML = `
-      <li><strong>Статус:</strong> ${job.status}</li>
-      <li><strong>Создано:</strong> ${new Date(job.created_at).toLocaleString('ru-RU')}</li>
-      <li><strong>Всего ссылок:</strong> ${job.total_links}</li>
-      <li><strong>Обработано:</strong> ${job.processed_links || 0}</li>
-      <li><strong>Длительность:</strong> ${job.duration || 'N/A'} сек.</li>
+      <li><strong>${t('results.statusLabel')}:</strong> ${getStatusLabel(job.status)}</li>
+      <li><strong>${t('results.createdLabel')}:</strong> ${formatUiDate(job.created_at)}</li>
+      <li><strong>${t('results.totalLinksLabel')}:</strong> ${job.total_links}</li>
+      <li><strong>${t('results.processedLinksLabel')}:</strong> ${job.processed_links || 0}</li>
+      <li><strong>${t('results.durationLabel')}:</strong> ${
+        job.duration ?? t('common.na')
+      } ${t('common.secondsShort')}</li>
     `;
     elements.jobMetadata.innerHTML = metadataHTML;
 
@@ -257,7 +285,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Prepend the user's prompt to the analysis if it exists
       if (job.prompt && job.prompt.trim() !== '') {
-        const promptMarkdown = `### Пользовательский запрос\n\n> ${job.prompt}\n\n---\n\n`;
+        const promptMarkdown = `### ${t('results.userPromptHeading')}\n\n> ${job.prompt}\n\n---\n\n`;
         analysisContent = promptMarkdown + analysisContent;
       }
 
@@ -268,8 +296,12 @@ document.addEventListener('DOMContentLoaded', () => {
     } else if (job.status === 'error') {
       elements.analysisResult.innerHTML = `
         <div class="error-container">
-          <p class="error-message"><strong>Ошибка:</strong> ${job.error_message || 'Неизвестная ошибка'}</p>
-          <button id="retryBtn" class="button button-primary" data-job-id="${job.id}">&#x21BB; Повторить попытку</button>
+          <p class="error-message"><strong>${t('common.errorLabel')}:</strong> ${
+            job.error_message || t('results.errorUnknown')
+          }</p>
+          <button id="retryBtn" class="button button-primary" data-job-id="${job.id}">&#x21BB; ${t(
+            'results.retryBtn'
+          )}</button>
         </div>
       `;
       elements.downloadBtn.style.display = 'none';
@@ -280,7 +312,7 @@ document.addEventListener('DOMContentLoaded', () => {
         retryBtn.addEventListener('click', handleRetry);
       }
     } else {
-      elements.analysisResult.innerHTML = '<p>Анализ ещё не завершён...</p>';
+      elements.analysisResult.innerHTML = `<p>${t('results.analysisPending')}</p>`;
       elements.downloadBtn.style.display = 'none';
     }
 
@@ -302,7 +334,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const editIcon = document.createElement('span');
     editIcon.innerHTML = '&#x270E;';
     editIcon.className = 'edit-icon';
-    editIcon.title = 'Редактировать название';
+    editIcon.title = t('results.editTitle');
 
     const editContainer = document.createElement('div');
     editContainer.className = 'title-edit-container hidden';
@@ -359,7 +391,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const roleDiv = document.createElement('div');
       roleDiv.className = 'role';
-      roleDiv.textContent = msg.role === 'user' ? 'Вы:' : 'AI:';
+      roleDiv.textContent =
+        msg.role === 'user' ? t('results.chatRoleUser') : t('results.chatRoleAi');
 
       const contentDiv = document.createElement('div');
       contentDiv.className = 'content';
@@ -379,8 +412,8 @@ document.addEventListener('DOMContentLoaded', () => {
       console.log(`[RESULTS] Retrying job: ${jobIdToRetry}`);
       port.postMessage({ type: 'RETRY_JOB', payload: { jobId: jobIdToRetry } });
       // Optionally, update UI to show it's retrying
-      elements.analysisResult.innerHTML = '<p>Повторная попытка задания...</p>';
-      elements.statusBadge.textContent = 'queued';
+      elements.analysisResult.innerHTML = `<p>${t('results.retryingJob')}</p>`;
+      elements.statusBadge.textContent = getStatusLabel('queued');
       elements.statusBadge.className = 'status-badge status-queued';
     }
   }
@@ -396,7 +429,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const userRoleDiv = document.createElement('div');
     userRoleDiv.className = 'role';
-    userRoleDiv.textContent = 'Ви:';
+    userRoleDiv.textContent = t('results.chatRoleUser');
 
     const userContentDiv = document.createElement('div');
     userContentDiv.className = 'content';
@@ -417,9 +450,9 @@ document.addEventListener('DOMContentLoaded', () => {
   elements.copyBtn.addEventListener('click', () => {
     if (currentJobData?.analysis) {
       navigator.clipboard.writeText(currentJobData.analysis);
-      elements.copyBtn.textContent = '✅ Скопировано!';
+      elements.copyBtn.textContent = t('results.copyReportCopied');
       setTimeout(() => {
-        elements.copyBtn.textContent = '📋 Копировать отчёт';
+        elements.copyBtn.textContent = t('results.copyReportBtn');
       }, 2000);
     }
   });
@@ -427,21 +460,29 @@ document.addEventListener('DOMContentLoaded', () => {
   elements.downloadPdfBtn.addEventListener('click', async () => {
     elements.downloadPdfBtn.disabled = true;
     const pdfType = elements.pdfTypeSelect.value;
-    elements.pdfBtnText.textContent = pdfType === 'text' ? 'Генерація TXT...' : 'Генерація PDF...';
+    if (pdfType === 'text') {
+      elements.pdfBtnText.textContent = t('results.generateTxt');
+    } else if (pdfType === 'image') {
+      elements.pdfBtnText.textContent = t('results.generatePdfImage');
+    } else {
+      elements.pdfBtnText.textContent = t('results.generatePdf');
+    }
     elements.pdfBtnSpinner.style.display = 'inline-block';
 
     if (pdfType === 'text') {
       // Keep TXT download as before
       generateTextPDF();
+    } else if (pdfType === 'image') {
+      generateImagePDF();
     } else {
       // Generate a text-based PDF (not image), with basic formatting and clickable links
       try {
         await generateRichTextPDF();
       } catch (e) {
         console.error('Error generating text PDF:', e);
-        alert('Не удалось создать PDF. Проверьте консоль для деталей.');
+        alert(t('results.pdfError'));
         elements.downloadPdfBtn.disabled = false;
-        elements.pdfBtnText.textContent = '📄 Скачать отчёт';
+        elements.pdfBtnText.textContent = t('results.pdfBtnReady');
         elements.pdfBtnSpinner.style.display = 'none';
       }
     }
@@ -464,10 +505,10 @@ document.addEventListener('DOMContentLoaded', () => {
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error('Error generating text PDF:', err);
-      alert('Не удалось создать текстовый отчёт. Проверьте консоль для деталей.');
+      alert(t('results.txtError'));
     } finally {
       elements.downloadPdfBtn.disabled = false;
-      elements.pdfBtnText.textContent = '📄 Скачать отчёт';
+      elements.pdfBtnText.textContent = t('results.pdfBtnReady');
       elements.pdfBtnSpinner.style.display = 'none';
     }
   }
@@ -476,31 +517,35 @@ document.addEventListener('DOMContentLoaded', () => {
     let content = '';
 
     // Add title
-    const title = currentJobData?.title || `Отчёт анализа задания: ${jobId}`;
+    const title = currentJobData?.title || `${tReport('report.analysisTitle')}: ${jobId}`;
     content += title + '\n';
     content += '='.repeat(title.length) + '\n\n';
 
     // Add metadata
     if (currentJobData) {
-      content += 'МЕТАДАННЫЕ\n';
+      content += `${tReport('report.metadataHeading')}\n`;
       content += '----------\n';
-      content += `Статус: ${currentJobData.status}\n`;
-      content += `Создано: ${new Date(currentJobData.created_at).toLocaleString('ru-RU')}\n`;
-      content += `Всего ссылок: ${currentJobData.total_links}\n`;
-      content += `Обработано: ${currentJobData.processed_links || 0}\n`;
-      content += `Длительность: ${currentJobData.duration || 'N/A'} сек.\n\n`;
+      content += `${tReport('results.statusLabel')}: ${getStatusLabel(currentJobData.status)}\n`;
+      content += `${tReport('results.createdLabel')}: ${formatReportDate(
+        currentJobData.created_at
+      )}\n`;
+      content += `${tReport('results.totalLinksLabel')}: ${currentJobData.total_links}\n`;
+      content += `${tReport('results.processedLinksLabel')}: ${currentJobData.processed_links || 0}\n`;
+      content += `${tReport('results.durationLabel')}: ${
+        currentJobData.duration ?? tReport('common.na')
+      } ${tReport('common.secondsShort')}\n\n`;
     }
 
     // Add user prompt if exists
     if (currentJobData?.prompt && currentJobData.prompt.trim() !== '') {
-      content += 'ПОЛЬЗОВАТЕЛЬСКИЙ ЗАПРОС\n';
+      content += `${tReport('report.userPromptHeading')}\n`;
       content += '-----------------------\n';
       content += currentJobData.prompt + '\n\n';
     }
 
     // Add analysis content
     if (currentJobData?.analysis) {
-      content += 'РЕЗУЛЬТАТЫ АНАЛИЗА\n';
+      content += `${tReport('report.analysisHeading')}\n`;
       content += '-------------------\n';
       content += convertMarkdownToText(currentJobData.analysis);
     }
@@ -670,7 +715,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // Title
-    const title = currentJobData?.title || `Отчёт анализа задания: ${jobId}`;
+    const title = currentJobData?.title || `${tReport('report.analysisTitle')}: ${jobId}`;
     addHeading(title, 1);
 
     // Divider
@@ -682,26 +727,29 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Metadata
     if (currentJobData) {
-      addHeading('МЕТАДАННЫЕ', 3);
+      addHeading(tReport('report.metadataHeading'), 3);
       pdf.setFontSize(baseFontSize);
-      addLabelValue('Статус', currentJobData.status);
-      addLabelValue('Создано', new Date(currentJobData.created_at).toLocaleString('ru-RU'));
-      addLabelValue('Всего ссылок', currentJobData.total_links);
-      addLabelValue('Обработано', currentJobData.processed_links || 0);
-      addLabelValue('Длительность', `${currentJobData.duration || 'N/A'} сек.`);
+      addLabelValue(tReport('results.statusLabel'), getStatusLabel(currentJobData.status));
+      addLabelValue(tReport('results.createdLabel'), formatReportDate(currentJobData.created_at));
+      addLabelValue(tReport('results.totalLinksLabel'), currentJobData.total_links);
+      addLabelValue(tReport('results.processedLinksLabel'), currentJobData.processed_links || 0);
+      addLabelValue(
+        tReport('results.durationLabel'),
+        `${currentJobData.duration ?? tReport('common.na')} ${tReport('common.secondsShort')}`
+      );
       y += 2;
     }
 
     // Prompt
     if (currentJobData?.prompt && currentJobData.prompt.trim() !== '') {
-      addHeading('ПОЛЬЗОВАТЕЛЬСКИЙ ЗАПРОС', 3);
+      addHeading(tReport('report.userPromptHeading'), 3);
       addWrappedText(currentJobData.prompt.trim());
       y += 2;
     }
 
     // Analysis
     if (currentJobData?.analysis) {
-      addHeading('РЕЗУЛЬТАТЫ АНАЛИЗА', 2);
+      addHeading(tReport('report.analysisHeading'), 2);
       parseAndRenderMarkdown(
         currentJobData.analysis,
         pdf,
@@ -722,7 +770,7 @@ document.addEventListener('DOMContentLoaded', () => {
       pdf.setFont(unicodeFontReady ? 'NotoSans' : 'helvetica', 'normal');
       pdf.setFontSize(9);
       pdf.setTextColor(120);
-      const footer = `Стр. ${p} из ${pageCount}`;
+      const footer = tReport('report.pageOf', { page: p, total: pageCount });
       const w = pdf.getTextWidth(footer);
       pdf.text(footer, pageWidth - margin - w, pageHeight - 8);
       pdf.setTextColor(0, 0, 0);
@@ -734,7 +782,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // UI restore
     elements.downloadPdfBtn.disabled = false;
-    elements.pdfBtnText.textContent = '📄 Скачать отчёт';
+    elements.pdfBtnText.textContent = t('results.pdfBtnReady');
     elements.pdfBtnSpinner.style.display = 'none';
   }
 
@@ -824,8 +872,6 @@ document.addEventListener('DOMContentLoaded', () => {
         .then((canvas) => {
           reportElement.style.backgroundColor = originalBg;
 
-          const imgData = canvas.toDataURL('image/jpeg', 0.8); // Use JPEG with compression
-
           // A4 page size in mm: 210 x 297
           const pdf = new jsPDF('p', 'mm', 'a4');
           const pageWidth = pdf.internal.pageSize.getWidth();
@@ -839,11 +885,6 @@ document.addEventListener('DOMContentLoaded', () => {
           // Calculate image scaling
           const imgWidth = canvas.width;
           const imgHeight = canvas.height;
-          const imgRatio = imgWidth / imgHeight;
-
-          const pdfImgWidth = contentWidth;
-          const pdfImgHeight = contentWidth / imgRatio;
-
           // Split across pages if needed
           let yOffset = 0;
           let pageNum = 1;
@@ -894,19 +935,19 @@ document.addEventListener('DOMContentLoaded', () => {
         })
         .catch((err) => {
           console.error('Error generating image PDF:', err);
-          alert('Не удалось создать PDF изображение. Проверьте консоль для деталей.');
+          alert(t('results.imagePdfError'));
           reportElement.style.backgroundColor = originalBg;
         })
         .finally(() => {
           elements.downloadPdfBtn.disabled = false;
-          elements.pdfBtnText.textContent = '📄 Скачать отчёт';
+          elements.pdfBtnText.textContent = t('results.pdfBtnReady');
           elements.pdfBtnSpinner.style.display = 'none';
         });
     } catch (err) {
       console.error('Error generating image PDF:', err);
-      alert('Не удалось создать PDF изображение. Проверьте консоль для деталей.');
+      alert(t('results.imagePdfError'));
       elements.downloadPdfBtn.disabled = false;
-      elements.pdfBtnText.textContent = '📄 Скачать отчёт';
+      elements.pdfBtnText.textContent = t('results.pdfBtnReady');
       elements.pdfBtnSpinner.style.display = 'none';
     }
   }
@@ -917,12 +958,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const handler = (message) => {
       if (message.type === 'LINKS_CONTENT') {
         const { links } = message.payload || { links: [] };
-        let fullText = `ОТЧЁТ ПО ДЕЛАМ\nЗадание ID: ${jobId}\nДата создания: ${new Date().toLocaleString('ru-RU')}\n\n`;
+        let fullText = `${tReport('report.casesReportTitle')}\n${tReport('report.jobIdLabel')}: ${jobId}\n${tReport(
+          'report.createdLabel'
+        )}: ${formatReportDate(new Date())}\n\n`;
         links.forEach((link) => {
           if (link && link.url && link.content) {
             const caseIdentifier = link.url.split('/').pop();
             fullText += `==================================================\n`;
-            fullText += ` ДЕЛО: ${caseIdentifier} ( ${link.url} )\n`;
+            fullText += ` ${tReport('report.caseLabel')}: ${caseIdentifier} ( ${link.url} )\n`;
             fullText += `==================================================\n\n`;
             fullText += `${link.content}\n\n\n`;
           }
@@ -940,7 +983,7 @@ document.addEventListener('DOMContentLoaded', () => {
         elements.downloadBtn.disabled = false;
         port.onMessage.removeListener(handler);
       } else if (message.type === 'ERROR') {
-        alert(message.payload?.message || 'Ошибка загрузки контента дел');
+        alert(message.payload?.message || t('results.linksLoadError'));
         elements.downloadBtn.disabled = false;
         port.onMessage.removeListener(handler);
       }

@@ -7,12 +7,69 @@ const router = express.Router();
 router.get('/callback', (req, res) => {
   const supabaseUrl = process.env.SUPABASE_URL || '';
   const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || '';
+  const acceptLang = String(req.headers['accept-language'] || '').toLowerCase();
+  const langParam = String(req.query.lang || '').toLowerCase();
+  const lang =
+    langParam === 'ru' || langParam === 'uk' ? langParam : acceptLang.includes('uk') ? 'uk' : 'ru';
+  const STRINGS = {
+    ru: {
+      pageTitle: 'Авторизация — EDRSR AI',
+      titleProcessing: 'Обработка авторизации…',
+      statusWait: 'Пожалуйста, подождите.',
+      recoveryIntro: 'Введите новый пароль для своей учетной записи.',
+      recoveryLabel: 'Новый пароль',
+      recoveryPlaceholder: 'Минимум 8 символов',
+      recoverySave: 'Сохранить пароль',
+      recoveryCancel: 'Отмена',
+      closeHint: 'Можно закрыть эту вкладку и вернуться в расширение.',
+      errorAuth: 'Ошибка авторизации',
+      errorAccessToken: 'Не удалось получить access_token. Перейдите по ссылке из письма ещё раз.',
+      recoveryTitle: 'Восстановление пароля',
+      recoveryHint: 'Введите новый пароль и нажмите «Сохранить пароль».',
+      passwordTooShort: 'Пароль слишком короткий (минимум 8 символов).',
+      savingPassword: 'Сохраняем пароль…',
+      passwordUpdated: 'Пароль успешно обновлён. Теперь вы можете войти в расширении.',
+      recoveryError: 'Не удалось обновить пароль: ',
+      recoveryErrorTitle: 'Ошибка восстановления пароля',
+      emailConfirmed: 'Email подтверждён',
+      emailConfirmedHint: 'Спасибо! Можете вернуться в расширение и войти.',
+      authLinkHint:
+        'Ссылка открыта. Если вы ожидали восстановление пароля — проверьте, что перешли по последней ссылке из письма.',
+      done: 'Готово',
+    },
+    uk: {
+      pageTitle: 'Авторизація — EDRSR AI',
+      titleProcessing: 'Обробка авторизації…',
+      statusWait: 'Будь ласка, зачекайте.',
+      recoveryIntro: 'Введіть новий пароль для свого облікового запису.',
+      recoveryLabel: 'Новий пароль',
+      recoveryPlaceholder: 'Мінімум 8 символів',
+      recoverySave: 'Зберегти пароль',
+      recoveryCancel: 'Скасувати',
+      closeHint: 'Можна закрити цю вкладку і повернутися в розширення.',
+      errorAuth: 'Помилка авторизації',
+      errorAccessToken: 'Не вдалося отримати access_token. Перейдіть за посиланням з листа ще раз.',
+      recoveryTitle: 'Відновлення пароля',
+      recoveryHint: 'Введіть новий пароль і натисніть «Зберегти пароль».',
+      passwordTooShort: 'Пароль занадто короткий (мінімум 8 символів).',
+      savingPassword: 'Зберігаємо пароль…',
+      passwordUpdated: 'Пароль успішно оновлено. Тепер ви можете увійти в розширенні.',
+      recoveryError: 'Не вдалося оновити пароль: ',
+      recoveryErrorTitle: 'Помилка відновлення пароля',
+      emailConfirmed: 'Email підтверджено',
+      emailConfirmedHint: 'Дякуємо! Можете повернутися в розширення та увійти.',
+      authLinkHint:
+        'Посилання відкрито. Якщо ви очікували відновлення пароля — перевірте, що перейшли за останнім посиланням з листа.',
+      done: 'Готово',
+    },
+  };
+  const t = (key) => (STRINGS[lang] && STRINGS[lang][key]) || STRINGS.ru[key] || key;
   const html = `<!doctype html>
-<html lang="ru">
+<html lang="${lang}">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Авторизация — EDRSR AI</title>
+    <title>${t('pageTitle')}</title>
     <style>
       body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; padding: 24px; background:#0b0b0c; color:#e6e6e6; }
       .card { max-width: 560px; margin: 24px auto; background: #151518; border: 1px solid #2a2a2e; border-radius: 12px; padding: 20px; }
@@ -30,22 +87,24 @@ router.get('/callback', (req, res) => {
   </head>
   <body>
     <div class="card">
-      <h1 id="title">Обработка авторизации…</h1>
-      <p id="status" class="muted">Пожалуйста, подождите.</p>
+      <h1 id="title">${t('titleProcessing')}</h1>
+      <p id="status" class="muted">${t('statusWait')}</p>
 
       <div id="recovery" class="hidden">
-        <p>Введите новый пароль для своей учетной записи.</p>
+        <p>${t('recoveryIntro')}</p>
         <form id="recovery-form">
-          <label for="pwd" class="muted">Новый пароль</label>
-          <input id="pwd" type="password" minlength="8" placeholder="Минимум 8 символов" required />
+          <label for="pwd" class="muted">${t('recoveryLabel')}</label>
+          <input id="pwd" type="password" minlength="8" placeholder="${t(
+            'recoveryPlaceholder'
+          )}" required />
           <div class="row">
-            <button type="submit">Сохранить пароль</button>
-            <button type="button" id="cancel">Отмена</button>
+            <button type="submit">${t('recoverySave')}</button>
+            <button type="button" id="cancel">${t('recoveryCancel')}</button>
           </div>
         </form>
         <p id="recovery-result" class="muted"></p>
       </div>
-      <p class="muted">Можно закрыть эту вкладку и вернуться в расширение.</p>
+      <p class="muted">${t('closeHint')}</p>
     </div>
 
     <script>
@@ -69,19 +128,19 @@ router.get('/callback', (req, res) => {
         }
 
         if (error) {
-          titleEl.textContent = 'Ошибка авторизации';
+          titleEl.textContent = '${t('errorAuth')}';
           setStatus(error, 'err');
           return;
         }
 
         if (type === 'recovery') {
-          titleEl.textContent = 'Восстановление пароля';
+          titleEl.textContent = '${t('recoveryTitle')}';
           if (!accessToken) {
-            setStatus('Не удалось получить access_token. Перейдите по ссылке из письма ещё раз.', 'err');
+            setStatus('${t('errorAccessToken')}', 'err');
             return;
           }
           recoveryBlock.classList.remove('hidden');
-          setStatus('Введите новый пароль и нажмите «Сохранить пароль».', 'muted');
+          setStatus('${t('recoveryHint')}', 'muted');
 
           const form = document.getElementById('recovery-form');
           const cancel = document.getElementById('cancel');
@@ -91,11 +150,11 @@ router.get('/callback', (req, res) => {
             e.preventDefault();
             const pwd = document.getElementById('pwd').value || '';
             if (pwd.length < 8) {
-              resultEl.textContent = 'Пароль слишком короткий (минимум 8 символов).';
+              resultEl.textContent = '${t('passwordTooShort')}';
               resultEl.className = 'err';
               return;
             }
-            resultEl.textContent = 'Сохраняем пароль…';
+            resultEl.textContent = '${t('savingPassword')}';
             resultEl.className = 'muted';
             try {
               const res = await fetch('${supabaseUrl}/auth/v1/user', {
@@ -109,26 +168,26 @@ router.get('/callback', (req, res) => {
               });
               const json = await res.json().catch(() => ({}));
               if (!res.ok) throw new Error(json.error_description || json.error || res.statusText);
-              resultEl.textContent = 'Пароль успешно обновлён. Теперь вы можете войти в расширении.';
+              resultEl.textContent = '${t('passwordUpdated')}';
               resultEl.className = 'ok';
-              setStatus('Готово', 'ok');
+              setStatus('${t('done')}', 'ok');
             } catch (e) {
-              resultEl.textContent = 'Не удалось обновить пароль: ' + (e.message || e);
+              resultEl.textContent = '${t('recoveryError')}' + (e.message || e);
               resultEl.className = 'err';
-              setStatus('Ошибка восстановления пароля', 'err');
+              setStatus('${t('recoveryErrorTitle')}', 'err');
             }
           });
           return;
         }
 
         if (type === 'signup' || type === 'magiclink' || type === 'invite') {
-          titleEl.textContent = 'Email подтверждён';
-          setStatus('Спасибо! Можете вернуться в расширение и войти.', 'ok');
+          titleEl.textContent = '${t('emailConfirmed')}';
+          setStatus('${t('emailConfirmedHint')}', 'ok');
           return;
         }
 
-        titleEl.textContent = 'Авторизация';
-        setStatus('Ссылка открыта. Если вы ожидали восстановление пароля — проверьте, что перешли по последней ссылке из письма.', 'muted');
+        titleEl.textContent = '${t('pageTitle')}';
+        setStatus('${t('authLinkHint')}', 'muted');
       })();
     </script>
   </body>

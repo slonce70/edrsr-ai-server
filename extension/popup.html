@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="ru">
+<html lang="uk">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ЄДРСР → Gemini AI</title>
+    <title data-i18n="popup.headerTitle">ЄДРСР → Gemini AI</title>
     <style>
       * {
         margin: 0;
@@ -483,55 +483,83 @@
         color: #e65100;
         border-color: #ffe0b2;
       }
+
+      .locale-select {
+        font-size: 11px;
+        padding: 4px 6px;
+        border-radius: 8px;
+        border: 1px solid #ddd;
+        background: #fff;
+        color: #333;
+      }
     </style>
   </head>
   <body>
     <div class="header">
       <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px">
         <div>
-          <h1>🤖 ЄДРСР → Gemini AI</h1>
-          <p>Анализ судебных решений с помощью искусственного интеллекта</p>
+          <h1 data-i18n="popup.headerTitle">🤖 ЄДРСР → Gemini AI</h1>
+          <p data-i18n="popup.headerSubtitle">
+            Анализ судебных решений с помощью искусственного интеллекта
+          </p>
         </div>
-        <div id="authBadge" class="auth-badge badge-guest">Гость</div>
+        <div style="display: flex; align-items: center; gap: 6px">
+          <select
+            id="localeSelect"
+            class="locale-select"
+            data-i18n-title="popup.tabs.auth"
+            aria-label="Language"
+          >
+            <option value="uk">UA</option>
+            <option value="ru">RU</option>
+          </select>
+          <div id="authBadge" class="auth-badge badge-guest" data-i18n="popup.authBadgeGuest">
+            Гость
+          </div>
+        </div>
       </div>
     </div>
 
     <div class="content">
       <div id="serverStatus" class="status-indicator status-offline">
         <div class="status-dot dot-offline"></div>
-        <span>Проверяю сервер...</span>
+        <span data-i18n="popup.serverChecking">Проверяю сервер...</span>
       </div>
 
       <div class="tabs">
-        <button class="tab active" data-tab="collect">📥 Сбор</button>
-        <button class="tab" data-tab="status">📊 Статус</button>
-        <button class="tab" data-tab="results">📋 Результаты</button>
-        <button class="tab" data-tab="history">🗂️ История</button>
-        <button class="tab" data-tab="auth">🔐 Вход</button>
+        <button class="tab active" data-tab="collect" data-i18n="popup.tabs.collect">
+          📥 Сбор
+        </button>
+        <button class="tab" data-tab="status" data-i18n="popup.tabs.status">📊 Статус</button>
+        <button class="tab" data-tab="results" data-i18n="popup.tabs.results">📋 Результаты</button>
+        <button class="tab" data-tab="history" data-i18n="popup.tabs.history">🗂️ История</button>
+        <button class="tab" data-tab="auth" data-i18n="popup.tabs.auth">🔐 Вход</button>
       </div>
 
       <div id="collectTab" class="tab-content active">
         <div class="job-info" id="collectInfo">
           <div class="job-detail">
-            <span>Текущая страница:</span>
+            <span data-i18n="popup.collect.currentPageLabel">Текущая страница:</span>
             <strong id="currentPage">-</strong>
           </div>
           <div class="job-detail">
-            <span>Найдено ссылок:</span>
+            <span data-i18n="popup.collect.linksFoundLabel">Найдено ссылок:</span>
             <strong id="linksCount">0</strong>
           </div>
           <div class="job-detail">
-            <span>Уникальные (по истории):</span>
+            <span data-i18n="popup.collect.uniqueHistoryLabel">Уникальные (по истории):</span>
             <strong id="uniqueCountHistory">0</strong>
           </div>
           <div class="job-detail">
-            <span>С учетом сессии:</span>
+            <span data-i18n="popup.collect.uniqueSessionLabel">С учетом сессии:</span>
             <strong id="uniqueCountSession">0</strong>
           </div>
         </div>
 
         <div class="input-group">
-          <label for="promptTemplate">Шаблон анализа:</label>
+          <label for="promptTemplate" data-i18n="popup.collect.promptTemplateLabel">
+            Шаблон анализа:
+          </label>
           <select id="promptTemplate">
             <!-- Options are now populated by popup.js -->
           </select>
@@ -541,33 +569,46 @@
         <div class="input-group checks">
           <label class="check-row" for="uniqueOnlyToggle">
             <input type="checkbox" id="uniqueOnlyToggle" checked />
-            <span class="check-text">Только уникальные дела</span>
+            <span class="check-text" data-i18n="popup.collect.uniqueOnlyLabel">
+              Только уникальные дела
+            </span>
           </label>
           <label class="check-row" for="ignoreSessionToggle">
             <input type="checkbox" id="ignoreSessionToggle" />
-            <span class="check-text">Игнорировать в этой сессии</span>
+            <span class="check-text" data-i18n="popup.collect.ignoreSessionLabel">
+              Игнорировать в этой сессии
+            </span>
           </label>
           <label class="check-row" for="autoTitleToggle">
             <input type="checkbox" id="autoTitleToggle" checked />
-            <span class="check-text">Автообновление заголовка задания</span>
+            <span class="check-text" data-i18n="popup.collect.autoTitleLabel">
+              Автообновление заголовка задания
+            </span>
           </label>
         </div>
 
         <div id="customPromptContainer" class="input-group hidden">
-          <label for="customPrompt">Ваш промпт для ИИ:</label>
+          <label for="customPrompt" data-i18n="popup.collect.customPromptLabel">
+            Ваш промпт для ИИ:
+          </label>
           <textarea
             id="customPrompt"
             rows="4"
+            data-i18n-placeholder="popup.collect.customPromptPlaceholder"
             placeholder="Например: 'Найди все упоминания об экспертизах...'"
           ></textarea>
           <div style="margin-top: 10px; display: flex; gap: 10px; align-items: flex-end">
             <div style="flex-grow: 1">
-              <label for="promptName" style="font-size: 11px; color: #555"
+              <label
+                for="promptName"
+                style="font-size: 11px; color: #555"
+                data-i18n="popup.collect.promptNameLabel"
                 >Имя для сохранения:</label
               >
               <input
                 type="text"
                 id="promptName"
+                data-i18n-placeholder="popup.collect.promptNamePlaceholder"
                 placeholder="Название промпта"
                 style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px"
               />
@@ -576,6 +617,7 @@
               id="savePromptBtn"
               class="button button-secondary"
               style="padding: 8px 12px; font-size: 13px"
+              data-i18n="popup.collect.savePromptBtn"
             >
               Сохранить
             </button>
@@ -587,30 +629,35 @@
           class="button button-secondary"
           style="margin-top: 10px; width: 100%; justify-content: center"
         >
-          <span>🗑️ Удалить выбранный промпт</span>
+          <span data-i18n="popup.collect.deletePromptBtn">🗑️ Удалить выбранный промпт</span>
         </button>
 
         <button id="collectBtn" class="button button-primary">
-          <span>🔍 Собрать и проанализировать</span>
+          <span data-i18n="popup.collect.collectBtn">🔍 Собрать и проанализировать</span>
         </button>
       </div>
 
       <div id="statusTab" class="tab-content">
         <div class="input-group">
-          <label for="jobIdInput">ID задания:</label>
-          <input type="text" id="jobIdInput" placeholder="Введите ID задания" />
+          <label for="jobIdInput" data-i18n="popup.statusTab.jobIdLabel">ID задания:</label>
+          <input
+            type="text"
+            id="jobIdInput"
+            data-i18n-placeholder="popup.statusTab.jobIdPlaceholder"
+            placeholder="Введите ID задания"
+          />
         </div>
 
         <button id="checkStatusBtn" class="button button-secondary">
-          <span>📊 Проверить статус</span>
+          <span data-i18n="popup.statusTab.checkStatusBtn">📊 Проверить статус</span>
         </button>
 
         <button id="loadLastJobBtn" class="button button-secondary">
-          <span>🔄 Последнее задание</span>
+          <span data-i18n="popup.statusTab.loadLastBtn">🔄 Последнее задание</span>
         </button>
 
         <button id="retryJobBtn" class="button button-secondary hidden">
-          <span>🔄 Перезапустить задание</span>
+          <span data-i18n="popup.statusTab.retryBtn">🔄 Перезапустить задание</span>
         </button>
 
         <button
@@ -618,29 +665,29 @@
           class="button button-secondary hidden"
           style="background: #ff5722; color: white"
         >
-          <span>⚠️ Принудительно перезапустить</span>
+          <span data-i18n="popup.statusTab.forceRetryBtn">⚠️ Принудительно перезапустить</span>
         </button>
 
         <div id="jobStatus" class="hidden">
           <div class="job-info">
             <h3 id="jobTitle">Задание</h3>
             <div class="job-detail">
-              <span>Статус:</span>
+              <span data-i18n="popup.statusTab.statusLabel">Статус:</span>
               <strong id="jobStatusText">-</strong>
             </div>
             <div class="job-detail">
-              <span>Прогресс:</span>
+              <span data-i18n="popup.statusTab.progressLabel">Прогресс:</span>
               <strong id="jobProgress">0%</strong>
             </div>
             <div class="progress-bar">
               <div id="progressFill" class="progress-fill" style="width: 0%"></div>
             </div>
             <div class="job-detail">
-              <span>Ссылок:</span>
+              <span data-i18n="popup.statusTab.linksLabel">Ссылок:</span>
               <strong id="jobLinks">-</strong>
             </div>
             <div class="job-detail">
-              <span>Время создания:</span>
+              <span data-i18n="popup.statusTab.createdLabel">Время создания:</span>
               <strong id="jobStartTime">-</strong>
             </div>
           </div>
@@ -649,15 +696,15 @@
 
       <div id="resultsTab" class="tab-content">
         <button id="openResultsPageBtn" class="button button-primary hidden">
-          <span>🚀 Открыть в новом окне</span>
+          <span data-i18n="popup.resultsTab.openNew">🚀 Открыть в новом окне</span>
         </button>
 
         <button id="showResultBtn" class="button button-success" disabled>
-          <span>📋 Показать результат</span>
+          <span data-i18n="popup.resultsTab.showResult">📋 Показать результат</span>
         </button>
 
         <button id="copyResultBtn" class="button button-secondary hidden">
-          <span>📋 Копировать</span>
+          <span data-i18n="popup.resultsTab.copyResult">📋 Копировать</span>
         </button>
 
         <div id="resultArea" class="result-area hidden"></div>
@@ -665,44 +712,79 @@
 
       <div id="historyTab" class="tab-content">
         <ul id="historyList">
-          <li style="text-align: center; color: #999">Загрузка истории...</li>
+          <li style="text-align: center; color: #999" data-i18n="popup.historyTab.loading">
+            Загрузка истории...
+          </li>
         </ul>
       </div>
 
       <div id="authTab" class="tab-content">
         <div class="input-group auth-fields">
-          <label for="authEmail">Email</label>
-          <input id="authEmail" type="email" placeholder="you@example.com" />
+          <label for="authEmail" data-i18n="popup.auth.emailLabel">Email</label>
+          <input
+            id="authEmail"
+            type="email"
+            data-i18n-placeholder="popup.auth.emailPlaceholder"
+            placeholder="you@example.com"
+          />
         </div>
         <div class="input-group auth-fields">
-          <label for="authPassword">Пароль</label>
+          <label for="authPassword" data-i18n="popup.auth.passwordLabel">Пароль</label>
           <div style="display: flex; gap: 6px">
-            <input id="authPassword" type="password" placeholder="••••••••" style="flex: 1" />
+            <input
+              id="authPassword"
+              type="password"
+              data-i18n-placeholder="popup.auth.passwordPlaceholder"
+              placeholder="••••••••"
+              style="flex: 1"
+            />
             <button
               id="togglePwdBtn"
               class="button button-secondary"
               style="width: auto; padding: 6px 8px"
+              data-i18n="popup.auth.showPwd"
             >
               Показать
             </button>
           </div>
         </div>
         <div class="auth-actions" style="display: flex; gap: 10px; margin-bottom: 8px">
-          <button id="loginBtn" class="button button-primary" style="flex: 1">🔐 Войти</button>
-          <button id="signupBtn" class="button button-secondary" style="flex: 1">
+          <button
+            id="loginBtn"
+            class="button button-primary"
+            style="flex: 1"
+            data-i18n="popup.auth.loginBtn"
+          >
+            🔐 Войти
+          </button>
+          <button
+            id="signupBtn"
+            class="button button-secondary"
+            style="flex: 1"
+            data-i18n="popup.auth.signupBtn"
+          >
             🆕 Регистрация
           </button>
         </div>
-        <button id="recoverBtn" class="button button-secondary" style="margin-bottom: 8px">
+        <button
+          id="recoverBtn"
+          class="button button-secondary"
+          style="margin-bottom: 8px"
+          data-i18n="popup.auth.recoverBtn"
+        >
           🔁 Забыли пароль?
         </button>
-        <button id="logoutBtn" class="button button-secondary">🚪 Выйти</button>
+        <button id="logoutBtn" class="button button-secondary" data-i18n="popup.auth.logoutBtn">
+          🚪 Выйти
+        </button>
         <div id="authStatus" style="margin-top: 10px; font-size: 12px; color: #555"></div>
       </div>
     </div>
 
     <div class="footer">
-      <p id="footer-status">Версия 1.4.0 | Требуется запущенный сервер на localhost:4000</p>
+      <p id="footer-status" data-i18n="popup.footer">
+        Версія — | Потрібен запущений сервер на localhost:4000
+      </p>
     </div>
 
     <script src="marked.min.js"></script>
