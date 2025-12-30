@@ -9,7 +9,6 @@ let isProcessing = false;
 let pageActiveJobId = null;
 let i18nReady = null;
 let promptStorageReady = null;
-let autoModalShown = false;
 
 async function getI18n() {
   if (!i18nReady) {
@@ -27,17 +26,6 @@ function getDecisionLinkElements() {
 
 function hasDecisionLinks() {
   return getDecisionLinkElements().length > 0;
-}
-
-async function openAutoModal() {
-  if (autoModalShown) return;
-  autoModalShown = true;
-  try {
-    await createModal();
-  } catch (e) {
-    autoModalShown = false;
-    console.warn('EDRSR-AI: Failed to auto-open modal', e);
-  }
 }
 
 async function getPromptStorage() {
@@ -693,14 +681,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 function initialize() {
   if (hasDecisionLinks()) {
     void addCollectButton();
-    void openAutoModal();
     // Отмечаем обработанные ссылки как посещенные
     markProcessedLinksAsVisited();
   }
   const observer = new MutationObserver(() => {
     if (hasDecisionLinks() && !document.getElementById('edrsr-ai-collect-btn')) {
       void addCollectButton();
-      void openAutoModal();
       // Отмечаем обработанные ссылки при динамическом добавлении контента
       markProcessedLinksAsVisited();
     }
