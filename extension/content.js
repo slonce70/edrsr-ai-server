@@ -9,6 +9,7 @@ let isProcessing = false;
 let pageActiveJobId = null;
 let i18nReady = null;
 let promptStorageReady = null;
+let autoModalShown = false;
 
 async function getI18n() {
   if (!i18nReady) {
@@ -18,6 +19,25 @@ async function getI18n() {
     });
   }
   return i18nReady;
+}
+
+function getDecisionLinkElements() {
+  return Array.from(document.querySelectorAll('a[href^="/Review/"]'));
+}
+
+function hasDecisionLinks() {
+  return getDecisionLinkElements().length > 0;
+}
+
+async function openAutoModal() {
+  if (autoModalShown) return;
+  autoModalShown = true;
+  try {
+    await createModal();
+  } catch (e) {
+    autoModalShown = false;
+    console.warn('EDRSR-AI: Failed to auto-open modal', e);
+  }
 }
 
 async function getPromptStorage() {
@@ -415,7 +435,7 @@ async function markProcessedLinksAsVisited() {
     await chrome.runtime.sendMessage({ type: 'GET_API_URL' });
 
     // Получаем только обработанные URL из текущего набора ссылок
-    const pageLinks = Array.from(document.querySelectorAll('a.doc_text2[href^="/Review/"]')).map(
+    const pageLinks = getDecisionLinkElements().map(
       (link) => 'https://reyestr.court.gov.ua' + link.getAttribute('href')
     );
     const response = await chrome.runtime.sendMessage({
@@ -442,7 +462,7 @@ async function markProcessedLinksAsVisited() {
     const processedUrls = new Set(data.urls);
 
     // Находим все ссылки на дела и отмечаем обработанные визуально
-    const links = document.querySelectorAll('a.doc_text2[href^="/Review/"]');
+    const links = getDecisionLinkElements();
     let markedCount = 0;
 
     links.forEach((link) => {
@@ -460,8 +480,8 @@ async function markProcessedLinksAsVisited() {
       const style = document.createElement('style');
       style.id = 'edrsr-processed-links-style';
       style.textContent = `
-        a.doc_text2[data-edrsr-processed="true"]:visited,
-        a.doc_text2[data-edrsr-processed="true"] {
+        a[data-edrsr-processed="true"]:visited,
+        a[data-edrsr-processed="true"] {
           color: #551a8b !important;
         }
       `;
@@ -476,29 +496,33 @@ async function markProcessedLinksAsVisited() {
 
 function collectDecisionLinks() {
   const decisions = [];
-  // Находим все элементы с ссылками, которые нас интересуют
-  const linkElements = document.querySelectorAll('td.RegNumber a.doc_text2[href^="/Review/"]');
+  const seen = new Set();
+  const linkElements = getDecisionLinkElements();
 
   linkElements.forEach((linkElement) => {
-    // Находим ближайшего родителя <tr> для каждой ссылки
+    const href = linkElement.getAttribute('href');
+    if (!href) return;
+    const fullUrl = 'https://reyestr.court.gov.ua' + href;
+    if (seen.has(fullUrl)) return;
+    seen.add(fullUrl);
+
     const row = linkElement.closest('tr');
     if (row) {
-      // Ищем дату только внутри этой конкретной строки
       const dateElement = row.querySelector('td.RegDate');
       if (dateElement) {
         decisions.push({
-          url: 'https://reyestr.court.gov.ua' + linkElement.getAttribute('href'),
+          url: fullUrl,
           decisionDate: dateElement.textContent.trim(),
         });
-      } else {
-        // Если дату найти не удалось, все равно добавляем ссылку, чтобы не терять дела
-        console.warn(`Не удалось найти дату для ссылки: ${linkElement.href}`);
-        decisions.push({
-          url: 'https://reyestr.court.gov.ua' + linkElement.getAttribute('href'),
-          decisionDate: null, // Отправляем null, чтобы сервер знал, что даты нет
-        });
+        return;
       }
     }
+
+    console.warn(`Не удалось найти дату для ссылки: ${fullUrl}`);
+    decisions.push({
+      url: fullUrl,
+      decisionDate: null,
+    });
   });
   console.log(`Найдено и будет отправлено ${decisions.length} ссылок. Содержимое:`, decisions);
   return decisions;
@@ -634,7 +658,7 @@ async function collectAndSend(options) {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'GET_LINKS_COUNT') {
-    const links = document.querySelectorAll('a.doc_text2[href^="/Review/"]');
+    const links = getDecisionLinkElements();
     sendResponse({ count: links.length });
     return true;
   }
@@ -667,17 +691,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 function initialize() {
-  if (document.querySelector('a.doc_text2[href^="/Review/"]')) {
+  if (hasDecisionLinks()) {
     void addCollectButton();
+    void openAutoModal();
     // Отмечаем обработанные ссылки как посещенные
     markProcessedLinksAsVisited();
   }
   const observer = new MutationObserver(() => {
-    if (
-      document.querySelector('a.doc_text2[href^="/Review/"]') &&
-      !document.getElementById('edrsr-ai-collect-btn')
-    ) {
+    if (hasDecisionLinks() && !document.getElementById('edrsr-ai-collect-btn')) {
       void addCollectButton();
+      void openAutoModal();
       // Отмечаем обработанные ссылки при динамическом добавлении контента
       markProcessedLinksAsVisited();
     }
