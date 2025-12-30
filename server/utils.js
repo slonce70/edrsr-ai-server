@@ -12,6 +12,42 @@ import { getPromptName } from './prompt-definitions.js';
  * @param {Array} cases - Array of case objects with a 'metadata' property.
  * @returns {string} A formatted string containing the analytical context.
  */
+function parseDecisionDate(value) {
+  if (!value) return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+  if (typeof value === 'number') {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  if (typeof value !== 'string') return null;
+
+  const s = value.trim();
+  if (!s) return null;
+
+  // DD.MM.YYYY
+  let match = s.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  if (match) {
+    const day = Number(match[1]);
+    const month = Number(match[2]) - 1;
+    const year = Number(match[3]);
+    const date = new Date(year, month, day);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  // YYYY-MM-DD or YYYY/MM/DD
+  match = s.match(/^(\d{4})[-/](\d{2})[-/](\d{2})$/);
+  if (match) {
+    const year = Number(match[1]);
+    const month = Number(match[2]) - 1;
+    const day = Number(match[3]);
+    const date = new Date(year, month, day);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  const parsed = new Date(s);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 export function buildMetadataContext(cases) {
   if (!cases || cases.length === 0) {
     return 'Метадані для аналізу відсутні.\n';
@@ -30,18 +66,30 @@ export function buildMetadataContext(cases) {
   };
 
   cases.forEach((caseItem) => {
-    if (!caseItem.metadata) return;
-    const { lawArticles, caseType, court, judge, decisionDate } = caseItem.metadata;
-    if (lawArticles) lawArticles.forEach((article) => metadata.lawArticles.add(article));
+    if (!caseItem) return;
+
+    const meta = caseItem.metadata || {};
+    const lawArticles = meta.lawArticles || caseItem.lawArticles;
+    const caseType = meta.caseType || caseItem.caseType;
+    const court = meta.court || caseItem.court;
+    const judge = meta.judge || caseItem.judge;
+    const decisionDate =
+      meta.decisionDate || caseItem.decisionDate || caseItem.date || caseItem.decision_date;
+
+    if (lawArticles) {
+      const list = Array.isArray(lawArticles) ? lawArticles : [lawArticles];
+      list.forEach((article) => metadata.lawArticles.add(article));
+    }
     if (caseType) metadata.caseTypes.add(caseType);
     if (court) metadata.courts.add(court);
     if (judge) metadata.judges.add(judge);
-    if (decisionDate) {
-      const date = new Date(decisionDate);
-      if (!metadata.timeRange.earliest || date < metadata.timeRange.earliest)
-        metadata.timeRange.earliest = date;
-      if (!metadata.timeRange.latest || date > metadata.timeRange.latest)
-        metadata.timeRange.latest = date;
+
+    const parsedDate = parseDecisionDate(decisionDate);
+    if (parsedDate) {
+      if (!metadata.timeRange.earliest || parsedDate < metadata.timeRange.earliest)
+        metadata.timeRange.earliest = parsedDate;
+      if (!metadata.timeRange.latest || parsedDate > metadata.timeRange.latest)
+        metadata.timeRange.latest = parsedDate;
     }
   });
 
@@ -99,6 +147,20 @@ ${corpus}
     task = `
 **ВАШЕ ІНДИВІДУАЛЬНЕ ЗАВДАННЯ:**
 ${userPromptKey}
+
+**ОБОВ'ЯЗКОВА СТРУКТУРА ВІДПОВІДІ:**
+1) **Профілі КОЖНОЇ справи** — окремі блоки зі строгим чек-листом:
+   - Сторони (позивач/відповідач/треті особи)
+   - Предмет спору
+   - Фактичні обставини
+   - Доводи позивача (кожен аргумент окремим пунктом)
+   - Доводи відповідача (кожен аргумент окремим пунктом)
+   - Норми права (якщо згадані)
+   - Ключові висновки суду
+   - Результат
+   Якщо даних для пункту нема — прямо напиши "не зазначено", але справу не пропускай.
+2) **Загальні висновки** щодо запиту користувача (тільки після повних профілів справ).
+3) **Appendix**: короткий (1 рядок) профіль КОЖНОЇ справи з посиланням.
 
 **НАГАДУВАННЯ:** Не забувайте форматувати посилання на справи у форматі Markdown: "[Справа №...](URL)".`;
   } else {
