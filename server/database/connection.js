@@ -19,6 +19,7 @@ const ALLOWED_TABLES = new Set([
   'chat_messages',
   'edrsr',
   'parsed_cases',
+  'user_prompts',
   'user_roles',
   'admin_audit_log',
 ]);
@@ -271,12 +272,24 @@ class Database {
             )
         `;
 
+    const userPromptsTable = `
+            CREATE TABLE IF NOT EXISTS user_prompts (
+              id UUID PRIMARY KEY,
+              user_id UUID NOT NULL,
+              name VARCHAR(120) NOT NULL,
+              content TEXT NOT NULL,
+              created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+            )
+        `;
+
     await this.query(jobsTable);
     await this.query(linksTable);
     await this.query(resultsTable);
     await this.query(chatTable);
     await this.query(edrsrTable);
     await this.query(parsedCasesTable);
+    await this.query(userPromptsTable);
 
     // --- Schema Migrations ---
     // This is a simple way to alter tables without a full migration system.
@@ -399,6 +412,11 @@ class Database {
       'CREATE INDEX IF NOT EXISTS idx_parsed_cases_url ON parsed_cases(url)',
       'CREATE INDEX IF NOT EXISTS idx_parsed_cases_user_id ON parsed_cases(user_id)',
       'CREATE INDEX IF NOT EXISTS idx_parsed_cases_updated_at ON parsed_cases(updated_at DESC)',
+
+      // User prompts indexes
+      'CREATE INDEX IF NOT EXISTS idx_user_prompts_user_id ON user_prompts(user_id)',
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_user_prompts_user_name ON user_prompts(user_id, name)',
+      'CREATE INDEX IF NOT EXISTS idx_user_prompts_updated_at ON user_prompts(updated_at DESC)',
 
       // Text search index
       "CREATE INDEX IF NOT EXISTS idx_edrsr_name_search ON edrsr USING GIN(to_tsvector('simple', name))",

@@ -231,6 +231,7 @@ router.delete('/users/:userId', async (req, res) => {
     await database.run('DELETE FROM jobs WHERE user_id = $1', [userId]);
     await database.run('DELETE FROM chat_messages WHERE user_id = $1', [userId]);
     await database.run('DELETE FROM parsed_cases WHERE user_id = $1', [userId]);
+    await database.run('DELETE FROM user_prompts WHERE user_id = $1', [userId]);
 
     // Удаляем пользователя из Supabase Auth
     if (supabaseAdmin) {

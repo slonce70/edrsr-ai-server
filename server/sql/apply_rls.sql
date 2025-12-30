@@ -9,6 +9,7 @@ ALTER TABLE job_links ENABLE ROW LEVEL SECURITY;
 ALTER TABLE job_results ENABLE ROW LEVEL SECURITY;
 ALTER TABLE chat_messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE parsed_cases ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_prompts ENABLE ROW LEVEL SECURITY;
 
 -- Drop existing policies if exist (to ensure latest definitions)
 DROP POLICY IF EXISTS jobs_select   ON jobs;
@@ -36,6 +37,11 @@ DROP POLICY IF EXISTS parsed_cases_insert ON parsed_cases;
 DROP POLICY IF EXISTS parsed_cases_update ON parsed_cases;
 DROP POLICY IF EXISTS parsed_cases_delete ON parsed_cases;
 
+DROP POLICY IF EXISTS user_prompts_select ON user_prompts;
+DROP POLICY IF EXISTS user_prompts_insert ON user_prompts;
+DROP POLICY IF EXISTS user_prompts_update ON user_prompts;
+DROP POLICY IF EXISTS user_prompts_delete ON user_prompts;
+
 -- Create policies enforcing user ownership
 CREATE POLICY jobs_select ON jobs FOR SELECT USING (user_id = (select auth.uid()));
 CREATE POLICY jobs_insert ON jobs FOR INSERT WITH CHECK (user_id = (select auth.uid()));
@@ -61,5 +67,10 @@ CREATE POLICY parsed_cases_select ON parsed_cases FOR SELECT USING (user_id = (s
 CREATE POLICY parsed_cases_insert ON parsed_cases FOR INSERT WITH CHECK (user_id = (select auth.uid()));
 CREATE POLICY parsed_cases_update ON parsed_cases FOR UPDATE USING (user_id = (select auth.uid()));
 CREATE POLICY parsed_cases_delete ON parsed_cases FOR DELETE USING (user_id = (select auth.uid()));
+
+CREATE POLICY user_prompts_select ON user_prompts FOR SELECT USING (user_id = (select auth.uid()));
+CREATE POLICY user_prompts_insert ON user_prompts FOR INSERT WITH CHECK (user_id = (select auth.uid()));
+CREATE POLICY user_prompts_update ON user_prompts FOR UPDATE USING (user_id = (select auth.uid()));
+CREATE POLICY user_prompts_delete ON user_prompts FOR DELETE USING (user_id = (select auth.uid()));
 
 COMMIT;

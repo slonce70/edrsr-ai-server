@@ -1,5 +1,9 @@
 import database from '../database/connection.js';
+import { v4 as uuid } from 'uuid';
 import { logger } from '../utils.js';
+
+const escapeRegExp = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const escapeLike = (value) => String(value || '').replace(/[\\%_]/g, '\\$&');
 
 /*
   SQL to create the cache table:
@@ -64,6 +68,126 @@ class DatabaseService {
       job.analysis = analysis;
     }
     return job;
+  }
+
+  // ---- USER PROMPTS ----
+  async getPromptsMeta(userId) {
+    const row = await database.get(
+      'SELECT COUNT(*)::int AS count, MAX(updated_at) AS last_updated FROM user_prompts WHERE user_id = $1',
+      [userId]
+    );
+    return {
+      count: row?.count || 0,
+      lastUpdated: row?.last_updated || null,
+    };
+  }
+
+  async listPrompts(userId) {
+    return await database.all(
+      `SELECT id, name, content, created_at, updated_at
+       FROM user_prompts
+       WHERE user_id = $1
+       ORDER BY updated_at DESC, name ASC`,
+      [userId]
+    );
+  }
+
+  async createPrompt(userId, name, content) {
+    const { name: finalName, renamed } = await this.resolveUniquePromptName(userId, name);
+    const id = uuid();
+    const row = await database.get(
+      `INSERT INTO user_prompts (id, user_id, name, content, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+       RETURNING id, name, content, created_at, updated_at`,
+      [id, userId, finalName, content]
+    );
+    return { prompt: row, renamed };
+  }
+
+  async updatePrompt(userId, promptId, { name, content }) {
+    const current = await database.get(
+      'SELECT id, name, content FROM user_prompts WHERE id = $1 AND user_id = $2',
+      [promptId, userId]
+    );
+    if (!current) return null;
+
+    let finalName = current.name;
+    let renamed = false;
+    if (typeof name === 'string' && name.trim() && name.trim() !== current.name) {
+      const resolved = await this.resolveUniquePromptName(userId, name, promptId);
+      finalName = resolved.name;
+      renamed = resolved.renamed;
+    }
+
+    const finalContent =
+      typeof content === 'string' && content.trim() ? content.trim() : current.content;
+
+    const row = await database.get(
+      `UPDATE user_prompts
+       SET name = $1, content = $2, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $3 AND user_id = $4
+       RETURNING id, name, content, created_at, updated_at`,
+      [finalName, finalContent, promptId, userId]
+    );
+    return { prompt: row, renamed };
+  }
+
+  async deletePrompt(userId, promptId) {
+    const row = await database.get(
+      'DELETE FROM user_prompts WHERE id = $1 AND user_id = $2 RETURNING id',
+      [promptId, userId]
+    );
+    return !!row?.id;
+  }
+
+  async importPrompts(userId, prompts) {
+    const imported = [];
+    let renamedCount = 0;
+    for (const prompt of prompts) {
+      try {
+        const result = await this.createPrompt(userId, prompt.name, prompt.content);
+        if (result?.prompt) {
+          imported.push(result.prompt);
+          if (result.renamed) renamedCount += 1;
+        }
+      } catch (e) {
+        logger.warn('[DB] importPrompts skipped item:', e.message);
+      }
+    }
+    return { imported, renamedCount };
+  }
+
+  async resolveUniquePromptName(userId, desiredName, excludeId = null) {
+    const base = String(desiredName || '').trim();
+    const likePattern = `${escapeLike(base)} (%)`;
+    const params = [userId, base, likePattern];
+    let sql = `
+      SELECT name FROM user_prompts
+      WHERE user_id = $1 AND (name = $2 OR name LIKE $3 ESCAPE '\\')
+    `;
+    if (excludeId) {
+      sql += ' AND id <> $4';
+      params.push(excludeId);
+    }
+    const rows = await database.all(sql, params);
+    if (!rows || rows.length === 0) return { name: base, renamed: false };
+
+    const regex = new RegExp(`^${escapeRegExp(base)}(?: \\((\\d+)\\))?$`);
+    let hasBase = false;
+    let maxSuffix = 1;
+    for (const row of rows) {
+      const match = regex.exec(row.name);
+      if (!match) continue;
+      if (!match[1]) {
+        hasBase = true;
+        continue;
+      }
+      const num = parseInt(match[1], 10);
+      if (Number.isFinite(num)) maxSuffix = Math.max(maxSuffix, num);
+    }
+
+    if (!hasBase) return { name: base, renamed: false };
+    return { name: `${base} (${maxSuffix + 1})`, renamed: true };
   }
 
   async getRecentJobs(limit = null, userId = null) {

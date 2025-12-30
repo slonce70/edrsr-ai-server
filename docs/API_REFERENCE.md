@@ -94,6 +94,35 @@ Rate limit: 5 попыток/15 минут.
 
 Ответ: `{ "success": true, "jobId": "...", "links": [{ "url": "...", "content": "..." }] }`
 
+## **🧩 Пользовательские промпты**
+
+Все требуют `Authorization: Bearer <jwt>`.
+
+#### GET `/api/prompts`
+Список сохранённых промптов пользователя.
+
+Поддерживает `If-None-Match` (ETag) для экономии трафика. При совпадении возвращает `304 Not Modified`.
+
+Ответ: `{ "success": true, "prompts": [{ "id", "name", "content", "created_at", "updated_at" }], "lastUpdated": "..." }`
+
+#### POST `/api/prompts`
+Создать новый промпт. Тело: `{ name, content }`.
+
+Если имя занято — сервер добавит суффикс ` (2)`, ` (3)` и т.д.
+
+#### PATCH `/api/prompts/:id`
+Обновить промпт. Тело: `{ name?, content? }`.
+
+Если новое имя занято — добавится суффикс.
+
+#### DELETE `/api/prompts/:id`
+Удалить промпт пользователя.
+
+#### POST `/api/prompts/import`
+Импорт массива промптов (для миграции).
+
+Тело: `{ prompts: [{ name, content }, ...] }`.
+
 ## **💬 Чат по результатам**
 
 #### GET `/api/chat/:jobId`

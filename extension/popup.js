@@ -11,6 +11,11 @@ import {
   getSession,
   signUpWithPassword,
 } from './auth.js';
+import {
+  getPrompts,
+  savePrompt as savePromptRemote,
+  deletePrompt as deletePromptRemote,
+} from './prompt-storage.js';
 import { applyTranslations, formatUiDate, getLocale, initI18n, setLocale, t } from './i18n.js';
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -81,6 +86,9 @@ document.addEventListener('DOMContentLoaded', () => {
   let clientId = null;
   let lastHistory = null;
   let lastServerStatus = 'disconnected';
+  let savedPrompts = [];
+  let savedPromptsById = new Map();
+  let selectedSavedPromptId = null;
 
   // --- DOM Elements ---
   const elements = {
@@ -508,6 +516,10 @@ document.addEventListener('DOMContentLoaded', () => {
       elements.logoutBtn.classList.add('hidden');
       elements.recoverBtn?.classList.remove('hidden');
     }
+    setPromptControlsEnabled(authed);
+    await populatePromptTemplates({ force: true });
+    await updatePromptDescription();
+    updateSaveButtonLabel();
   }
 
   const collectLinks = async () => {
@@ -556,11 +568,23 @@ document.addEventListener('DOMContentLoaded', () => {
       const selectedIndex = elements.promptTemplate.selectedIndex;
       const selectedOption = elements.promptTemplate.options[selectedIndex];
       const selectedValue = elements.promptTemplate.value;
+      const selectedPromptId = selectedOption?.dataset?.promptId || null;
+      const customPrompt = elements.customPrompt.value.trim();
       if (selectedValue === 'custom') {
-        prompt = elements.customPrompt.value.trim();
+        if (!customPrompt) {
+          throw new Error(t('popup.messages.promptEmpty'));
+        }
+        prompt = customPrompt;
         promptLabel = prompt
           ? prompt.split(/\s+/).slice(0, 6).join(' ')
           : t('popup.messages.promptLabelCustom');
+      } else if (selectedPromptId) {
+        if (!customPrompt) {
+          throw new Error(t('popup.messages.promptEmpty'));
+        }
+        prompt = customPrompt;
+        const name = elements.promptName.value.trim();
+        promptLabel = name || selectedOption?.textContent || null;
       } else if (selectedValue !== 'default') {
         prompt = selectedValue;
         promptLabel = selectedOption?.textContent || null;
@@ -660,55 +684,120 @@ document.addEventListener('DOMContentLoaded', () => {
       alert(t('popup.messages.promptSaveEmpty'));
       return;
     }
-    const savedPrompts = await getSavedPrompts();
-    const newPrompts = savedPrompts.filter((p) => p.name !== name); // Overwrite if exists
-    newPrompts.push({ name, content });
-    await chrome.storage.local.set({ savedPrompts: newPrompts });
+    try {
+      const isUpdate = !!selectedSavedPromptId;
+      const result = await savePromptRemote({
+        id: selectedSavedPromptId,
+        name,
+        content,
+      });
+      if (result?.authRequired) {
+        alert(t('popup.messages.promptAuthRequired'));
+        return;
+      }
+      if (!result?.success) {
+        alert(t('common.errorPrefix', { message: result?.error || 'Server error' }));
+        return;
+      }
 
-    elements.promptName.value = '';
-    elements.customPrompt.value = content; // Keep content in textarea
-    alert(t('popup.messages.promptSaved', { name }));
+      const prompt = result.prompt;
+      selectedSavedPromptId = prompt.id;
+      elements.promptName.value = prompt.name;
+      elements.customPrompt.value = prompt.content;
+      savedPromptsById.set(prompt.id, prompt);
 
-    await populatePromptTemplates();
-    elements.promptTemplate.value = content; // Select the newly saved prompt
-    await updatePromptDescription();
+      await populatePromptTemplates({ selectPromptId: prompt.id });
+      await updatePromptDescription();
+      updateSaveButtonLabel();
+
+      const messageKey = isUpdate ? 'popup.messages.promptUpdated' : 'popup.messages.promptSaved';
+      const message = result.renamed
+        ? t('popup.messages.promptSavedAs', { name: prompt.name })
+        : t(messageKey, { name: prompt.name });
+      alert(message);
+    } catch (error) {
+      alert(t('common.errorPrefix', { message: error.message || 'Server error' }));
+    }
   };
 
   const deleteSelectedPrompt = async () => {
-    const selectedOption = elements.promptTemplate.options[elements.promptTemplate.selectedIndex];
-
-    if (
-      selectedOption.parentElement.tagName !== 'OPTGROUP' ||
-      selectedOption.parentElement.label !== t('popup.collect.savedPromptsLabel')
-    ) {
+    if (!selectedSavedPromptId) {
       alert(t('popup.messages.promptDeleteSelect'));
       return;
     }
-
-    const promptName = selectedOption.textContent;
+    const promptName =
+      savedPromptsById.get(selectedSavedPromptId)?.name || t('popup.messages.promptUnnamed');
     if (confirm(t('popup.messages.promptDeleteConfirm', { name: promptName }))) {
-      const savedPrompts = await getSavedPrompts();
-      const newPrompts = savedPrompts.filter((p) => p.name !== promptName);
-      await chrome.storage.local.set({ savedPrompts: newPrompts });
-      alert(t('popup.messages.promptDeleted', { name: promptName }));
-      await populatePromptTemplates();
-      await updatePromptDescription();
+      try {
+        const result = await deletePromptRemote(selectedSavedPromptId);
+        if (result?.authRequired) {
+          alert(t('popup.messages.promptAuthRequired'));
+          return;
+        }
+        if (!result?.success) {
+          alert(t('common.errorPrefix', { message: result?.error || 'Server error' }));
+          return;
+        }
+        selectedSavedPromptId = null;
+        elements.promptName.value = '';
+        elements.customPrompt.value = '';
+        await populatePromptTemplates();
+        await updatePromptDescription();
+        updateSaveButtonLabel();
+        alert(t('popup.messages.promptDeleted', { name: promptName }));
+      } catch (error) {
+        alert(t('common.errorPrefix', { message: error.message || 'Server error' }));
+      }
     }
   };
 
-  const getSavedPrompts = async () => {
-    try {
-      const result = await chrome.storage.local.get(['savedPrompts']);
-      return result.savedPrompts || [];
-    } catch (e) {
-      console.error('EDRSR-AI: Error getting saved prompts from popup', e);
-      return [];
-    }
+  const updateSaveButtonLabel = () => {
+    const key = selectedSavedPromptId
+      ? 'popup.collect.updatePromptBtn'
+      : 'popup.collect.savePromptBtn';
+    elements.savePromptBtn.textContent = t(key);
   };
 
-  const populatePromptTemplates = async () => {
+  const setPromptControlsEnabled = (enabled) => {
+    elements.savePromptBtn.disabled = !enabled;
+    elements.deletePromptBtn.disabled = !enabled;
+    elements.promptName.disabled = !enabled;
+    const title = enabled ? '' : t('popup.messages.promptAuthRequired');
+    elements.savePromptBtn.title = title;
+    elements.deletePromptBtn.title = title;
+    elements.promptName.title = title;
+  };
+
+  const loadSavedPrompts = async ({ force = false } = {}) => {
+    const result = await getPrompts({ force });
+    if (!result?.success) {
+      savedPrompts = [];
+      savedPromptsById = new Map();
+      return { authRequired: result?.authRequired, prompts: [] };
+    }
+    savedPrompts = Array.isArray(result.prompts) ? result.prompts : [];
+    savedPromptsById = new Map(savedPrompts.map((p) => [p.id, p]));
+    if (selectedSavedPromptId && !savedPromptsById.has(selectedSavedPromptId)) {
+      selectedSavedPromptId = null;
+    }
+    return { prompts: savedPrompts };
+  };
+
+  const selectPromptOptionById = (promptId) => {
+    const options = Array.from(elements.promptTemplate.options);
+    const match = options.find((opt) => opt.dataset?.promptId === promptId);
+    if (match) {
+      elements.promptTemplate.value = match.value;
+      return true;
+    }
+    return false;
+  };
+
+  const populatePromptTemplates = async ({ selectPromptId = null, force = false } = {}) => {
     const promptGroups = getPromptGroupLabels(getLocale());
-    const savedPrompts = await getSavedPrompts();
+    const previousValue = elements.promptTemplate.value;
+    const previousSavedId = selectedSavedPromptId;
+    await loadSavedPrompts({ force });
 
     elements.promptTemplate.innerHTML = ''; // Clear existing options
     for (const groupLabel in promptGroups) {
@@ -728,13 +817,30 @@ document.addEventListener('DOMContentLoaded', () => {
       optgroup.label = t('popup.collect.savedPromptsLabel');
       savedPrompts.forEach((prompt) => {
         const option = document.createElement('option');
-        // We no longer need a special prefix; the prompt content is sent directly.
-        // The 'custom' value is now just for showing the textarea.
-        option.value = prompt.content;
+        option.value = prompt.id;
         option.textContent = prompt.name;
+        option.dataset.promptId = prompt.id;
         optgroup.appendChild(option);
       });
       elements.promptTemplate.appendChild(optgroup);
+    }
+
+    if (selectPromptId) {
+      if (selectPromptOptionById(selectPromptId)) {
+        const prompt = savedPromptsById.get(selectPromptId);
+        selectedSavedPromptId = selectPromptId;
+        elements.customPromptContainer.classList.remove('hidden');
+        elements.customPrompt.value = prompt?.content || '';
+        elements.promptName.value = prompt?.name || '';
+      }
+    } else if (previousSavedId && selectPromptOptionById(previousSavedId)) {
+      const prompt = savedPromptsById.get(previousSavedId);
+      elements.customPromptContainer.classList.remove('hidden');
+      elements.customPrompt.value = prompt?.content || '';
+      elements.promptName.value = prompt?.name || '';
+    } else if (previousValue) {
+      elements.promptTemplate.value = previousValue;
+      selectedSavedPromptId = null;
     }
   };
 
@@ -747,13 +853,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (promptDescriptions[selectedValue]) {
       elements.promptDescription.textContent = promptDescriptions[selectedValue];
     }
-    // Check if it's from the "Сохраненные промпты" optgroup
-    else if (
-      selectedOption.parentElement.tagName === 'OPTGROUP' &&
-      selectedOption.parentElement.label === t('popup.collect.savedPromptsLabel')
-    ) {
+    // Check if it's from saved prompts
+    else if (selectedOption?.dataset?.promptId) {
+      const prompt = savedPromptsById.get(selectedOption.dataset.promptId);
+      const text = prompt?.content || '';
       elements.promptDescription.textContent = t('popup.messages.promptSavedDescription', {
-        text: selectedValue.substring(0, 70),
+        text: text.substring(0, 70),
       });
     } else {
       elements.promptDescription.textContent = '';
@@ -771,6 +876,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     await populatePromptTemplates();
     await updatePromptDescription();
+    updateSaveButtonLabel();
     updateServerStatus(lastServerStatus);
     if (currentJobData) updateJobStatusDisplay(currentJobData);
     if (lastHistory) renderHistory(lastHistory);
@@ -851,18 +957,28 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   elements.promptTemplate.addEventListener('change', async () => {
-    // A saved prompt is a type of custom prompt, but the text is pre-filled,
-    // so the custom text area is not needed. The prompt content is the value.
-    const isCustomOption = elements.promptTemplate.value === 'custom';
-    elements.customPromptContainer.classList.toggle('hidden', !isCustomOption);
+    const selectedOption = elements.promptTemplate.options[elements.promptTemplate.selectedIndex];
+    const selectedValue = elements.promptTemplate.value;
+    const selectedPromptId = selectedOption?.dataset?.promptId || null;
+    const isCustomOption = selectedValue === 'custom';
+    const isSavedPrompt = !!selectedPromptId;
 
-    // If we select a saved prompt, its value is the prompt itself.
-    // If we select "Свій варіант", the value is "custom" and we need the text area.
-    // All other standard prompts have their own values.
-    if (!isCustomOption) {
+    elements.customPromptContainer.classList.toggle('hidden', !(isCustomOption || isSavedPrompt));
+
+    if (isSavedPrompt) {
+      const prompt = savedPromptsById.get(selectedPromptId);
+      selectedSavedPromptId = selectedPromptId;
+      elements.customPrompt.value = prompt?.content || '';
+      elements.promptName.value = prompt?.name || selectedOption?.textContent || '';
+    } else if (isCustomOption) {
+      selectedSavedPromptId = null;
+    } else {
+      selectedSavedPromptId = null;
       elements.customPrompt.value = '';
+      elements.promptName.value = '';
     }
 
+    updateSaveButtonLabel();
     await updatePromptDescription();
   });
 
