@@ -32,7 +32,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["results.html"],
+      "resources": ["results.html", "i18n.js", "prompt-definitions.js", "prompt-storage.js"],
       "matches": ["https://reyestr.court.gov.ua/*"]
     }
   ],
