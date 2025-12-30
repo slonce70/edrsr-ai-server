@@ -4,7 +4,7 @@
 
 [![Status](https://img.shields.io/badge/Status-Production%20Ready-brightgreen)]()
 [![Version](https://img.shields.io/badge/Version-1.0.8-blue)]()
-[![AI](https://img.shields.io/badge/AI-Gemini%202.5%20Flash-orange)]()
+[![AI](https://img.shields.io/badge/AI-Gemini%203%20Pro%20%2B%202.5%20Flash-orange)]()
 [![Database](https://img.shields.io/badge/Database-PostgreSQL-blue)]()
 
 This is a comprehensive system for automatically collecting court decisions from the Unified State Register of Court Decisions (ЄДРСР) with intelligent analysis via Gemini AI. It includes a professional Chrome extension with a real-time interface and a powerful backend with asynchronous job processing.
@@ -22,6 +22,7 @@ The system is fully ready for production use with major performance optimization
   - **Context-Aware Summaries**: For custom queries, the AI first understands the end goal, then creates highly relevant, detailed summaries from each case.
   - **Detailed Annotation**: A special mode to generate deep, structured annotations for each individual case in a large batch.
   - **Enriched Reports**: Final reports now include the decision date next to each case link (e.g., `[Case №...](URL) (Date)`), providing critical context at a glance.
+  - **Primary + Fallback Models**: CLI proxy can use Gemini 3 Pro as primary with configurable Gemini 2.5 fallback (Pro/Flash).
 - **🔐 Supabase Auth**: Email/password login and registration in the extension; per‑user data isolation (optionally enforced with RLS).
 - **💬 AI Chat**: Interactive Q&A on the analysis results.
 - **📄 Flexible Report Export**: Choose between compact text files (TXT) or high-quality PDF images for report downloads.
@@ -162,21 +163,21 @@ For Chrome Web Store publishing, use the generated `.zip` archive.
 ### **Production Deployment**
 - Use `npm run start:gc` for production with manual GC and heap cap
 - Heap limit set to ~480MB (`--max-old-space-size=480`)
-- Batches of 5 by default (`BATCH_SIZE`), with forced `global.gc()` between batches (when available)
-- Structured memory metrics in logs: batch progress with heap and rss, warnings at 450MB
+- Batches of 10 by default (`BATCH_SIZE`), with forced `global.gc()` between batches (when available)
+- Structured memory metrics in logs: batch progress with heap and rss, warnings at `MEMORY_WARNING_MB`
 
 ## 📞 **Support & Feedback**
 
 - **GitHub**: [Repository](https://github.com/slonce70/edrsr-ai-server) for the full source code.
 - **Issues**: For bug reports and feature requests.
 - **Documentation**: 
-  - [DOCUMENTATION_INDEX.md](./docs/DOCUMENTATION_INDEX.md) - **📚 Полный индекс всей документации проекта**
   - [QUICK_COMMANDS.md](./docs/QUICK_COMMANDS.md) - **🚀 Быстрые команды для ежедневного использования**
   - [API_REFERENCE.md](./docs/API_REFERENCE.md) - **🔌 Документация актуальных API эндпоинтов**
   - [ENVIRONMENT_VARIABLES.md](./docs/ENVIRONMENT_VARIABLES.md) - **🌍 Переменные окружения**
   - [ADMIN_SCRIPTS.md](./docs/ADMIN_SCRIPTS.md) - **🛠️ Админские скрипты**
   - [ADMIN_SETUP.md](./docs/ADMIN_SETUP.md) - **Настройка админки**
-  - See `docs/adr/` for architectural decision records (e.g., memory optimization).
+  - [MEMORY_OPTIMIZATION.md](./docs/MEMORY_OPTIMIZATION.md) - **🧠 Оптимизация памяти**
+  - [SECURITY_AUDIT_REPORT.md](./docs/SECURITY_AUDIT_REPORT.md) - **🔐 Аудит безопасности**
 
 ## 📝 **License**
 

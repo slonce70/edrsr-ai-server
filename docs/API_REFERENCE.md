@@ -22,27 +22,24 @@ Rate limit: 5 попыток/15 минут.
 **Response (200):**
 ```json
 {
-  "status": "ok",
-  "timestamp": "2024-01-15T10:30:00Z",
-  "uptime": 3600
+  "status": "ok"
 }
 ```
 
 #### GET `/api/health/full`
-Полная проверка здоровья системы включая базу данных.
+Полная проверка доступности сервиса (требуется админ‑роль). Ответ кэшируется на `HEALTH_FULL_TTL_MS`.
 
 **Response (200):**
 ```json
 {
-  "status": "ok",
-  "timestamp": "2024-01-15T10:30:00Z",
-  "uptime": 3600,
-  "database": "connected",
-  "memory": {
-    "heapUsed": "45.2 MB",
-    "heapTotal": "67.8 MB",
-    "rss": "89.1 MB"
-  }
+  "status": "healthy",
+  "services": {
+    "gemini": "online"
+  },
+  "activeJobs": 3,
+  "version": "1.1.0",
+  "cachedAt": "2025-12-30T10:30:00Z",
+  "ttlMs": 60000
 }
 ```
 
@@ -51,8 +48,22 @@ Rate limit: 5 попыток/15 минут.
 Все требуют `Authorization: Bearer <jwt>`.
 
 #### POST `/api/collect`
-Создать новое задание. Тело: `{ links: [{url, decisionDate?}], cookie?, prompt?, clientId }`.
+Создать новое задание.
+
+Тело:
+```json
+{
+  "links": [{ "url": "...", "decisionDate": "DD.MM.YYYY" }],
+  "cookie": "optional",
+  "prompt": "optional",
+  "prompt_label": "optional",
+  "auto_title_enabled": true,
+  "clientId": "required"
+}
+```
+
 Ответ: `{ success, jobId, ...state }`.
+Ограничение: `MAX_LINKS_PER_REQUEST` (по умолчанию 300).
 
 #### POST `/api/retry/:jobId`
 Создать копию существующего задания и поставить в очередь.
@@ -84,6 +95,11 @@ Rate limit: 5 попыток/15 минут.
 
 Заменяет устаревший `GET /api/processed-urls`.
 
+#### GET `/api/processed-urls` (deprecated)
+Возвращает все обработанные URL пользователя. Не рекомендуется для больших объёмов.
+
+Ответ: `{ "success": true, "urls": ["https://.../Review/123", ...] }`
+
 #### GET `/api/jobs/:jobId/analysis`
 Вернуть только итоговый анализ задания.
 
@@ -93,6 +109,11 @@ Rate limit: 5 попыток/15 минут.
 Вернуть контент обработанных ссылок для задания (используется для экспорта TXT).
 
 Ответ: `{ "success": true, "jobId": "...", "links": [{ "url": "...", "content": "..." }] }`
+
+#### GET `/api/jobs/last`
+Последнее релевантное задание пользователя (лёгкий объект).
+
+Ответ: `{ "success": true, "job": { ... } }`
 
 ## **🧩 Пользовательские промпты**
 
@@ -133,6 +154,8 @@ Rate limit: 5 попыток/15 минут.
 
 ## **🧵 Воркеры и система**
 
+Все эндпоинты ниже требуют роли `admin`.
+
 #### GET `/api/workers/active`
 Список активных воркеров.
 
@@ -143,40 +166,56 @@ Rate limit: 5 попыток/15 минут.
 Завершить все воркеры.
 
 #### GET `/api/system/stats`
-Системная статистика (очередь, память и т.д.).
+Системная статистика: очередь, воркеры, память, uptime.
+
+#### GET `/api/system/chat-sessions`
+Состояние in‑memory chat‑сессий.
 
 #### POST `/api/queue/clear`
-Очистить in‑memory очередь (для отладки).
+Очистить in‑memory очередь и отменить queued jobs (админ).
+
+#### POST `/api/internal/process-queue`
+Принудительно запустить обработку очереди (админ).
 
 ## **🔐 Административные Endpoints**
 
 Все требуют роли `admin`.
 
 #### GET `/api/admin/dashboard`
-Статистика дашборда.
+Статистика дашборда. Ответ кэшируется на стороне сервера (TTL 60s).
 
 **Response (200):**
 ```json
 {
   "success": true,
-  "stats": {
-    "totalUsers": 25,
-    "totalJobs": 150,
-    "activeJobs": 3,
-    "completedJobs": 147,
-    "totalCases": 1250,
-    "systemMemory": "45.2 MB",
-    "uptime": 3600
+  "data": {
+    "total_jobs": 150,
+    "completed_jobs": 147,
+    "failed_jobs": 3,
+    "retryable_jobs": 2,
+    "jobs_today": 10,
+    "total_links_processed": 1250,
+    "avg_job_duration": 240,
+    "total_chat_messages": 560,
+    "cached_cases": 420,
+    "total_users": 120,
+    "new_users_30d": 15,
+    "admin_count": 2,
+    "last_job_created": "2024-01-15T10:30:00Z",
+    "last_job_updated": "2024-01-15T11:00:00Z",
+    "memory_usage": 280,
+    "uptime_hours": 12.5
   }
 }
 ```
 
 #### GET `/api/admin/users`
-Список пользователей (с пагинацией и поиском).
+Список пользователей (с пагинацией и поиском по email).
 
 **Query Parameters:**
 - `page` (optional): Номер страницы (default: 1)
 - `limit` (optional): Количество пользователей на странице (default: 20)
+- `search` (optional): Поиск по email (client-side filter)
 
 **Response (200):**
 ```json
@@ -186,16 +225,17 @@ Rate limit: 5 попыток/15 минут.
     {
       "id": "uuid",
       "email": "user@example.com",
-      "role": "user",
       "created_at": "2024-01-15T10:30:00Z",
-      "last_login": "2024-01-15T12:00:00Z"
+      "last_sign_in_at": "2024-01-15T12:00:00Z",
+      "email_confirmed_at": "2024-01-15T10:31:00Z",
+      "roles": ["user"],
+      "is_admin": false
     }
   ],
   "pagination": {
     "page": 1,
     "limit": 20,
-    "total": 25,
-    "pages": 2
+    "total": 25
   }
 }
 ```
@@ -207,51 +247,42 @@ Rate limit: 5 попыток/15 минут.
 ```json
 {
   "success": true,
-  "message": "User role updated to admin"
+  "message": "Права администратора предоставлены"
 }
 ```
 
 #### DELETE `/api/admin/users/:userId`
 Удалить пользователя и его данные.
 
-#### POST `/api/admin/jobs/:id/requeue`
-Перезапустить задание: сбрасывает блокировки и переводит задание в `retrying`/очередь. Тело: `{ reset_links?: boolean }`.
-После успешного запроса очередь автоматически запускается (внутренний self‑call `/api/internal/process-queue` с локальным fallback при ошибке HTTP).
-
 **Response (200):**
 ```json
 {
   "success": true,
-  "message": "User and all associated data deleted",
-  "deleted": {
-    "jobs": 15,
-    "cases": 120,
-    "chatMessages": 45
-  }
+  "message": "Пользователь удален"
 }
 ```
 
-#### **DELETE /api/admin/users/:userId/admin-role**
+#### DELETE `/api/admin/users/:userId/admin-role`
 Отзыв прав администратора у пользователя.
 
 **Response (200):**
 ```json
 {
   "success": true,
-  "message": "Admin role revoked"
+  "message": "Права администратора отозваны"
 }
 ```
 
 ### **Управление заданиями**
 
-#### **GET /api/admin/jobs**
+#### GET `/api/admin/jobs`
 Список всех заданий в системе.
 
 **Query Parameters:**
 - `page` (optional): Номер страницы (default: 1)
 - `limit` (optional): Количество заданий на странице (default: 20)
 - `status` (optional): Фильтр по статусу (`pending`, `queued`, `retrying`, `processing`, `completed`, `error`)
-- `user_id` (optional): Фильтр по пользователю
+- `search` (optional): Поиск по `title` или `prompt`
 
 **Response (200):**
 ```json
@@ -262,61 +293,59 @@ Rate limit: 5 попыток/15 минут.
       "id": "uuid",
       "title": "Анализ решений по гражданским делам",
       "status": "completed",
+      "progress": 100,
+      "total_links": 25,
+      "processed_links": 25,
       "user_id": "user_uuid",
       "user_email": "user@example.com",
       "created_at": "2024-01-15T10:30:00Z",
-      "completed_at": "2024-01-15T11:00:00Z",
-      "total_cases": 25,
-      "progress": 100
+      "updated_at": "2024-01-15T11:00:00Z",
+      "duration": 1800,
+      "error_message": null
     }
   ],
   "pagination": {
     "page": 1,
     "limit": 20,
-    "total": 150,
-    "pages": 8
+    "total": 150
   }
 }
 ```
 
-#### **GET /api/admin/jobs/:jobId/report**
+#### POST `/api/admin/jobs/:id/requeue`
+Перезапустить задание: сбрасывает блокировки и переводит в `retrying`/очередь. Тело: `{ reset_links?: boolean }`.
+После успешного запроса очередь автоматически запускается.
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "message": "Задание <id> поставлено в очередь на повтор"
+}
+```
+
+#### GET `/api/admin/jobs/:jobId/report`
 Получение отчета по конкретному заданию.
 
 **Response (200):**
 ```json
 {
   "success": true,
-  "report": {
-    "job_id": "uuid",
+  "job": {
+    "id": "uuid",
     "title": "Анализ решений по гражданским делам",
     "status": "completed",
     "created_at": "2024-01-15T10:30:00Z",
-    "completed_at": "2024-01-15T11:00:00Z",
-    "total_cases": 25,
-    "analysis": "markdown_content_here",
-    "metadata": {
-      "user_email": "user@example.com",
-      "processing_time": 1800,
-      "ai_requests": 5
-    }
-  }
+    "updated_at": "2024-01-15T11:00:00Z",
+    "total_links": 25,
+    "processed_links": 25
+  },
+  "analysis": "markdown_content_here"
 }
 ```
 
-#### **PUT /api/admin/jobs/:jobId/title**
+#### PUT `/api/admin/jobs/:jobId/title`
 Изменение названия задания.
-
-#### **GET /api/admin/jobs/errors**
-Список последних заданий в статусе `error`.
-
-#### **POST /api/admin/jobs/:jobId/retry**
-Перезапустить конкретное задание из статуса `error` в `retrying`. После запроса очередь автоматически запускается (self‑call + fallback).
-
-#### **POST /api/admin/jobs/retry-failed**
-Массовый перезапуск всех заданий с временными ошибками. Автоматически запускает очередь при наличии перезапущенных заданий.
-
-#### **POST /api/admin/jobs/recover-stuck**
-Ручное восстановление зависших заданий (без heartbeat дольше порога). Тело: `{ grace_minutes?: number }` (по умолчанию 5). Все подходящие задания переводятся в `retrying` и запускается очередь.
 
 **Request Body:**
 ```json
@@ -329,56 +358,83 @@ Rate limit: 5 попыток/15 минут.
 ```json
 {
   "success": true,
-  "message": "Job title updated",
-  "job": {
-    "id": "uuid",
-    "title": "Новое название задания",
-    "updated_at": "2024-01-15T12:00:00Z"
-  }
+  "message": "Название задания обновлено"
 }
 ```
 
-#### **DELETE /api/admin/jobs/:jobId**
+#### DELETE `/api/admin/jobs/:jobId`
 Удаление задания и всех связанных данных.
 
+#### GET `/api/admin/jobs/errors`
+Список последних заданий в статусе `error`.
 
-#### **GET /api/admin/security/stats**
-Статистика безопасности системы.
+#### POST `/api/admin/jobs/:jobId/retry`
+Перезапустить конкретное задание из статуса `error` в `retrying`. После запроса очередь автоматически запускается.
+
+#### POST `/api/admin/jobs/retry-failed`
+Массовый перезапуск всех заданий с временными ошибками. Автоматически запускает очередь при наличии перезапущенных заданий.
+
+#### POST `/api/admin/jobs/recover-stuck`
+Ручное восстановление зависших заданий (без heartbeat дольше порога). Тело: `{ grace_minutes?: number }` (по умолчанию 5). Все подходящие задания переводятся в `retrying` и запускается очередь.
 
 **Response (200):**
 ```json
 {
   "success": true,
-  "security": {
-    "blocked_ips": [
-      {
-        "ip": "192.168.1.100",
-        "reason": "brute_force",
-        "blocked_until": "2024-01-15T15:00:00Z",
-        "attempts": 8
-      }
-    ],
-    "failed_attempts": [
-      {
-        "ip": "10.0.0.50",
-        "email": "test@example.com",
-        "attempts": 3,
-        "last_attempt": "2024-01-15T12:30:00Z"
-      }
-    ],
-    "suspicious_activity": [
-      {
-        "ip": "172.16.0.25",
-        "type": "unusual_user_agent",
-        "user_agent": "curl/7.68.0",
-        "timestamp": "2024-01-15T12:15:00Z"
-      }
-    ],
-    "rate_limits": {
-      "login_attempts": "5 per 15 minutes",
-      "admin_requests": "100 per minute"
-    }
-  }
+  "recovered": 3,
+  "grace_minutes": 5
+}
+```
+
+### **Система и аудит**
+
+#### GET `/api/admin/system/stats`
+Системная статистика (память/uptime + counts по таблицам).
+
+#### POST `/api/admin/system/cleanup`
+Очистка данных. Тело: `{ cleanupType: "old_jobs" | "failed_jobs" | "old_cache" }`.
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "message": "Очистка выполнена. Удалено: 12",
+  "cleaned": 12
+}
+```
+
+#### GET `/api/admin/audit-log`
+Журнал административных действий (с пагинацией).
+
+#### GET `/api/admin/security/stats`
+Статистика безопасности (in-memory).
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "blockedIPs": [
+    { "target": "ip:192.168.1.1", "reason": "ip_attempts", "remainingTime": 12 }
+  ],
+  "failedAttempts": [
+    { "target": "email:test@example.com", "count": 3, "lastAttempt": "2024-01-15T12:30:00Z" }
+  ]
+}
+```
+
+### **Gemini API статистика**
+
+#### GET `/api/admin/gemini/stats`
+Статистика использования ключей Gemini (включая queued jobs и summary).
+
+#### POST `/api/admin/gemini/reset-stats`
+Сброс статистики использования ключей.
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "message": "Статистику Gemini API скинуто"
 }
 ```
 
@@ -461,7 +517,7 @@ const response = await fetch('/api/auth/signin', {
 });
 
 const data = await response.json();
-const token = data.token;
+const token = data.access_token;
 ```
 
 #### **Получение статистики:**
@@ -473,7 +529,7 @@ const response = await fetch('/api/admin/dashboard', {
 });
 
 const stats = await response.json();
-console.log('Total users:', stats.stats.totalUsers);
+console.log('Total users:', stats.data.total_users);
 ```
 
 ## **🔄 WebSocket Events**
