@@ -326,13 +326,24 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
       // Собираем валидные случаи для анализа (сохраняем оригинальную логику)
       const validCasesInBatch = casesWithDates.filter((c) => !c.error);
 
-      // Оптимизация памяти: оставляем только нужные поля для AI
+      // Оптимизация памяти: залишаємо потрібні поля для AI + ключові метадані для контексту
       const optimizedCases = validCasesInBatch.map((caseData) => ({
         caseNumber: caseData.caseNumber,
         id: caseData.id || caseData.caseNumber,
         url: caseData.url,
         body: caseData.body, // Нужно для AI
-        decisionDate: caseData.decisionDate,
+        decisionDate: caseData.decisionDate || caseData.date || null,
+        court: caseData.court || null,
+        judge: caseData.judge || null,
+        metadata: caseData.metadata
+          ? {
+              lawArticles: caseData.metadata.lawArticles || null,
+              caseType: caseData.metadata.caseType || null,
+              claimAmount: caseData.metadata.claimAmount || null,
+              parties: caseData.metadata.parties || null,
+              extractedAt: caseData.metadata.extractedAt || null,
+            }
+          : null,
       }));
 
       allValidCasesForAnalysis.push(...optimizedCases);

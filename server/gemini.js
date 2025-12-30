@@ -42,7 +42,7 @@ import { ParallelBatchProcessor } from './parallelBatchProcessor.js';
 async function analyzeCases(cases, userPrompt = null, updateStatusCallback = () => {}) {
   logger.info(`🚀 Початок аналізу ${cases.length} справ`);
 
-  const validCases = cases.filter((c) => c.body && c.body.length > 100);
+  const validCases = cases.filter((c) => c.body && c.body.trim().length > 0);
   logger.info(`✅ Валідних справ: ${validCases.length} з ${cases.length}`);
 
   if (validCases.length === 0) {

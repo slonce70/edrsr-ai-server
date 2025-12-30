@@ -36,6 +36,8 @@ export class ParallelBatchProcessor {
     this.progressCallback = null;
     this.totalBatches = 0;
     this.maxConcurrent = getOptimalConcurrency();
+    this.hasFatalError = false;
+    this.firstError = null;
   }
 
   /**
@@ -54,6 +56,8 @@ export class ParallelBatchProcessor {
     this.progressCallback = updateCallback;
     this.completedResults.clear();
     this.activeBatches.clear();
+    this.hasFatalError = false;
+    this.firstError = null;
     // Оновити concurrency при кожному запуску (ключі можуть змінитись)
     this.maxConcurrent = getOptimalConcurrency();
 
@@ -71,6 +75,11 @@ export class ParallelBatchProcessor {
 
     // Process batches with controlled concurrency
     await this._processAllBatches(batches, userPrompt);
+
+    if (this.hasFatalError) {
+      const message = this.firstError || 'Batch processing failed';
+      throw new Error(message);
+    }
 
     // Collect results in correct order
     for (let i = 0; i < this.totalBatches; i++) {
@@ -103,6 +112,7 @@ export class ParallelBatchProcessor {
 
     // Function to start a new batch if slot is available
     const startNextBatch = () => {
+      if (this.hasFatalError) return false;
       if (nextBatchIndex < batches.length && activePromises.length < this.maxConcurrent) {
         const batchPromise = this._startBatchProcessing(
           batches[nextBatchIndex],
@@ -131,6 +141,9 @@ export class ParallelBatchProcessor {
 
     // Process remaining batches as slots become available
     while (activePromises.length > 0 || nextBatchIndex < batches.length) {
+      if (this.hasFatalError && activePromises.length === 0) {
+        break;
+      }
       if (activePromises.length > 0) {
         // Wait for at least one task to complete
         await Promise.race(activePromises);
@@ -188,8 +201,13 @@ export class ParallelBatchProcessor {
     } catch (error) {
       console.error(`❌ Batch ${batchIndex + 1} failed:`, error.message);
 
-      // Soft-fail policy: mark batch as empty data instead of fatal error if retries in lower layer exhausted
-      this.completedResults.set(batchIndex, { data: ``, error: null });
+      // Hard-fail policy: preserve error and stop further scheduling
+      const errorMessage = `Batch ${batchIndex + 1} failed: ${error.message || error}`;
+      this.completedResults.set(batchIndex, { data: null, error: errorMessage });
+      this.hasFatalError = true;
+      if (!this.firstError) {
+        this.firstError = errorMessage;
+      }
       this.activeBatches.delete(trackId);
       release(); // Звільняємо ключ навіть при помилці
 
