@@ -1,6 +1,6 @@
 {
   "name": "edrsr-ai-monorepo",
-  "version": "1.0.4",
+  "version": "1.0.7",
   "type": "module",
   "private": true,
   "description": "Project root for EDRSR AI Server and Extension",
