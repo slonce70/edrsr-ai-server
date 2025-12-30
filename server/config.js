@@ -141,7 +141,8 @@ class ApiKeyManager {
         effectiveCooldown = parseInt(process.env.GEMINI_RATE_LIMIT_COOLDOWN_MS_PRO, 10) || 180000;
       } else {
         // Default: 10 сек (компроміс)
-        effectiveCooldown = parseInt(process.env.GEMINI_RATE_LIMIT_COOLDOWN_MS_DEFAULT, 10) || 120000;
+        effectiveCooldown =
+          parseInt(process.env.GEMINI_RATE_LIMIT_COOLDOWN_MS_DEFAULT, 10) || 120000;
       }
     }
 

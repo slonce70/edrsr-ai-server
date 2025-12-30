@@ -73,7 +73,7 @@ export async function forceRefresh() {
   try {
     const session = await refresh(current.refresh_token);
     return session;
-  } catch (_e) {
+  } catch {
     return null;
   }
 }
@@ -131,9 +131,7 @@ export async function recoverPassword(email, redirectTo = null) {
   });
   if (!res.ok) {
     const json = await res.json().catch(() => ({}));
-    throw new Error(
-      json.error_description || json.error || 'Не удалось отправить письмо для восстановления'
-    );
+    throw new Error(json.error_description || json.error || 'AUTH_RECOVER_FAILED');
   }
   return true;
 }

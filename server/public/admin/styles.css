@@ -172,6 +172,15 @@ body {
   gap: 1rem;
 }
 
+.lang-select {
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid #e0e0e0;
+  background: #fff;
+  font-size: 0.85rem;
+  color: #2c3e50;
+}
+
 /* Buttons */
 .btn {
   padding: 0.75rem 1.5rem;

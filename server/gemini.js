@@ -12,7 +12,7 @@
 /* -------------------------------------------------------------------------- */
 
 import { createTokenAwareBatches, sleep, logger } from './utils.js';
-import { getBatchSummary, createFinalAnalysis } from './batchProcessor.js';
+import { createFinalAnalysis } from './batchProcessor.js';
 import { validateBatchProcessing, generateQualityReport } from './qualityControl.js';
 import { OPTIMAL_BATCH_SIZE, MAX_TOKENS_PER_BATCH, apiKeyManager, modelName } from './config.js';
 import { ParallelBatchProcessor } from './parallelBatchProcessor.js';

@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="ru">
+<html lang="uk">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Результаты анализа - ЄДРСР AI</title>
+    <title data-i18n="results.pageTitle">Результаты анализа - ЄДРСР AI</title>
     <style>
       :root {
         --primary-color: #667eea;
@@ -253,21 +253,27 @@
   <body>
     <div class="container">
       <header class="header">
-        <h1 id="jobTitle">Загрузка...</h1>
-        <div id="statusBadge" class="status-badge status-loading">Загрузка...</div>
+        <h1 id="jobTitle" data-i18n="common.loading">Загрузка...</h1>
+        <div id="statusBadge" class="status-badge status-loading" data-i18n="common.loading">
+          Загрузка...
+        </div>
       </header>
 
       <main class="main-content">
         <aside class="sidebar">
-          <h3>Метаданные задания</h3>
+          <h3 data-i18n="results.metadataTitle">Метаданные задания</h3>
           <ul id="jobMetadata">
             <!-- Metadata will be rendered here by JS -->
           </ul>
           <div class="controls">
-            <button id="copyBtn" class="button button-primary">📋 Копировать отчёт</button>
+            <button id="copyBtn" class="button button-primary" data-i18n="results.copyReportBtn">
+              📋 Копировать отчёт
+            </button>
             <div class="pdf-download-group" style="margin-top: 10px">
               <button id="downloadPdfBtn" class="button button-primary" disabled>
-                <span class="btn-text">⏳ Загрузка библиотек...</span>
+                <span class="btn-text" data-i18n="results.pdfBtnLoading">
+                  ⏳ Загрузка библиотек...
+                </span>
                 <span class="spinner" style="display: none"></span>
               </button>
               <select
@@ -281,14 +287,22 @@
                   border: 1px solid #ccc;
                 "
               >
-                <option value="text">📄 Текстовый файл (TXT, небольшой размер)</option>
-                <option value="image">📄 PDF (текст, кликабельные ссылки)</option>
+                <option value="text" data-i18n="results.pdfTypeText">
+                  📄 Текстовый файл (TXT, небольшой размер)
+                </option>
+                <option value="pdf" data-i18n="results.pdfTypeRich">
+                  📄 PDF (текст, кликабельные ссылки)
+                </option>
+                <option value="image" data-i18n="results.pdfTypeImage">
+                  🖼️ PDF (изображение, точное оформление)
+                </option>
               </select>
             </div>
             <button
               id="downloadBtn"
               class="button button-secondary"
               style="margin-top: 10px; display: none"
+              data-i18n="results.downloadCasesBtn"
             >
               📄 Скачать дела
             </button>
@@ -296,29 +310,36 @@
         </aside>
         <section class="content-area">
           <div id="analysisResult" class="result-content">
-            <p>Получение данных от сервис-воркера...</p>
+            <p data-i18n="results.analysisLoading">Получение данных от сервис-воркера...</p>
           </div>
         </section>
       </main>
 
       <section id="chatArea" style="display: none">
         <div class="chat-header">
-          <h3>💬 Чат с результатами анализа</h3>
+          <h3 data-i18n="results.chatTitle">💬 Чат с результатами анализа</h3>
         </div>
         <div id="chatHistory" class="chat-history"></div>
         <form id="chatForm" class="chat-form">
           <div id="chatThinking" class="chat-thinking" style="display: none">
             <div class="spinner"></div>
-            <span>ИИ думает...</span>
+            <span data-i18n="results.chatThinking">ИИ думает...</span>
           </div>
           <input
             type="text"
             id="chatInput"
+            data-i18n-placeholder="results.chatPlaceholder"
             placeholder="Задайте уточняющий вопрос..."
             autocomplete="off"
             disabled
           />
-          <button type="submit" id="chatSendBtn" class="button button-primary" disabled>
+          <button
+            type="submit"
+            id="chatSendBtn"
+            class="button button-primary"
+            disabled
+            data-i18n="results.chatSend"
+          >
             Отправить
           </button>
         </form>

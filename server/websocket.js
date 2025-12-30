@@ -139,7 +139,7 @@ function initWebSocket(server) {
             }
           }
         }
-      } catch (e) {
+      } catch {
         logger.warn(`[WS] Received non-JSON message from ${clientId}: ${message}`);
       }
     });

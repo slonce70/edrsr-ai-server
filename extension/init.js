@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 // Initialize results page after DOM and marked.js are ready
 function loadResultsScript() {
   const script = document.createElement('script');

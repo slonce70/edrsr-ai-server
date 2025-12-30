@@ -1,11 +1,18 @@
 // Admin Report Page Script
+const adminI18n = window.AdminI18n || {
+  t: (key) => key,
+  applyTranslations: () => {},
+};
+const { t, applyTranslations } = adminI18n;
+
 document.addEventListener('DOMContentLoaded', async function () {
+  applyTranslations(document);
   // Get job ID from URL parameters
   const urlParams = new URLSearchParams(window.location.search);
   const jobId = urlParams.get('jobId');
 
   if (!jobId) {
-    showError('ID задания не найден в URL');
+    showError(t('messages.reportIdMissing'));
     return;
   }
 
@@ -56,23 +63,23 @@ document.addEventListener('DOMContentLoaded', async function () {
         window.location.href = '/admin';
         return;
       }
-      throw new Error('Ошибка загрузки отчета');
+      throw new Error(response.statusText || `HTTP ${response.status}`);
     }
 
     const data = await response.json();
     currentJobData = data.job;
-    analysisText = data.analysis;
+    analysisText = typeof data.analysis === 'string' ? data.analysis : String(data.analysis || '');
 
     renderReport(data.job, data.analysis);
     setupEventListeners();
   } catch (error) {
-    showError('Ошибка загрузки отчета: ' + error.message);
+    showError(t('messages.reportLoadError', { message: error.message }));
   }
 
   function renderReport(job, analysis) {
     // Update page title
-    elements.jobTitle.textContent = job.title || 'Отчет по заданию';
-    document.title = `${job.title || 'Отчет'} - EDRSR-AI Admin`;
+    elements.jobTitle.textContent = job.title || t('report.title');
+    document.title = `${job.title || t('report.reportTitle')} - EDRSR-AI Admin`;
 
     // Update status badge
     elements.statusBadge.textContent = getStatusText(job.status);
@@ -80,25 +87,27 @@ document.addEventListener('DOMContentLoaded', async function () {
 
     // Update metadata
     elements.jobMetadata.innerHTML = `
-            <li><strong>ID:</strong> ${job.id}</li>
-            <li><strong>Статус:</strong> ${getStatusText(job.status)}</li>
-            <li><strong>Создано:</strong> ${formatDateTime(job.created_at)}</li>
-            <li><strong>Обновлено:</strong> ${formatDateTime(job.updated_at)}</li>
-            <li><strong>Ссылок обработано:</strong> ${job.processed_links} / ${job.total_links}</li>
+            <li><strong>${t('report.metadataId')}:</strong> ${job.id}</li>
+            <li><strong>${t('report.metadataStatus')}:</strong> ${getStatusText(job.status)}</li>
+            <li><strong>${t('report.metadataCreated')}:</strong> ${formatReportDateTime(job.created_at)}</li>
+            <li><strong>${t('report.metadataUpdated')}:</strong> ${formatReportDateTime(job.updated_at)}</li>
+            <li><strong>${t('report.metadataLinks')}:</strong> ${job.processed_links} / ${job.total_links}</li>
         `;
+
+    const analysisContent = typeof analysis === 'string' ? analysis : analysisText;
 
     // Render analysis content
     if (window.marked) {
       // Try to render as markdown first
       try {
-        elements.analysisResult.innerHTML = marked.parse(analysis);
-      } catch (e) {
+        elements.analysisResult.innerHTML = marked.parse(analysisContent);
+      } catch {
         // Fall back to plain text with line breaks
-        elements.analysisResult.innerHTML = `<pre style="white-space: pre-wrap; font-family: inherit;">${escapeHtml(analysis)}</pre>`;
+        elements.analysisResult.innerHTML = `<pre style="white-space: pre-wrap; font-family: inherit;">${escapeHtml(analysisContent)}</pre>`;
       }
     } else {
       // No markdown library, use plain text
-      elements.analysisResult.innerHTML = `<pre style="white-space: pre-wrap; font-family: inherit;">${escapeHtml(analysis)}</pre>`;
+      elements.analysisResult.innerHTML = `<pre style="white-space: pre-wrap; font-family: inherit;">${escapeHtml(analysisContent)}</pre>`;
     }
   }
 
@@ -107,8 +116,8 @@ document.addEventListener('DOMContentLoaded', async function () {
     elements.copyBtn.addEventListener('click', async function () {
       try {
         await navigator.clipboard.writeText(analysisText);
-        showSuccess('Отчет скопирован в буфер обмена');
-      } catch (error) {
+        showSuccess(t('messages.reportCopySuccess'));
+      } catch {
         // Fallback for older browsers
         const textArea = document.createElement('textarea');
         textArea.value = analysisText;
@@ -116,7 +125,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         textArea.select();
         document.execCommand('copy');
         document.body.removeChild(textArea);
-        showSuccess('Отчет скопирован в буфер обмена');
+        showSuccess(t('messages.reportCopySuccess'));
       }
     });
 
@@ -134,7 +143,12 @@ document.addEventListener('DOMContentLoaded', async function () {
   function downloadReport() {
     if (!currentJobData || !analysisText) return;
 
-    const fileName = `${currentJobData.title || 'report'}_${currentJobData.id}.txt`;
+    const baseName = currentJobData.title || t('report.reportTitle');
+    const safeBase =
+      String(baseName)
+        .replace(/[\\/:*?"<>|]/g, '_')
+        .trim() || t('report.reportTitle');
+    const fileName = `${safeBase}_${currentJobData.id}.txt`;
     const blob = new Blob([analysisText], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
 
@@ -146,13 +160,13 @@ document.addEventListener('DOMContentLoaded', async function () {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 
-    showSuccess('Отчет загружен');
+    showSuccess(t('messages.reportDownloadSuccess'));
   }
 
   function showError(message) {
     elements.analysisResult.innerHTML = `
             <div class="error-message">
-                <strong>Ошибка:</strong> ${escapeHtml(message)}
+                <strong>${t('common.errorLabel')}:</strong> ${escapeHtml(message)}
             </div>
         `;
   }
@@ -180,21 +194,15 @@ document.addEventListener('DOMContentLoaded', async function () {
   }
 
   function getStatusText(status) {
-    const statusMap = {
-      pending: 'Ожидание',
-      processing: 'Обработка',
-      completed: 'Завершено',
-      error: 'Ошибка',
-      queued: 'В очереди',
-      analyzing: 'Анализ',
-    };
-    return statusMap[status] || status;
+    const key = `report.status.${status}`;
+    const value = t(key);
+    return value === key ? status : value;
   }
 
-  function formatDateTime(dateString) {
-    if (!dateString) return 'N/A';
+  function formatReportDateTime(dateString) {
+    if (!dateString) return t('report.na');
     const date = new Date(dateString);
-    return date.toLocaleString('ru-RU');
+    return date.toLocaleString('uk-UA');
   }
 
   function escapeHtml(text) {

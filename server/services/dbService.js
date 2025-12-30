@@ -347,14 +347,45 @@ class DatabaseService {
 
   async getCachedCaseByUrl(url, userId = null) {
     const sql = userId
-      ? `SELECT case_data FROM parsed_cases WHERE url = $1 AND user_id = $2`
-      : `SELECT case_data FROM parsed_cases WHERE url = $1`;
+      ? `SELECT case_data, updated_at FROM parsed_cases WHERE url = $1 AND user_id = $2`
+      : `SELECT case_data, updated_at FROM parsed_cases WHERE url = $1`;
     try {
       const row = await database.get(sql, userId ? [url, userId] : [url]);
       if (row) {
+        const cached = row.case_data;
+        const isTemporary = cached?.isTemporary === true;
+        if (isTemporary) {
+          const ttlMs = parseInt(
+            process.env.TEMP_CACHE_TTL_MS || process.env.CACHE_TEMP_ERROR_TTL_MS || '3600000',
+            10
+          );
+          const updatedAtMs = row.updated_at
+            ? typeof row.updated_at === 'string'
+              ? Date.parse(row.updated_at)
+              : row.updated_at.getTime()
+            : cached?.cachedAt || null;
+          if (
+            Number.isFinite(ttlMs) &&
+            ttlMs > 0 &&
+            Number.isFinite(updatedAtMs) &&
+            Date.now() - updatedAtMs > ttlMs
+          ) {
+            logger.info(`[CACHE] TEMP EXPIRED for URL: ${url}`);
+            try {
+              const deleteSql = userId
+                ? 'DELETE FROM parsed_cases WHERE url = $1 AND user_id = $2'
+                : 'DELETE FROM parsed_cases WHERE url = $1';
+              await database.run(deleteSql, userId ? [url, userId] : [url]);
+            } catch (deleteError) {
+              logger.warn(`[CACHE] Failed to purge expired temp cache for ${url}:`, deleteError);
+            }
+            return null;
+          }
+        }
+
         logger.info(`[CACHE] HIT for URL: ${url}`);
         // The pg driver automatically parses JSON/JSONB fields, so no need for JSON.parse
-        return row.case_data;
+        return cached;
       }
       logger.info(`[CACHE] MISS for URL: ${url}`);
       return null;
@@ -529,7 +560,7 @@ class DatabaseService {
     } finally {
       try {
         client.removeListener('error', onClientError);
-      } catch (_e) {
+      } catch {
         // noop
       }
       client.release();

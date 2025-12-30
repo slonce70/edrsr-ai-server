@@ -493,7 +493,7 @@ try {
       logger.error('[INTERNAL] Queue pump failed:', e.message);
     }
   });
-} catch (_e) {
+} catch {
   // noop
 }
 
@@ -503,8 +503,6 @@ function startWorkerCleanupService() {
   const MAX_WORKER_LIFETIME = 25 * 60 * 1000; // 25 минут максимум (синхронизировано с worker.js)
   const HEALTH_CHECK_INTERVAL = 2 * 60 * 1000; // Проверяем здоровье воркеров каждые 2 минуты (было 5 минут)
   const MEMORY_CHECK_THRESHOLD = 5 * 60 * 1000; // Проверяем память воркеров старше 5 минут
-  const HIGH_MEMORY_THRESHOLD = 300; // MB
-
   let lastHealthCheck = Date.now();
 
   setInterval(() => {
@@ -709,7 +707,7 @@ export default function (clients) {
       if (recovered > 0) {
         processQueue();
       }
-    } catch (_e) {
+    } catch {
       // noop
     }
   }, PUMP_INTERVAL);

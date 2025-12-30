@@ -16,12 +16,6 @@ const NODE_OPTIONS = [
   '--enable-source-maps', // Better error stack traces
 ];
 
-// Render.com forbidden flags (moved to spawn args if needed)
-const RENDER_INCOMPATIBLE_FLAGS = [
-  '--optimize-for-size', // Not allowed in NODE_OPTIONS on render.com
-  '--experimental-worker', // Not allowed in NODE_OPTIONS on render.com
-];
-
 // Environment variables for memory optimization
 const ENV_VARS = {
   ...process.env,

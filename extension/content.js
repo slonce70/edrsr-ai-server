@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 // --- EDRSR-AI Content Script v2.1 ---
 // This script's only responsibility is to listen for a request from the popup
 // to get the number of links on the page. All other logic has been moved to
@@ -6,19 +7,35 @@
 const SCRIPT_VERSION = '2.2';
 let isProcessing = false;
 let pageActiveJobId = null;
+let i18nReady = null;
+
+async function getI18n() {
+  if (!i18nReady) {
+    i18nReady = import(chrome.runtime.getURL('i18n.js')).then(async (mod) => {
+      await mod.initI18n();
+      return mod;
+    });
+  }
+  return i18nReady;
+}
 
 // --- UI & MODAL LOGIC (Restored from v1.5) ---
 
-function createModal() {
+async function createModal() {
   if (document.getElementById('edrsr-ai-modal')) return;
+  const { t, getLocale } = await getI18n();
 
   const modalHTML = `
     <div id="edrsr-ai-modal-backdrop" class="edrsr-ai-fade-in" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 99998; display: flex; align-items: center; justify-content: center; font-family: 'Segoe UI', 'Roboto', sans-serif;">
         <div id="edrsr-ai-modal-content" class="edrsr-ai-slide-in" style="background: #fcfcfc; padding: 25px; border-radius: 16px; width: 550px; max-width: 90%; max-height: 90vh; overflow-y: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.2); border: 1px solid #e0e0e0;">
-            <h2 style="text-align: center; margin-top: 0; margin-bottom: 25px; color: #333; font-weight: 600;">⚖️ Настройки анализа ИИ</h2>
+            <h2 style="text-align: center; margin-top: 0; margin-bottom: 25px; color: #333; font-weight: 600;">${t(
+              'content.modalTitle'
+            )}</h2>
             
             <div style="margin-bottom: 20px;">
-                <label for="edrsr-prompt-template" style="display: block; margin-bottom: 8px; font-weight: 500; font-size: 14px; color: #555;">Выберите тип анализа:</label>
+                <label for="edrsr-prompt-template" style="display: block; margin-bottom: 8px; font-weight: 500; font-size: 14px; color: #555;">${t(
+                  'content.selectAnalysisLabel'
+                )}</label>
                 <select id="edrsr-prompt-template" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #ccc; font-size: 15px; background: #fff;">
                     <!-- Options populated by script -->
                 </select>
@@ -26,29 +43,45 @@ function createModal() {
             </div>
 
             <div id="edrsr-custom-prompt-container" style="display: none; margin-bottom: 20px;">
-                <label for="edrsr-custom-prompt" style="display: block; margin-bottom: 8px; font-weight: 500; font-size: 14px; color: #555;">Ваш индивидуальный запрос:</label>
-                <textarea id="edrsr-custom-prompt" rows="4" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #ccc; font-size: 14px; resize: vertical;" placeholder="Например: 'Найди все упоминания о недвижимости и укажи её статус...'"></textarea>
+                <label for="edrsr-custom-prompt" style="display: block; margin-bottom: 8px; font-weight: 500; font-size: 14px; color: #555;">${t(
+                  'content.customPromptLabel'
+                )}</label>
+                <textarea id="edrsr-custom-prompt" rows="4" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #ccc; font-size: 14px; resize: vertical;" placeholder="${t(
+                  'content.customPromptPlaceholder'
+                )}"></textarea>
                 
                 <div style="margin-top: 15px; display: flex; gap: 10px; align-items: flex-end;">
                   <div style="flex-grow: 1;">
-                      <label for="edrsr-prompt-name" style="display: block; margin-bottom: 5px; font-weight: 500; font-size: 12px; color: #555;">Имя для сохранения:</label>
-                      <input type="text" id="edrsr-prompt-name" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #ccc; font-size: 13px;" placeholder="Короткое название промпта">
+                      <label for="edrsr-prompt-name" style="display: block; margin-bottom: 5px; font-weight: 500; font-size: 12px; color: #555;">${t(
+                        'content.promptNameLabel'
+                      )}</label>
+                      <input type="text" id="edrsr-prompt-name" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #ccc; font-size: 13px;" placeholder="${t(
+                        'content.promptNamePlaceholder'
+                      )}">
                   </div>
-                  <button id="edrsr-save-prompt" style="padding: 8px 15px; border: none; background: #6c757d; color: white; border-radius: 6px; font-size: 13px; cursor: pointer;">Сохранить</button>
+                  <button id="edrsr-save-prompt" style="padding: 8px 15px; border: none; background: #6c757d; color: white; border-radius: 6px; font-size: 13px; cursor: pointer;">${t(
+                    'content.savePromptBtn'
+                  )}</button>
             </div>
             </div>
 
              <div style="margin-bottom: 20px;">
-                <label for="edrsr-saved-prompts" style="display: block; margin-bottom: 8px; font-weight: 500; font-size: 14px; color: #555;">Сохраненные промпты:</label>
+                <label for="edrsr-saved-prompts" style="display: block; margin-bottom: 8px; font-weight: 500; font-size: 14px; color: #555;">${t(
+                  'content.savedPromptsLabel'
+                )}</label>
                 <div style="display: flex; gap: 10px;">
                     <select id="edrsr-saved-prompts" style="flex-grow: 1; width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #ccc; font-size: 15px; background: #fff;">
-                        <option value="">-- Выберите сохранённый --</option>
+                        <option value="">${t('content.savedPromptsDefault')}</option>
                     </select>
-                    <button id="edrsr-delete-prompt" style="padding: 8px 12px; border: none; background: #dc3545; color: white; border-radius: 8px; font-size: 14px; cursor: pointer;" title="Удалить выбранный промпт">🗑️</button>
+                    <button id="edrsr-delete-prompt" style="padding: 8px 12px; border: none; background: #dc3545; color: white; border-radius: 8px; font-size: 14px; cursor: pointer;" title="${t(
+                      'content.deletePromptTitle'
+                    )}">🗑️</button>
                 </div>
             </div>
             
-            <button id="edrsr-start-analysis" style="width: 100%; padding: 15px; border: none; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 10px; font-size: 16px; font-weight: bold; cursor: pointer; transition: all 0.3s ease;">🚀 Начать анализ</button>
+            <button id="edrsr-start-analysis" style="width: 100%; padding: 15px; border: none; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 10px; font-size: 16px; font-weight: bold; cursor: pointer; transition: all 0.3s ease;">${t(
+              'content.startAnalysisBtn'
+            )}</button>
         </div>
     </div>
     <style>
@@ -85,11 +118,11 @@ function createModal() {
       <div class="edrsr-checks">
         <label class="edrsr-check">
           <input id="edrsr-unique-only" type="checkbox" checked />
-          <span class="edrsr-check-text">Только уникальные дела</span>
+          <span class="edrsr-check-text">${t('content.uniqueOnlyLabel')}</span>
         </label>
         <label class="edrsr-check">
           <input id="edrsr-ignore-session" type="checkbox" />
-          <span class="edrsr-check-text">Игнорировать в этой сессии</span>
+          <span class="edrsr-check-text">${t('content.ignoreSessionLabel')}</span>
         </label>
       </div>
     `;
@@ -109,7 +142,7 @@ function createModal() {
 
   const populateSavedPrompts = async () => {
     const savedPrompts = await getSavedPrompts();
-    savedPromptsSelect.innerHTML = '<option value="">-- Выберите сохранённый --</option>'; // Reset
+    savedPromptsSelect.innerHTML = `<option value="">${t('content.savedPromptsDefault')}</option>`; // Reset
     savedPrompts.forEach((p) => {
       const option = document.createElement('option');
       option.value = p.name;
@@ -122,7 +155,7 @@ function createModal() {
     const name = promptNameInput.value.trim();
     const content = customPromptTextarea.value.trim();
     if (!name || !content) {
-      showMessage('Название и текст промпта не могут быть пустыми.', 'warning');
+      showMessage(t('content.messages.promptSaveEmpty'), 'warning');
       return;
     }
     const savedPrompts = await getSavedPrompts();
@@ -131,21 +164,21 @@ function createModal() {
     newPrompts.push({ name, content });
     await chrome.storage.local.set({ savedPrompts: newPrompts });
     promptNameInput.value = '';
-    showMessage(`Промпт "${name}" сохранён!`, 'success');
+    showMessage(t('content.messages.promptSaved', { name }), 'success');
     await populateSavedPrompts();
   });
 
   deletePromptBtn.addEventListener('click', async () => {
     const selectedName = savedPromptsSelect.value;
     if (!selectedName) {
-      showMessage('Выберите промпт для удаления.', 'warning');
+      showMessage(t('content.messages.promptDeleteSelect'), 'warning');
       return;
     }
-    if (confirm(`Вы уверены, что хотите удалить промпт "${selectedName}"?`)) {
+    if (confirm(t('content.messages.promptDeleteConfirm', { name: selectedName }))) {
       const savedPrompts = await getSavedPrompts();
       const newPrompts = savedPrompts.filter((p) => p.name !== selectedName);
       await chrome.storage.local.set({ savedPrompts: newPrompts });
-      showMessage(`Промпт "${selectedName}" удалён.`, 'success');
+      showMessage(t('content.messages.promptDeleted', { name: selectedName }), 'success');
       await populateSavedPrompts();
     }
   });
@@ -166,15 +199,18 @@ function createModal() {
   // Use the shared module for consistency
   Promise.all([import(chrome.runtime.getURL('prompt-definitions.js'))])
     .then(([promptModule]) => {
-      const { PROMPT_GROUPS, PROMPT_DESCRIPTIONS } = promptModule;
+      const { getPromptGroupLabels, getPromptDescriptions } = promptModule;
+      const locale = getLocale();
+      const promptGroups = getPromptGroupLabels(locale);
+      const promptDescriptions = getPromptDescriptions(locale);
 
-      for (const groupLabel in PROMPT_GROUPS) {
+      for (const groupLabel in promptGroups) {
         const optgroup = document.createElement('optgroup');
         optgroup.label = groupLabel;
-        for (const key in PROMPT_GROUPS[groupLabel]) {
+        for (const key in promptGroups[groupLabel]) {
           const option = document.createElement('option');
           option.value = key;
-          option.textContent = PROMPT_GROUPS[groupLabel][key];
+          option.textContent = promptGroups[groupLabel][key];
           optgroup.appendChild(option);
         }
         templateSelect.appendChild(optgroup);
@@ -183,7 +219,7 @@ function createModal() {
       const descriptionP = document.getElementById('edrsr-prompt-description');
       const updateDescription = () => {
         const selectedValue = templateSelect.value;
-        descriptionP.textContent = PROMPT_DESCRIPTIONS[selectedValue] || '';
+        descriptionP.textContent = promptDescriptions[selectedValue] || '';
         customContainer.style.display = selectedValue === 'custom' ? 'block' : 'none';
       };
 
@@ -206,7 +242,7 @@ function createModal() {
     if (prompt === 'custom') {
       prompt = document.getElementById('edrsr-custom-prompt').value.trim();
       if (!prompt) {
-        showMessage('Собственный промпт не может быть пустым.', 'warning');
+        showMessage(t('content.messages.customPromptEmpty'), 'warning');
         return;
       }
     }
@@ -236,11 +272,12 @@ function createModal() {
   });
 }
 
-function addCollectButton() {
+async function addCollectButton() {
   if (document.getElementById('edrsr-ai-collect-btn')) return;
+  const { t } = await getI18n();
   const button = document.createElement('button');
   button.id = 'edrsr-ai-collect-btn';
-  button.textContent = '🤖 Проанализировать с ИИ';
+  button.textContent = t('content.floatingButton');
   button.style.cssText = `
         position: fixed; bottom: 20px; right: 20px; z-index: 10000; padding: 12px 20px;
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none;
@@ -249,15 +286,18 @@ function addCollectButton() {
     `;
   button.addEventListener('mouseenter', () => (button.style.transform = 'translateY(-2px)'));
   button.addEventListener('mouseleave', () => (button.style.transform = 'translateY(0)'));
-  button.addEventListener('click', createModal);
+  button.addEventListener('click', () => {
+    void createModal();
+  });
   document.body.appendChild(button);
 }
 
-function showCompletionButton(jobId) {
+async function showCompletionButton(jobId) {
   removeCompletionButton();
+  const { t } = await getI18n();
   const resultButton = document.createElement('a');
   resultButton.id = 'edrsr-ai-result-btn';
-  resultButton.textContent = '✅ Анализ готов! Открыть отчёт';
+  resultButton.textContent = t('content.completionButton');
   resultButton.href = chrome.runtime.getURL(`results.html?jobId=${encodeURIComponent(jobId)}`);
   resultButton.target = '_blank';
   resultButton.style.cssText = `
@@ -283,7 +323,7 @@ async function markProcessedLinksAsVisited() {
     console.log('EDRSR-AI: Запитую список оброблених URL...');
 
     // Get API URL from background script
-    const apiUrl = await chrome.runtime.sendMessage({ type: 'GET_API_URL' });
+    await chrome.runtime.sendMessage({ type: 'GET_API_URL' });
 
     // Получаем только обработанные URL из текущего набора ссылок
     const pageLinks = Array.from(document.querySelectorAll('a.doc_text2[href^="/Review/"]')).map(
@@ -399,14 +439,18 @@ function showMessage(message, type = 'info') {
 
 async function collectAndSend(options) {
   if (isProcessing) {
-    showMessage('⏳ Предыдущий запрос ещё выполняется.', 'warning');
+    const { t } = await getI18n();
+    showMessage(t('content.messages.previousInProgress'), 'warning');
     return;
   }
   isProcessing = true;
   removeCompletionButton();
   try {
     let decisions = collectDecisionLinks();
-    if (decisions.length === 0) throw new Error('Не найдено ссылок на судебные решения.');
+    if (decisions.length === 0) {
+      const { t } = await getI18n();
+      throw new Error(t('content.messages.noLinksFound'));
+    }
 
     // Filter to only unique decisions for this user if requested
     if (options?.uniqueOnly) {
@@ -420,10 +464,19 @@ async function collectAndSend(options) {
         decisions = decisions.filter((d) => d && d.url && !processed.has(d.url));
         const removed = before - decisions.length;
         if (decisions.length === 0) {
-          showMessage('На этой странице нет уникальных дел для анализа.', 'warning');
+          const { t } = await getI18n();
+          showMessage(t('content.messages.noUnique'), 'warning');
           return;
         }
-        showMessage(`📤 Найдено ${before}. -${removed} (история) → ${decisions.length}.`, 'info');
+        const { t } = await getI18n();
+        showMessage(
+          t('content.messages.filteredHistory', {
+            before,
+            removed,
+            count: decisions.length,
+          }),
+          'info'
+        );
       }
     }
 
@@ -436,15 +489,21 @@ async function collectAndSend(options) {
         decisions = decisions.filter((d) => d && d.url && !sessionSet.has(d.url));
         const removed = before - decisions.length;
         if (decisions.length === 0) {
-          showMessage('В этой сессии нет новых дел для анализа.', 'warning');
+          const { t } = await getI18n();
+          showMessage(t('content.messages.noNewSession'), 'warning');
           return;
         }
-        showMessage(`📤 Фильтр сессии: -${removed} → ${decisions.length}.`, 'info');
+        const { t } = await getI18n();
+        showMessage(
+          t('content.messages.filteredSession', { removed, count: decisions.length }),
+          'info'
+        );
       }
     }
 
     if (!options?.uniqueOnly && !options?.ignoreSessionVisited) {
-      showMessage(`📤 Найдено ${decisions.length} ссылок. Отправляю на сервер...`, 'info');
+      const { t } = await getI18n();
+      showMessage(t('content.messages.foundLinks', { count: decisions.length }), 'info');
     }
 
     // Send job to service worker
@@ -465,13 +524,18 @@ async function collectAndSend(options) {
     });
 
     if (!response || !response.success) {
-      throw new Error(response?.error || 'Ошибка при создании задания');
+      const { t } = await getI18n();
+      throw new Error(response?.error || t('content.messages.createJobError'));
     }
 
-    showMessage(`✅ Задание создано. Отслеживайте прогресс в расширении.`, 'success');
+    {
+      const { t } = await getI18n();
+      showMessage(t('content.messages.jobCreated'), 'success');
+    }
     pageActiveJobId = response.jobId;
   } catch (error) {
-    showMessage(`❌ Ошибка: ${error.message}`, 'error');
+    const { t } = await getI18n();
+    showMessage(t('common.errorPrefix', { message: error.message }), 'error');
   } finally {
     isProcessing = false;
   }
@@ -507,7 +571,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     pageActiveJobId &&
     message.payload.jobId === pageActiveJobId
   ) {
-    showCompletionButton(pageActiveJobId);
+    void showCompletionButton(pageActiveJobId);
     pageActiveJobId = null; // Reset for the next job
     return true;
   }
@@ -515,7 +579,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 function initialize() {
   if (document.querySelector('a.doc_text2[href^="/Review/"]')) {
-    addCollectButton();
+    void addCollectButton();
     // Отмечаем обработанные ссылки как посещенные
     markProcessedLinksAsVisited();
   }
@@ -524,7 +588,7 @@ function initialize() {
       document.querySelector('a.doc_text2[href^="/Review/"]') &&
       !document.getElementById('edrsr-ai-collect-btn')
     ) {
-      addCollectButton();
+      void addCollectButton();
       // Отмечаем обработанные ссылки при динамическом добавлении контента
       markProcessedLinksAsVisited();
     }

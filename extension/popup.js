@@ -1,7 +1,8 @@
+/* eslint-disable no-console */
 // --- EDRSR-AI Popup Script v2.0 ---
 // This script uses a modern, robust architecture with a long-lived port
 // connection to the service worker, which acts as the central controller.
-import { PROMPT_GROUPS, PROMPT_DESCRIPTIONS } from './prompt-definitions.js';
+import { getPromptDescriptions, getPromptGroupLabels } from './prompt-definitions.js';
 import { SUPABASE_REDIRECT_TO } from './config.js';
 import {
   isAuthenticated,
@@ -10,6 +11,7 @@ import {
   getSession,
   signUpWithPassword,
 } from './auth.js';
+import { applyTranslations, formatUiDate, getLocale, initI18n, setLocale, t } from './i18n.js';
 
 document.addEventListener('DOMContentLoaded', () => {
   // --- Minimal HTML sanitizer (for MV3) ---
@@ -77,6 +79,8 @@ document.addEventListener('DOMContentLoaded', () => {
   let port = chrome.runtime.connect({ name: 'popup' });
   let currentJobData = null;
   let clientId = null;
+  let lastHistory = null;
+  let lastServerStatus = 'disconnected';
 
   // --- DOM Elements ---
   const elements = {
@@ -126,6 +130,8 @@ document.addEventListener('DOMContentLoaded', () => {
     togglePwdBtn: document.getElementById('togglePwdBtn'),
     authStatus: document.getElementById('authStatus'),
     authBadge: document.getElementById('authBadge'),
+    localeSelect: document.getElementById('localeSelect'),
+    footerStatus: document.getElementById('footer-status'),
   };
 
   // --- Проверка элементов DOM ---
@@ -164,11 +170,11 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log(`[POPUP] Received clientId: ${clientId}`);
         break;
       case 'ERROR':
-        alert(`Ошибка: ${payload.message}`);
+        alert(t('common.errorPrefix', { message: payload.message }));
         break;
       case 'AUTH_REQUIRED':
         switchTab('auth');
-        elements.authStatus.textContent = 'Требуется вход. Пожалуйста, войдите.';
+        elements.authStatus.textContent = t('popup.messages.authRequired');
         break;
     }
   });
@@ -185,36 +191,33 @@ document.addEventListener('DOMContentLoaded', () => {
   // --- UI Update Functions ---
 
   const updateServerStatus = (status) => {
+    lastServerStatus = status;
     switch (status) {
       case 'connected':
         elements.serverStatus.className = 'status-indicator status-online';
-        elements.serverStatus.innerHTML = `<span><div class="status-dot dot-online"></div>Подключено</span>`;
+        elements.serverStatus.innerHTML = `<span><div class="status-dot dot-online"></div>${t(
+          'popup.messages.serverConnected'
+        )}</span>`;
         break;
       case 'disconnected':
         elements.serverStatus.className = 'status-indicator status-offline';
-        elements.serverStatus.innerHTML = `<span><div class="status-dot dot-offline"></div>Отключено</span>`;
+        elements.serverStatus.innerHTML = `<span><div class="status-dot dot-offline"></div>${t(
+          'popup.messages.serverDisconnected'
+        )}</span>`;
         break;
       case 'reconnecting':
         elements.serverStatus.className = 'status-indicator status-offline';
-        elements.serverStatus.innerHTML = `<span><div class="status-dot dot-offline"></div>Переподключение...</span>`;
+        elements.serverStatus.innerHTML = `<span><div class="status-dot dot-offline"></div>${t(
+          'popup.messages.serverReconnecting'
+        )}</span>`;
         break;
     }
   };
 
   const getStatusText = (status) => {
-    const map = {
-      queued: '⏳ В очереди',
-      pending: '⏳ В очереди',
-      downloading: '📥 Загрузка',
-      download: '📥 Загрузка', // legacy/alias
-      processing: '🔄 Обработка',
-      retrying: '🔁 Повтор',
-      warning: '⚠️ Предупреждение',
-      analyzing: '🤖 Анализ',
-      completed: '✅ Завершено',
-      error: '❌ Ошибка',
-    };
-    return map[status] || status;
+    const key = `status.${status}`;
+    const text = t(key);
+    return text === key ? status : text;
   };
 
   const updateJobStatusDisplay = (jobData) => {
@@ -228,6 +231,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const isCompleted = jobData.status === 'completed';
     const isError = jobData.status === 'error';
     const isWarning = jobData.status === 'warning';
+    const shortId = jobData.id.substring(0, 8);
 
     // Проверяем, не зависла ли задача (активна больше 10 минут)
     const isStuck =
@@ -238,17 +242,18 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.jobIdInput.value = jobData.id;
     elements.jobStatus.classList.remove('hidden');
     // Используем title, если он есть, иначе - ID
-    elements.jobTitle.textContent = jobData.title || `Задание ${jobData.id.substring(0, 8)}...`;
+    elements.jobTitle.textContent =
+      jobData.title || t('popup.messages.jobTitleFallback', { id: shortId });
 
     // Показываем специальный статус для зависших задач
     let statusText = '';
     if (isStuck) {
-      statusText = '⚠️ Зависло (можно перезапустить)';
+      statusText = t('popup.messages.stuckStatus');
     } else {
       switch (jobData.status) {
         case 'queued':
         case 'pending':
-          statusText = '⏳ В очереди';
+          statusText = getStatusText(jobData.status);
           break;
         case 'downloading':
           // Hide row below; keep empty text
@@ -256,13 +261,13 @@ document.addEventListener('DOMContentLoaded', () => {
           break;
         case 'analyzing':
           // Show detailed progress message from server while AI processes batches
-          statusText = jobData.message ? jobData.message : '🤖 Анализ';
+          statusText = jobData.message ? jobData.message : t('popup.messages.analyzingFallback');
           break;
         case 'completed':
-          statusText = '✅ Завершено';
+          statusText = t('popup.messages.completed');
           break;
         case 'error':
-          statusText = jobData.message ? `❌ ${jobData.message}` : '❌ Ошибка';
+          statusText = jobData.message ? `❌ ${jobData.message}` : t('popup.messages.error');
           break;
         default:
           statusText = getStatusText(jobData.status);
@@ -276,7 +281,7 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.jobProgress.textContent = `${jobData.progress || 0}%`;
     elements.progressFill.style.width = `${jobData.progress || 0}%`;
     elements.jobLinks.textContent = `${jobData.processed_links || 0} / ${jobData.total_links || 0}`;
-    elements.jobStartTime.textContent = new Date(jobData.created_at).toLocaleString('ru-RU');
+    elements.jobStartTime.textContent = formatUiDate(jobData.created_at);
 
     const canRetry = isCompleted || isError || isStuck || isWarning;
     const isActive = ['downloading', 'analyzing', 'queued', 'pending'].includes(jobData.status);
@@ -290,11 +295,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Обновляем текст кнопки в зависимости от статуса
     if (canRetry) {
-      let buttonText = '🔄 Перезапустить задание';
+      let buttonText = t('popup.statusTab.retryBtn');
       if (isStuck) {
-        buttonText = '🔄 Перезапустить зависшее';
+        buttonText = t('popup.messages.retryStuckButton');
       } else if (isWarning) {
-        buttonText = '🔄 Перезапустить задание';
+        buttonText = t('popup.statusTab.retryBtn');
       }
       elements.retryJobBtn.querySelector('span').textContent = buttonText;
     }
@@ -318,9 +323,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const titleSpan = listItem.querySelector('.job-id');
     const statusSpan = listItem.querySelector('.job-status-hist');
+    const shortId = jobData.id.substring(0, 8);
 
     if (titleSpan) {
-      titleSpan.textContent = jobData.title || `ID: ${jobData.id.substring(0, 8)}...`;
+      titleSpan.textContent =
+        jobData.title || t('popup.messages.jobIdTitleFallback', { id: shortId });
     }
     if (statusSpan) {
       statusSpan.textContent = `${getStatusText(jobData.status)} ${jobData.progress || ''}%`;
@@ -328,6 +335,7 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   const renderHistory = (jobs) => {
+    lastHistory = jobs;
     const wasEditing = document.querySelector('.edit-container:not(.hidden)');
     const currentlyEditingId = wasEditing?.closest('li')?.dataset.jobId;
 
@@ -340,12 +348,13 @@ document.addEventListener('DOMContentLoaded', () => {
         // Main container for job info
         const infoContainer = document.createElement('div');
         infoContainer.classList.add('job-info-container');
-        const titleText = job.title || `ID: ${job.id.substring(0, 8)}...`;
+        const shortId = job.id.substring(0, 8);
+        const titleText = job.title || t('popup.messages.jobIdTitleFallback', { id: shortId });
         infoContainer.innerHTML = sanitizeHtml(`
           <div class="job-details">
             <span class="job-id">${titleText}</span>
             <span class="job-status-hist">${getStatusText(job.status)} ${job.progress || ''}%</span>
-            <span class="job-date">${new Date(job.created_at).toLocaleString('ru-RU')}</span>
+            <span class="job-date">${formatUiDate(job.created_at)}</span>
           </div>
         `);
         infoContainer.addEventListener('click', () => {
@@ -368,12 +377,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const editBtn = document.createElement('button');
         editBtn.className = 'edit-job-btn';
         editBtn.innerHTML = '&#x270E;'; // Pencil icon
-        editBtn.title = 'Редактировать название';
+        editBtn.title = t('popup.messages.editTitle');
 
         const deleteBtn = document.createElement('button');
         deleteBtn.className = 'delete-job-btn';
         deleteBtn.innerHTML = '&#x1F5D1;'; // Trash can icon
-        deleteBtn.title = 'Удалить задание';
+        deleteBtn.title = t('popup.messages.deleteTitle');
 
         buttonsContainer.appendChild(editBtn);
         buttonsContainer.appendChild(deleteBtn);
@@ -384,7 +393,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const editInput = document.createElement('input');
         editInput.type = 'text';
         editInput.value = job.title || '';
-        editInput.placeholder = 'Введите новое название';
+        editInput.placeholder = t('popup.messages.editPlaceholder');
         const saveBtn = document.createElement('button');
         saveBtn.textContent = '✔';
         const cancelBtn = document.createElement('button');
@@ -427,11 +436,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         deleteBtn.addEventListener('click', (e) => {
           e.stopPropagation();
-          if (
-            confirm(
-              `Вы уверены, что хотите удалить задание "${titleText}"? Это действие нельзя отменить.`
-            )
-          ) {
+          if (confirm(t('popup.messages.confirmDeleteJob', { title: titleText }))) {
             port.postMessage({ type: 'DELETE_JOB', payload: { jobId: job.id } });
           }
         });
@@ -451,7 +456,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       });
     } else {
-      elements.historyList.innerHTML = `<li style="text-align:center;color:#999;">История пуста</li>`;
+      elements.historyList.innerHTML = `<li style="text-align:center;color:#999;">${t(
+        'popup.historyTab.empty'
+      )}</li>`;
     }
   };
 
@@ -474,9 +481,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const authed = await isAuthenticated();
     if (authed) {
       const session = await getSession();
-      elements.authStatus.textContent = `Вы вошли как ${session?.user?.email || 'пользователь'}`;
+      elements.authStatus.textContent = t('popup.messages.authStatusAuthed', {
+        email: session?.user?.email || null,
+      });
       if (elements.authBadge) {
-        elements.authBadge.textContent = `🔐 ${session?.user?.email || 'Вошли'}`;
+        elements.authBadge.textContent = t('popup.messages.authBadgeAuthed', {
+          email: session?.user?.email || null,
+        });
         elements.authBadge.classList.remove('badge-guest');
         elements.authBadge.classList.add('badge-auth');
       }
@@ -486,9 +497,9 @@ document.addEventListener('DOMContentLoaded', () => {
       elements.logoutBtn.classList.remove('hidden');
       elements.recoverBtn?.classList.add('hidden');
     } else {
-      elements.authStatus.textContent = 'Вы не вошли.';
+      elements.authStatus.textContent = t('popup.messages.authStatusGuest');
       if (elements.authBadge) {
-        elements.authBadge.textContent = 'Гость';
+        elements.authBadge.textContent = t('popup.messages.authBadgeGuest');
         elements.authBadge.classList.remove('badge-auth');
         elements.authBadge.classList.add('badge-guest');
       }
@@ -509,9 +520,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const links = await chrome.tabs.sendMessage(tab.id, { type: 'GET_DECISION_LINKS' });
 
       if (!links || links.length === 0) {
-        throw new Error(
-          'На странице не найдено ссылок на дела. Возможно, нужно обновить страницу.'
-        );
+        throw new Error(t('popup.messages.errorNoLinks'));
       }
 
       // Optionally filter only unique (not in user's job history)
@@ -526,7 +535,7 @@ document.addEventListener('DOMContentLoaded', () => {
           finalLinks = finalLinks.filter((l) => l && l.url && !processed.has(l.url));
         }
         if (finalLinks.length === 0) {
-          throw new Error('На этой странице нет уникальных дел для анализа.');
+          throw new Error(t('popup.messages.errorNoUnique'));
         }
       }
 
@@ -538,7 +547,7 @@ document.addEventListener('DOMContentLoaded', () => {
           finalLinks = finalLinks.filter((l) => l && l.url && !sessionSet.has(l.url));
         }
         if (finalLinks.length === 0) {
-          throw new Error('В этой сессии нет новых дел для анализа.');
+          throw new Error(t('popup.messages.errorNoNewSession'));
         }
       }
 
@@ -549,7 +558,9 @@ document.addEventListener('DOMContentLoaded', () => {
       const selectedValue = elements.promptTemplate.value;
       if (selectedValue === 'custom') {
         prompt = elements.customPrompt.value.trim();
-        promptLabel = prompt ? prompt.split(/\s+/).slice(0, 6).join(' ') : 'Пользовательский';
+        promptLabel = prompt
+          ? prompt.split(/\s+/).slice(0, 6).join(' ')
+          : t('popup.messages.promptLabelCustom');
       } else if (selectedValue !== 'default') {
         prompt = selectedValue;
         promptLabel = selectedOption?.textContent || null;
@@ -574,9 +585,9 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       switchTab('status');
     } catch (error) {
-      alert(`Ошибка: ${error.message}`);
+      alert(t('common.errorPrefix', { message: error.message }));
     } finally {
-      elements.collectBtn.innerHTML = '<span>🔍 Собрать и проанализировать</span>';
+      elements.collectBtn.innerHTML = `<span>${t('popup.collect.collectBtn')}</span>`;
       updatePageInfo();
     }
   };
@@ -585,7 +596,7 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (tab.url?.includes('reyestr.court.gov.ua')) {
-        elements.currentPage.textContent = 'ЄДРСР ✓';
+        elements.currentPage.textContent = t('popup.messages.currentPageOk');
         const decisions = await chrome.tabs.sendMessage(tab.id, { type: 'GET_DECISION_LINKS' });
         const urls = (decisions || []).map((d) => d.url).filter(Boolean);
         elements.linksCount.textContent = String(urls.length);
@@ -597,7 +608,7 @@ document.addEventListener('DOMContentLoaded', () => {
             urls,
           });
           if (res?.success && Array.isArray(res.urls)) processedSet = new Set(res.urls);
-        } catch (_) {
+        } catch {
           // ignore processed URLs retrieval failure
           void 0;
         }
@@ -606,7 +617,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
           const sres = await chrome.runtime.sendMessage({ type: 'API_GET_SESSION_VISITED' });
           if (sres?.success && Array.isArray(sres.urls)) sessionSet = new Set(sres.urls);
-        } catch (_) {
+        } catch {
           // ignore session visited retrieval failure
           void 0;
         }
@@ -626,15 +637,17 @@ document.addEventListener('DOMContentLoaded', () => {
           finalCount = useUnique
             ? uniqueSession.length
             : urls.filter((u) => !sessionSet.has(u)).length;
-        elements.collectBtn.innerHTML = `<span>🔍 Собрать и проанализировать (${finalCount})</span>`;
+        elements.collectBtn.innerHTML = `<span>${t('popup.collect.collectBtnWithCount', {
+          count: finalCount,
+        })}</span>`;
         elements.collectInfo.style.display = 'block';
         elements.collectBtn.disabled = false;
       } else {
-        elements.currentPage.textContent = 'Не страница ЄДРСР';
+        elements.currentPage.textContent = t('popup.messages.currentPageNo');
         elements.collectInfo.style.display = 'none';
         elements.collectBtn.disabled = true;
       }
-    } catch (error) {
+    } catch {
       elements.collectInfo.style.display = 'none';
       elements.collectBtn.disabled = true;
     }
@@ -644,7 +657,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const name = elements.promptName.value.trim();
     const content = elements.customPrompt.value.trim();
     if (!name || !content) {
-      alert('Название и текст промпта не могут быть пустыми.');
+      alert(t('popup.messages.promptSaveEmpty'));
       return;
     }
     const savedPrompts = await getSavedPrompts();
@@ -654,7 +667,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     elements.promptName.value = '';
     elements.customPrompt.value = content; // Keep content in textarea
-    alert(`Промпт "${name}" сохранён!`);
+    alert(t('popup.messages.promptSaved', { name }));
 
     await populatePromptTemplates();
     elements.promptTemplate.value = content; // Select the newly saved prompt
@@ -662,23 +675,22 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   const deleteSelectedPrompt = async () => {
-    const selectedValue = elements.promptTemplate.value;
     const selectedOption = elements.promptTemplate.options[elements.promptTemplate.selectedIndex];
 
     if (
       selectedOption.parentElement.tagName !== 'OPTGROUP' ||
-      selectedOption.parentElement.label !== 'Сохраненные промпты'
+      selectedOption.parentElement.label !== t('popup.collect.savedPromptsLabel')
     ) {
-      alert('Пожалуйста, выберите сохранённый промпт для удаления.');
+      alert(t('popup.messages.promptDeleteSelect'));
       return;
     }
 
     const promptName = selectedOption.textContent;
-    if (confirm(`Вы уверены, что хотите удалить промпт "${promptName}"?`)) {
+    if (confirm(t('popup.messages.promptDeleteConfirm', { name: promptName }))) {
       const savedPrompts = await getSavedPrompts();
       const newPrompts = savedPrompts.filter((p) => p.name !== promptName);
       await chrome.storage.local.set({ savedPrompts: newPrompts });
-      alert(`Промпт "${promptName}" удалён.`);
+      alert(t('popup.messages.promptDeleted', { name: promptName }));
       await populatePromptTemplates();
       await updatePromptDescription();
     }
@@ -695,7 +707,7 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   const populatePromptTemplates = async () => {
-    const promptGroups = PROMPT_GROUPS;
+    const promptGroups = getPromptGroupLabels(getLocale());
     const savedPrompts = await getSavedPrompts();
 
     elements.promptTemplate.innerHTML = ''; // Clear existing options
@@ -713,7 +725,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (savedPrompts.length > 0) {
       const optgroup = document.createElement('optgroup');
-      optgroup.label = 'Сохраненные промпты';
+      optgroup.label = t('popup.collect.savedPromptsLabel');
       savedPrompts.forEach((prompt) => {
         const option = document.createElement('option');
         // We no longer need a special prefix; the prompt content is sent directly.
@@ -729,26 +741,49 @@ document.addEventListener('DOMContentLoaded', () => {
   const updatePromptDescription = async () => {
     const selectedValue = elements.promptTemplate.value;
     const selectedOption = elements.promptTemplate.options[elements.promptTemplate.selectedIndex];
+    const promptDescriptions = getPromptDescriptions(getLocale());
 
     // Check if it's a pre-defined prompt
-    if (PROMPT_DESCRIPTIONS[selectedValue]) {
-      elements.promptDescription.textContent = PROMPT_DESCRIPTIONS[selectedValue];
+    if (promptDescriptions[selectedValue]) {
+      elements.promptDescription.textContent = promptDescriptions[selectedValue];
     }
     // Check if it's from the "Сохраненные промпты" optgroup
     else if (
       selectedOption.parentElement.tagName === 'OPTGROUP' &&
-      selectedOption.parentElement.label === 'Сохраненные промпты'
+      selectedOption.parentElement.label === t('popup.collect.savedPromptsLabel')
     ) {
-      elements.promptDescription.textContent = `Ваш сохранённый промпт: "${selectedValue.substring(0, 70)}..."`;
+      elements.promptDescription.textContent = t('popup.messages.promptSavedDescription', {
+        text: selectedValue.substring(0, 70),
+      });
     } else {
       elements.promptDescription.textContent = '';
     }
+  };
+
+  const applyLocale = async () => {
+    applyTranslations(document);
+    if (elements.localeSelect) {
+      elements.localeSelect.value = getLocale();
+    }
+    if (elements.footerStatus) {
+      const version = chrome.runtime?.getManifest?.().version;
+      elements.footerStatus.textContent = t('popup.footer', { version });
+    }
+    await populatePromptTemplates();
+    await updatePromptDescription();
+    updateServerStatus(lastServerStatus);
+    if (currentJobData) updateJobStatusDisplay(currentJobData);
+    if (lastHistory) renderHistory(lastHistory);
   };
 
   // --- Initialization ---
 
   elements.tabs.forEach((tab) => tab.addEventListener('click', () => switchTab(tab.dataset.tab)));
   elements.collectBtn.addEventListener('click', collectLinks);
+  elements.localeSelect?.addEventListener('change', async () => {
+    await setLocale(elements.localeSelect.value);
+    await applyLocale();
+  });
   elements.uniqueOnlyToggle?.addEventListener('change', updatePageInfo);
   elements.ignoreSessionToggle?.addEventListener('change', updatePageInfo);
   elements.checkStatusBtn.addEventListener('click', () => {
@@ -767,8 +802,8 @@ document.addEventListener('DOMContentLoaded', () => {
         Date.now() - new Date(currentJobData.created_at).getTime() > 10 * 60 * 1000;
 
       const message = isStuck
-        ? 'Это задание зависло. Перезапустить его? Будет создано новое задание с теми же параметрами.'
-        : 'Перезапустить это задание? Будет создано новое задание с теми же параметрами.';
+        ? t('popup.messages.retryStuckConfirm')
+        : t('popup.messages.retryConfirm');
 
       if (confirm(message)) {
         port.postMessage({
@@ -781,8 +816,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   elements.forceRetryJobBtn.addEventListener('click', () => {
     if (currentJobData?.id && clientId) {
-      const message =
-        'ВНИМАНИЕ! Принудительно перезапустить активное задание? Текущий прогресс будет потерян, и будет создано новое задание.';
+      const message = t('popup.messages.forceRetryConfirm');
 
       if (confirm(message)) {
         port.postMessage({
@@ -810,9 +844,9 @@ document.addEventListener('DOMContentLoaded', () => {
   elements.copyResultBtn.addEventListener('click', async () => {
     if (!currentJobData?.analysis) return;
     await navigator.clipboard.writeText(currentJobData.analysis);
-    elements.copyResultBtn.textContent = '✅ Скопировано!';
+    elements.copyResultBtn.textContent = t('popup.messages.copyResultCopied');
     setTimeout(() => {
-      elements.copyResultBtn.textContent = '📋 Копировать';
+      elements.copyResultBtn.textContent = t('popup.messages.copyResult');
     }, 2000);
   });
 
@@ -838,13 +872,13 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       const email = elements.authEmail.value.trim();
       const password = elements.authPassword.value;
-      if (!email || !password) return alert('Укажите email и пароль');
-      elements.authStatus.textContent = 'Вход...';
+      if (!email || !password) return alert(t('popup.messages.authLoginRequired'));
+      elements.authStatus.textContent = t('popup.messages.authSigningIn');
       await signInWithPassword(email, password);
-      elements.authStatus.textContent = 'Успешный вход.';
+      elements.authStatus.textContent = t('popup.messages.authSignedIn');
       port.postMessage({ type: 'AUTH_CHANGED' });
     } catch (e) {
-      elements.authStatus.textContent = `Ошибка: ${e.message}`;
+      elements.authStatus.textContent = t('popup.messages.authError', { message: e.message });
     } finally {
       updateAuthUI();
     }
@@ -853,26 +887,27 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       const email = elements.authEmail.value.trim();
       const password = elements.authPassword.value;
-      if (!email || !password) return alert('Укажите email и пароль');
-      elements.authStatus.textContent = 'Регистрация...';
+      if (!email || !password) return alert(t('popup.messages.authLoginRequired'));
+      elements.authStatus.textContent = t('popup.messages.authSigningIn');
       const result = await signUpWithPassword(email, password);
       if (result.status === 'signed_in') {
-        elements.authStatus.textContent = 'Аккаунт создан и выполнен вход.';
+        elements.authStatus.textContent = t('popup.messages.authSignedUp');
         port.postMessage({ type: 'AUTH_CHANGED' });
         await updateAuthUI();
       } else {
         // Email подтверждения включён — не пытаемся входить автоматически
-        elements.authStatus.textContent =
-          'Аккаунт создан. Подтвердите почту по ссылке в письме, затем войдите.';
+        elements.authStatus.textContent = t('popup.messages.authSignedUpConfirm');
         // Залишаємо поля видимими, щоб користувач міг увійти після підтвердження
       }
     } catch (e) {
-      elements.authStatus.textContent = `Ошибка: ${e.message}`;
+      const message =
+        e?.message === 'AUTH_RECOVER_FAILED' ? t('popup.messages.authRecoverFailed') : e.message;
+      elements.authStatus.textContent = t('popup.messages.authError', { message });
     }
   });
   elements.logoutBtn?.addEventListener('click', async () => {
     await signOut();
-    elements.authStatus.textContent = 'Вы вышли.';
+    elements.authStatus.textContent = t('popup.messages.authLoggedOut');
     updateAuthUI();
   });
 
@@ -881,27 +916,26 @@ document.addEventListener('DOMContentLoaded', () => {
     const input = elements.authPassword;
     const isPwd = input.type === 'password';
     input.type = isPwd ? 'text' : 'password';
-    elements.togglePwdBtn.textContent = isPwd ? 'Скрыть' : 'Показать';
+    elements.togglePwdBtn.textContent = isPwd ? t('popup.auth.hidePwd') : t('popup.auth.showPwd');
   });
 
   elements.recoverBtn?.addEventListener('click', async () => {
     try {
       const email = elements.authEmail.value.trim();
-      if (!email) return alert('Укажите email для восстановления пароля.');
-      elements.authStatus.textContent = 'Отправляю письмо для восстановления...';
+      if (!email) return alert(t('popup.messages.authRecoverPrompt'));
+      elements.authStatus.textContent = t('popup.messages.authRecoverSending');
       const { recoverPassword } = await import('./auth.js');
       await recoverPassword(email, SUPABASE_REDIRECT_TO);
-      elements.authStatus.textContent =
-        'Письмо для восстановления пароля отправлено. Проверьте почту.';
+      elements.authStatus.textContent = t('popup.messages.authRecoverSent');
     } catch (e) {
-      elements.authStatus.textContent = `Ошибка: ${e.message}`;
+      elements.authStatus.textContent = t('popup.messages.authError', { message: e.message });
     }
   });
 
   // Initial load
   (async () => {
-    await populatePromptTemplates();
-    await updatePromptDescription();
+    await initI18n();
+    await applyLocale();
     updatePageInfo();
     port.postMessage({ type: 'GET_LAST_JOB' });
     port.postMessage({ type: 'GET_CLIENT_ID' });

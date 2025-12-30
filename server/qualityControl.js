@@ -76,10 +76,10 @@ function validateBatchProcessing(originalCases, batchSummaries, totalBatches) {
  * Generate quality assurance report
  * @param {Object} validation - Validation results
  * @param {number} totalCases - Total cases processed
- * @param {Array} batchSummaries - All batch summaries
+ * @param {Array} _batchSummaries - All batch summaries (reserved for future use)
  * @returns {string} - Quality assurance report
  */
-function generateQualityReport(validation, totalCases, batchSummaries = []) {
+function generateQualityReport(validation, totalCases, _batchSummaries = []) {
   const report =
     `\n\n📋 **ЗВІТ КОНТРОЛЮ ЯКОСТІ:**\n\n` +
     `### 📊 Статистика обробки\n` +

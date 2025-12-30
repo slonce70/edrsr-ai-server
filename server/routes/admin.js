@@ -134,7 +134,6 @@ router.get('/dashboard', async (req, res) => {
 router.get('/users', async (req, res) => {
   try {
     const { page = 1, limit = 20, search = '' } = req.query;
-    const offset = (page - 1) * limit;
 
     let users = [];
     let totalUsers = 0;
@@ -291,7 +290,7 @@ router.post('/jobs/:id/requeue', async (req, res) => {
       try {
         process.emit('edrsr:queue:pump');
         logger.info(`[ADMIN_RETRY] Очередь запрошена после requeue задания ${id}`);
-      } catch (_e) {
+      } catch {
         // noop
       }
     }, 500);
@@ -598,7 +597,7 @@ router.post('/jobs/:jobId/retry', async (req, res) => {
         try {
           process.emit('edrsr:queue:pump');
           logger.info(`[ADMIN_RETRY] Очередь запрошена после retry задания ${jobId}`);
-        } catch (_e) {
+        } catch {
           // noop
         }
       }, 500);
@@ -635,7 +634,7 @@ router.post('/jobs/retry-failed', async (req, res) => {
           logger.info(
             `[ADMIN_RETRY] Очередь запрошена после массового retry (${retriedCount} заданий)`
           );
-        } catch (_e) {
+        } catch {
           // noop
         }
       }, 500);
@@ -674,7 +673,7 @@ router.post('/jobs/recover-stuck', async (req, res) => {
         try {
           process.emit('edrsr:queue:pump');
           logger.info(`[ADMIN_RETRY] Очередь запрошена после ручного recovery (${recovered})`);
-        } catch (_e) {
+        } catch {
           // noop
         }
       }, 300);
