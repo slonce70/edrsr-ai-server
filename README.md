@@ -3,7 +3,7 @@
 **A professional system for collecting and analyzing court decisions from the EDRSR using Gemini AI.**
 
 [![Status](https://img.shields.io/badge/Status-Production%20Ready-brightgreen)]()
-[![Version](https://img.shields.io/badge/Version-1.0.4-blue)]()
+[![Version](https://img.shields.io/badge/Version-1.0.7-blue)]()
 [![AI](https://img.shields.io/badge/AI-Gemini%202.5%20Flash-orange)]()
 [![Database](https://img.shields.io/badge/Database-PostgreSQL-blue)]()
 

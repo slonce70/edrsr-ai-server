@@ -1,23 +1,34 @@
 {
   "manifest_version": 3,
   "name": "EDRSR AI Помощник",
-  "version": "1.0.4",
+  "version": "1.0.7",
   "description": "Помощник на базе ИИ для анализа судебных решений из ЄДРСР",
   "icons": {
     "16": "icon16.png",
     "48": "icon48.png",
     "128": "icon128.png"
   },
-  "permissions": ["storage", "activeTab", "notifications"],
-  "host_permissions": ["https://reyestr.court.gov.ua/*", "https://*.supabase.co/*"],
+  "permissions": [
+    "storage",
+    "activeTab",
+    "notifications"
+  ],
+  "host_permissions": [
+    "https://reyestr.court.gov.ua/*",
+    "https://*.supabase.co/*"
+  ],
   "background": {
     "service_worker": "bg.js",
     "type": "module"
   },
   "content_scripts": [
     {
-      "matches": ["https://reyestr.court.gov.ua/*"],
-      "js": ["content.js"],
+      "matches": [
+        "https://reyestr.court.gov.ua/*"
+      ],
+      "js": [
+        "content.js"
+      ],
       "run_at": "document_end"
     }
   ],
@@ -32,8 +43,15 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["results.html", "i18n.js", "prompt-definitions.js", "prompt-storage.js"],
-      "matches": ["https://reyestr.court.gov.ua/*"]
+      "resources": [
+        "results.html",
+        "i18n.js",
+        "prompt-definitions.js",
+        "prompt-storage.js"
+      ],
+      "matches": [
+        "https://reyestr.court.gov.ua/*"
+      ]
     }
   ],
   "content_security_policy": {
