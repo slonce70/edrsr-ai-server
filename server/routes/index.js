@@ -9,7 +9,13 @@ import dbService from '../services/dbService.js';
 import { attachUser, requireAuthExcept } from '../middleware/auth.js';
 import { requireAdmin } from '../middleware/adminAuth.js';
 import { limitCollect, limitRetry, limitHealthLight } from '../middleware/rateLimit.js';
-import { validateCollectRequest, validateChatMessage } from '../middleware/validators.js';
+import {
+  validateCollectRequest,
+  validateChatMessage,
+  validatePromptCreate,
+  validatePromptUpdate,
+  validatePromptImport,
+} from '../middleware/validators.js';
 import { adminLoginRateLimit, checkBlocked, trackFailedLogin } from '../middleware/security.js';
 import { answerChatQuestion, testGeminiConnection } from '../gemini.js';
 import jobQueue from '../queue.js';
@@ -130,6 +136,13 @@ function generateInitialTitle({ linksCount = 0, prompt = null, promptLabel = nul
   }
   const today = new Date().toLocaleDateString('ru-RU');
   return `Анализ от ${today}${suffix}`;
+}
+
+function formatPromptsMeta(meta) {
+  const count = Number.isFinite(meta?.count) ? meta.count : 0;
+  const lastUpdated = meta?.lastUpdated ? new Date(meta.lastUpdated).toISOString() : null;
+  const etag = `W/"${count}:${lastUpdated || '0'}"`;
+  return { count, lastUpdated, etag };
 }
 
 async function refreshHeuristicTitle(jobId) {
@@ -807,6 +820,107 @@ export default function (clients) {
       processQueue();
     } catch (error) {
       next(error);
+    }
+  });
+
+  // --- User Prompts ---
+  router.get('/prompts', async (req, res, next) => {
+    try {
+      const userId = req.user?.id;
+      const meta = await dbService.getPromptsMeta(userId);
+      const { etag, lastUpdated } = formatPromptsMeta(meta);
+
+      const ifNoneMatch = req.headers['if-none-match'];
+      if (ifNoneMatch && ifNoneMatch === etag) {
+        res.set('ETag', etag);
+        return res.status(304).end();
+      }
+
+      const prompts = await dbService.listPrompts(userId);
+      res.set('ETag', etag);
+      return res.json({ success: true, prompts, lastUpdated });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  router.post('/prompts', validatePromptCreate, async (req, res, next) => {
+    try {
+      const userId = req.user?.id;
+      const { name, content } = req.body || {};
+      const result = await dbService.createPrompt(userId, name, content);
+      const meta = await dbService.getPromptsMeta(userId);
+      const { etag, lastUpdated } = formatPromptsMeta(meta);
+      res.set('ETag', etag);
+      return res.json({
+        success: true,
+        prompt: result.prompt,
+        renamed: result.renamed,
+        lastUpdated,
+        etag,
+      });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  router.patch('/prompts/:id', validatePromptUpdate, async (req, res, next) => {
+    try {
+      const userId = req.user?.id;
+      const promptId = req.params.id;
+      const result = await dbService.updatePrompt(userId, promptId, req.body || {});
+      if (!result?.prompt) {
+        return res.status(404).json({ error: 'Промпт не найден' });
+      }
+      const meta = await dbService.getPromptsMeta(userId);
+      const { etag, lastUpdated } = formatPromptsMeta(meta);
+      res.set('ETag', etag);
+      return res.json({
+        success: true,
+        prompt: result.prompt,
+        renamed: result.renamed,
+        lastUpdated,
+        etag,
+      });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  router.delete('/prompts/:id', async (req, res, next) => {
+    try {
+      const userId = req.user?.id;
+      const promptId = req.params.id;
+      const ok = await dbService.deletePrompt(userId, promptId);
+      if (!ok) {
+        return res.status(404).json({ error: 'Промпт не найден' });
+      }
+      const meta = await dbService.getPromptsMeta(userId);
+      const { etag, lastUpdated } = formatPromptsMeta(meta);
+      res.set('ETag', etag);
+      return res.json({ success: true, lastUpdated, etag });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  router.post('/prompts/import', validatePromptImport, async (req, res, next) => {
+    try {
+      const userId = req.user?.id;
+      const { prompts } = req.body || {};
+      const result = await dbService.importPrompts(userId, prompts);
+      const meta = await dbService.getPromptsMeta(userId);
+      const { etag, lastUpdated } = formatPromptsMeta(meta);
+      res.set('ETag', etag);
+      return res.json({
+        success: true,
+        imported: result.imported,
+        renamedCount: result.renamedCount,
+        lastUpdated,
+        etag,
+      });
+    } catch (error) {
+      return next(error);
     }
   });
 

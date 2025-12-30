@@ -8,6 +8,7 @@ const SCRIPT_VERSION = '2.2';
 let isProcessing = false;
 let pageActiveJobId = null;
 let i18nReady = null;
+let promptStorageReady = null;
 
 async function getI18n() {
   if (!i18nReady) {
@@ -17,6 +18,13 @@ async function getI18n() {
     });
   }
   return i18nReady;
+}
+
+async function getPromptStorage() {
+  if (!promptStorageReady) {
+    promptStorageReady = import(chrome.runtime.getURL('prompt-storage.js'));
+  }
+  return promptStorageReady;
 }
 
 // --- UI & MODAL LOGIC (Restored from v1.5) ---
@@ -109,6 +117,9 @@ async function createModal() {
   const savePromptBtn = document.getElementById('edrsr-save-prompt');
   const savedPromptsSelect = document.getElementById('edrsr-saved-prompts');
   const deletePromptBtn = document.getElementById('edrsr-delete-prompt');
+  let savedPrompts = [];
+  let savedPromptsById = new Map();
+  let selectedSavedPromptId = null;
 
   // Add checkboxes next to the start button (simple, accessible)
   if (!document.getElementById('edrsr-unique-only')) {
@@ -130,25 +141,53 @@ async function createModal() {
   }
 
   // --- Prompt Management Functions ---
-  const getSavedPrompts = async () => {
+  const setPromptControlsEnabled = (enabled) => {
+    savePromptBtn.disabled = !enabled;
+    deletePromptBtn.disabled = !enabled;
+    promptNameInput.disabled = !enabled;
+    const title = enabled ? '' : t('content.messages.promptAuthRequired');
+    savePromptBtn.title = title;
+    deletePromptBtn.title = title;
+    promptNameInput.title = title;
+  };
+
+  const loadSavedPrompts = async ({ force = false } = {}) => {
     try {
-      const result = await chrome.storage.local.get(['savedPrompts']);
-      return result.savedPrompts || [];
+      const storage = await getPromptStorage();
+      const result = await storage.getPrompts({ force });
+      if (!result?.success) {
+        savedPrompts = [];
+        savedPromptsById = new Map();
+        selectedSavedPromptId = null;
+        setPromptControlsEnabled(false);
+        return [];
+      }
+      savedPrompts = Array.isArray(result.prompts) ? result.prompts : [];
+      savedPromptsById = new Map(savedPrompts.map((p) => [p.id, p]));
+      if (selectedSavedPromptId && !savedPromptsById.has(selectedSavedPromptId)) {
+        selectedSavedPromptId = null;
+      }
+      setPromptControlsEnabled(true);
+      return savedPrompts;
     } catch (e) {
       console.error('EDRSR-AI: Error getting saved prompts', e);
+      setPromptControlsEnabled(false);
       return [];
     }
   };
 
-  const populateSavedPrompts = async () => {
-    const savedPrompts = await getSavedPrompts();
+  const populateSavedPrompts = async (selectId = null) => {
+    await loadSavedPrompts();
     savedPromptsSelect.innerHTML = `<option value="">${t('content.savedPromptsDefault')}</option>`; // Reset
     savedPrompts.forEach((p) => {
       const option = document.createElement('option');
-      option.value = p.name;
+      option.value = p.id;
       option.textContent = p.name;
       savedPromptsSelect.appendChild(option);
     });
+    if (selectId) {
+      savedPromptsSelect.value = selectId;
+    }
   };
 
   savePromptBtn.addEventListener('click', async () => {
@@ -158,40 +197,83 @@ async function createModal() {
       showMessage(t('content.messages.promptSaveEmpty'), 'warning');
       return;
     }
-    const savedPrompts = await getSavedPrompts();
-    // Remove if exists to overwrite
-    const newPrompts = savedPrompts.filter((p) => p.name !== name);
-    newPrompts.push({ name, content });
-    await chrome.storage.local.set({ savedPrompts: newPrompts });
-    promptNameInput.value = '';
-    showMessage(t('content.messages.promptSaved', { name }), 'success');
-    await populateSavedPrompts();
+    try {
+      const storage = await getPromptStorage();
+      const isUpdate = !!selectedSavedPromptId;
+      const result = await storage.savePrompt({
+        id: selectedSavedPromptId,
+        name,
+        content,
+      });
+      if (result?.authRequired) {
+        showMessage(t('content.messages.promptAuthRequired'), 'warning');
+        return;
+      }
+      if (!result?.success) {
+        showMessage(result?.error || t('content.messages.promptSaveError'), 'error');
+        return;
+      }
+      const prompt = result.prompt;
+      selectedSavedPromptId = prompt.id;
+      promptNameInput.value = prompt.name;
+      customPromptTextarea.value = prompt.content;
+      const messageKey = isUpdate
+        ? 'content.messages.promptUpdated'
+        : 'content.messages.promptSaved';
+      const message = result.renamed
+        ? t('content.messages.promptSavedAs', { name: prompt.name })
+        : t(messageKey, { name: prompt.name });
+      showMessage(message, 'success');
+      await populateSavedPrompts(prompt.id);
+    } catch (e) {
+      showMessage(e.message || t('content.messages.promptSaveError'), 'error');
+    }
   });
 
   deletePromptBtn.addEventListener('click', async () => {
-    const selectedName = savedPromptsSelect.value;
-    if (!selectedName) {
+    if (!selectedSavedPromptId) {
       showMessage(t('content.messages.promptDeleteSelect'), 'warning');
       return;
     }
-    if (confirm(t('content.messages.promptDeleteConfirm', { name: selectedName }))) {
-      const savedPrompts = await getSavedPrompts();
-      const newPrompts = savedPrompts.filter((p) => p.name !== selectedName);
-      await chrome.storage.local.set({ savedPrompts: newPrompts });
-      showMessage(t('content.messages.promptDeleted', { name: selectedName }), 'success');
-      await populateSavedPrompts();
+    const promptName =
+      savedPromptsById.get(selectedSavedPromptId)?.name || t('content.messages.promptUnnamed');
+    if (confirm(t('content.messages.promptDeleteConfirm', { name: promptName }))) {
+      try {
+        const storage = await getPromptStorage();
+        const result = await storage.deletePrompt(selectedSavedPromptId);
+        if (result?.authRequired) {
+          showMessage(t('content.messages.promptAuthRequired'), 'warning');
+          return;
+        }
+        if (!result?.success) {
+          showMessage(result?.error || t('content.messages.promptDeleteError'), 'error');
+          return;
+        }
+        selectedSavedPromptId = null;
+        promptNameInput.value = '';
+        customPromptTextarea.value = '';
+        savedPromptsSelect.value = '';
+        showMessage(t('content.messages.promptDeleted', { name: promptName }), 'success');
+        await populateSavedPrompts();
+      } catch (e) {
+        showMessage(e.message || t('content.messages.promptDeleteError'), 'error');
+      }
     }
   });
 
   savedPromptsSelect.addEventListener('change', async () => {
-    const selectedName = savedPromptsSelect.value;
-    if (!selectedName) return;
-    const savedPrompts = await getSavedPrompts();
-    const selectedPrompt = savedPrompts.find((p) => p.name === selectedName);
+    const selectedId = savedPromptsSelect.value;
+    if (!selectedId) {
+      selectedSavedPromptId = null;
+      return;
+    }
+    const selectedPrompt = savedPromptsById.get(selectedId);
     if (selectedPrompt) {
       templateSelect.value = 'custom'; // Switch to custom type
       customContainer.style.display = 'block';
       customPromptTextarea.value = selectedPrompt.content;
+      promptNameInput.value = selectedPrompt.name;
+      selectedSavedPromptId = selectedPrompt.id;
     }
   });
 
@@ -220,7 +302,14 @@ async function createModal() {
       const updateDescription = () => {
         const selectedValue = templateSelect.value;
         descriptionP.textContent = promptDescriptions[selectedValue] || '';
-        customContainer.style.display = selectedValue === 'custom' ? 'block' : 'none';
+        const isCustom = selectedValue === 'custom';
+        customContainer.style.display = isCustom ? 'block' : 'none';
+        if (!isCustom) {
+          selectedSavedPromptId = null;
+          savedPromptsSelect.value = '';
+          customPromptTextarea.value = '';
+          promptNameInput.value = '';
+        }
       };
 
       templateSelect.addEventListener('change', updateDescription);

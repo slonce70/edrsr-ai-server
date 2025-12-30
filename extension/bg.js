@@ -12,6 +12,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.locale?.newValue) {
     void setLocale(changes.locale.newValue);
   }
+  if (area === 'local' && changes.sb_session) {
+    void clearPromptsCache();
+  }
 });
 
 let socket = null;
@@ -24,6 +27,118 @@ let clientId = null;
 const CURRENT_VERSION = '2.2'; // Версия, которую мы ожидаем от content.js
 // Session-level visited URLs to avoid re-sending in current runtime
 const sessionVisited = new Set();
+
+const PROMPTS_CACHE_KEY = 'prompts_cache';
+const PROMPTS_CACHE_TS_KEY = 'prompts_cache_fetched_at';
+const PROMPTS_CACHE_ETAG_KEY = 'prompts_cache_etag';
+const PROMPTS_MIGRATION_KEY = 'promptsMigrationVersion';
+const PROMPTS_MIGRATION_VERSION = 1;
+const PROMPTS_CACHE_TTL_MS = 15 * 60 * 1000;
+
+const isAuthError = (error) => String(error?.message || '') === t('bg.authRequired');
+
+const isCacheFresh = (fetchedAt) =>
+  Number.isFinite(fetchedAt) && Date.now() - fetchedAt < PROMPTS_CACHE_TTL_MS;
+
+async function getPromptsCache() {
+  const data = await chrome.storage.local.get([
+    PROMPTS_CACHE_KEY,
+    PROMPTS_CACHE_TS_KEY,
+    PROMPTS_CACHE_ETAG_KEY,
+  ]);
+  return {
+    prompts: Array.isArray(data[PROMPTS_CACHE_KEY]) ? data[PROMPTS_CACHE_KEY] : [],
+    fetchedAt: data[PROMPTS_CACHE_TS_KEY] || 0,
+    etag: data[PROMPTS_CACHE_ETAG_KEY] || null,
+  };
+}
+
+async function setPromptsCache(prompts, etag = null) {
+  await chrome.storage.local.set({
+    [PROMPTS_CACHE_KEY]: prompts,
+    [PROMPTS_CACHE_TS_KEY]: Date.now(),
+    [PROMPTS_CACHE_ETAG_KEY]: etag,
+  });
+}
+
+async function clearPromptsCache() {
+  await chrome.storage.local.remove([
+    PROMPTS_CACHE_KEY,
+    PROMPTS_CACHE_TS_KEY,
+    PROMPTS_CACHE_ETAG_KEY,
+  ]);
+}
+
+async function fetchPromptsFromServer({ etag } = {}) {
+  const headers = {};
+  if (etag) headers['If-None-Match'] = etag;
+  const res = await apiFetch(`${API_BASE_URL}/prompts`, { headers });
+  if (res.status === 304) {
+    return { notModified: true, etag };
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || `HTTP ${res.status}`);
+  }
+  const nextEtag = res.headers.get('ETag') || data.etag || null;
+  return { prompts: Array.isArray(data.prompts) ? data.prompts : [], etag: nextEtag };
+}
+
+async function maybeMigrateLocalPrompts() {
+  const data = await chrome.storage.local.get([PROMPTS_MIGRATION_KEY, 'savedPrompts']);
+  const version = Number.isFinite(data[PROMPTS_MIGRATION_KEY]) ? data[PROMPTS_MIGRATION_KEY] : 0;
+  if (version >= PROMPTS_MIGRATION_VERSION) return { migrated: false };
+
+  const savedPrompts = Array.isArray(data.savedPrompts) ? data.savedPrompts : [];
+  if (savedPrompts.length === 0) {
+    await chrome.storage.local.set({ [PROMPTS_MIGRATION_KEY]: PROMPTS_MIGRATION_VERSION });
+    return { migrated: false };
+  }
+
+  const payload = {
+    prompts: savedPrompts
+      .filter((p) => p && typeof p === 'object')
+      .map((p) => ({
+        name: String(p.name || '').trim(),
+        content: String(p.content || '').trim(),
+      }))
+      .filter((p) => p.name && p.content),
+  };
+
+  if (payload.prompts.length === 0) {
+    await chrome.storage.local.set({ [PROMPTS_MIGRATION_KEY]: PROMPTS_MIGRATION_VERSION });
+    return { migrated: false };
+  }
+
+  const res = await apiFetch(`${API_BASE_URL}/prompts/import`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+
+  await chrome.storage.local.set({ [PROMPTS_MIGRATION_KEY]: PROMPTS_MIGRATION_VERSION });
+  return { migrated: true };
+}
+
+async function upsertPromptCache(prompt, etag = null) {
+  const cache = await getPromptsCache();
+  const list = Array.isArray(cache.prompts) ? [...cache.prompts] : [];
+  const idx = list.findIndex((p) => p.id === prompt.id);
+  if (idx >= 0) list[idx] = prompt;
+  else list.unshift(prompt);
+  list.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+  await setPromptsCache(list, etag ?? cache.etag);
+  return list;
+}
+
+async function removePromptFromCache(promptId, etag = null) {
+  const cache = await getPromptsCache();
+  const list = Array.isArray(cache.prompts) ? cache.prompts.filter((p) => p.id !== promptId) : [];
+  await setPromptsCache(list, etag ?? cache.etag);
+  return list;
+}
 
 // --- WebSocket Connection Management ---
 
@@ -705,6 +820,136 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if (message.type === 'GET_VERSION') {
     sendResponse(CURRENT_VERSION);
+    return true;
+  }
+  if (message.type === 'PROMPTS_GET') {
+    (async () => {
+      try {
+        const authed = await isAuthenticated();
+        if (!authed) {
+          sendResponse({ success: false, authRequired: true, prompts: [] });
+          return;
+        }
+
+        try {
+          await maybeMigrateLocalPrompts();
+        } catch (e) {
+          console.warn('[PROMPTS] Migration skipped:', e.message);
+        }
+
+        const force = !!message.force;
+        const cache = await getPromptsCache();
+        if (!force && cache.prompts.length > 0 && isCacheFresh(cache.fetchedAt)) {
+          sendResponse({ success: true, prompts: cache.prompts, source: 'cache' });
+          return;
+        }
+
+        try {
+          const fetched = await fetchPromptsFromServer({ etag: cache.etag });
+          if (fetched.notModified) {
+            if (cache.prompts.length > 0) {
+              await setPromptsCache(cache.prompts, cache.etag);
+              sendResponse({ success: true, prompts: cache.prompts, source: 'cache' });
+              return;
+            }
+            const fresh = await fetchPromptsFromServer({ etag: null });
+            await setPromptsCache(fresh.prompts, fresh.etag);
+            sendResponse({ success: true, prompts: fresh.prompts, source: 'server' });
+            return;
+          }
+          await setPromptsCache(fetched.prompts, fetched.etag);
+          sendResponse({ success: true, prompts: fetched.prompts, source: 'server' });
+        } catch (e) {
+          if (isAuthError(e)) {
+            sendResponse({ success: false, authRequired: true, error: e.message });
+            return;
+          }
+          if (cache.prompts.length > 0) {
+            sendResponse({
+              success: true,
+              prompts: cache.prompts,
+              source: 'cache',
+              stale: true,
+              error: e.message,
+            });
+          } else {
+            sendResponse({ success: false, error: e.message });
+          }
+        }
+      } catch (e) {
+        if (isAuthError(e)) {
+          sendResponse({ success: false, authRequired: true, error: e.message });
+        } else {
+          sendResponse({ success: false, error: e.message });
+        }
+      }
+    })();
+    return true;
+  }
+  if (message.type === 'PROMPTS_SAVE') {
+    (async () => {
+      try {
+        const authed = await isAuthenticated();
+        if (!authed) {
+          sendResponse({ success: false, authRequired: true });
+          return;
+        }
+        const payload = message.payload || {};
+        const hasId = !!payload.id;
+        const path = hasId ? `${API_BASE_URL}/prompts/${payload.id}` : `${API_BASE_URL}/prompts`;
+        const method = hasId ? 'PATCH' : 'POST';
+        const body = {};
+        if (typeof payload.name !== 'undefined') body.name = payload.name;
+        if (typeof payload.content !== 'undefined') body.content = payload.content;
+
+        const res = await apiFetch(path, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        const etag = res.headers.get('ETag') || data.etag || null;
+        const prompt = data.prompt;
+        const list = await upsertPromptCache(prompt, etag);
+        sendResponse({ success: true, prompt, renamed: data.renamed, prompts: list });
+      } catch (e) {
+        if (isAuthError(e)) {
+          sendResponse({ success: false, authRequired: true, error: e.message });
+        } else {
+          sendResponse({ success: false, error: e.message });
+        }
+      }
+    })();
+    return true;
+  }
+  if (message.type === 'PROMPTS_DELETE') {
+    (async () => {
+      try {
+        const authed = await isAuthenticated();
+        if (!authed) {
+          sendResponse({ success: false, authRequired: true });
+          return;
+        }
+        const promptId = message.payload?.id;
+        if (!promptId) {
+          sendResponse({ success: false, error: 'Missing prompt id' });
+          return;
+        }
+        const res = await apiFetch(`${API_BASE_URL}/prompts/${promptId}`, { method: 'DELETE' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        const etag = res.headers.get('ETag') || data.etag || null;
+        const list = await removePromptFromCache(promptId, etag);
+        sendResponse({ success: true, prompts: list });
+      } catch (e) {
+        if (isAuthError(e)) {
+          sendResponse({ success: false, authRequired: true, error: e.message });
+        } else {
+          sendResponse({ success: false, error: e.message });
+        }
+      }
+    })();
     return true;
   }
   if (message.type === 'API_GET_PROCESSED_URLS') {
