@@ -18,16 +18,11 @@ curl http://localhost:4000/api/health/light
 ```bash
 # Открыть админку в браузере
 http://localhost:4000/admin
-
-# Логин: <your-admin-email>
-# Пароль: <your-admin-password>
 ```
 
 ### **Сборка расширения**
 ```bash
-# Сборка для production
 npm run build:extension
-
 # Результат: папка extension-build/ + ZIP файл
 ```
 
@@ -35,27 +30,29 @@ npm run build:extension
 
 ### **Управление пользователями**
 ```bash
-cd server
+# Создать админа (через Supabase Auth)
+npm run admin:create -- admin@example.com
 
-# Создать админа
-npm run admin:create
-
-# Назначить права админа
-npm run admin:grant
+# Назначить роль админа по user_id
+npm run admin:grant -- <user_id>
 
 # Перенести все задания к пользователю
-npm run transfer:jobs user@example.com
+cd server
+npm run transfer:jobs -- user@example.com
 ```
 
 ### **Проверка системы**
 ```bash
-# Проверить здоровье сервера
-curl http://localhost:4000/api/health/full
+# Health light (public)
+curl http://localhost:4000/api/health/light
 
-# Проверить статистику админки
+# Health full (admin-only)
+curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:4000/api/health/full
+
+# Статистика админки
 curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:4000/api/admin/dashboard
 
-# Ручное восстановление зависших заданий (админ)
+# Ручное восстановление зависших заданий
 curl -X POST \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
@@ -63,16 +60,18 @@ curl -X POST \
   http://localhost:4000/api/admin/jobs/recover-stuck
 ```
 
+### **QA для AI‑отчётов**
+```bash
+node server/scripts/test-ai-modes.js --mode practice_overview --verbose
+```
+
 ## **Deployment**
 
 ### **Обновление на Render**
 ```bash
-# Закоммитить изменения
 git add .
-git commit -m "Update description"
+git commit -m "docs: update documentation"
 git push origin main
-
-# Render автоматически деплоит
 ```
 
 ### **Проверка переменных окружения**
@@ -90,7 +89,7 @@ git push origin main
 ```
 [ERROR] SASL: SCRAM-SERVER-FINAL-MESSAGE: server signature is missing
 ```
-**Быстрое решение:** В Render замените `DATABASE_URL` на строку подключения Supabase в формате:
+**Быстрое решение:** в Render замените `DATABASE_URL` на строку Supabase:
 ```
 postgresql://postgres.<project-ref>:<password>@db.<project-ref>.supabase.co:5432/postgres
 ```
@@ -101,8 +100,7 @@ postgresql://postgres.<project-ref>:<password>@db.<project-ref>.supabase.co:5432
 ```
 **Быстрое решение:**
 ```bash
-cd server
-npm run admin:grant
+npm run admin:grant -- <user_id>
 ```
 
 ## **Полезные ссылки**
