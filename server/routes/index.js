@@ -283,9 +283,7 @@ function startWorker({ jobId, links, cookie, prompt, claimed = false }) {
           if (ENABLE_WORKER_AUTO_TERMINATE) {
             forceTerminateWorker(jobId, 'Critical memory reported by worker');
           } else {
-            logger.info(
-              `[HEALTH_CHECK] Auto‑terminate disabled, worker ${jobId} left running`
-            );
+            logger.info(`[HEALTH_CHECK] Auto‑terminate disabled, worker ${jobId} left running`);
           }
         }
       }
@@ -533,10 +531,7 @@ function startWorkerCleanupService() {
     process.env.WORKER_HEALTHCHECK_INTERVAL_MS || '120000',
     10
   ); // 2m default
-  const MEMORY_CHECK_THRESHOLD = parseInt(
-    process.env.WORKER_HEALTHCHECK_AFTER_MS || '300000',
-    10
-  ); // 5m default
+  const MEMORY_CHECK_THRESHOLD = parseInt(process.env.WORKER_HEALTHCHECK_AFTER_MS || '300000', 10); // 5m default
   let lastHealthCheck = Date.now();
 
   if (!Number.isFinite(CLEANUP_INTERVAL) || CLEANUP_INTERVAL <= 0) {
