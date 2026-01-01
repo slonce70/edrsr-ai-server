@@ -4,7 +4,7 @@
 
 EDRSR-AI предоставляет RESTful API для взаимодействия с системой анализа судебных решений. API разделен на публичные и административные endpoints.
 
-**Base URL:** `https://edrsr-ai-server.onrender.com` (production) или `http://localhost:4000` (development)
+**Base URL:** `https://edrsr-ai-server.fun` (production) или `http://localhost:4000` (development)
 
 ## **🔓 Публичные Endpoints**
 
@@ -491,13 +491,13 @@ curl -X POST http://localhost:4000/api/admin/jobs/recover-stuck \
 
 #### **Получение списка пользователей:**
 ```bash
-curl -X GET https://edrsr-ai-server.onrender.com/api/admin/users \
+curl -X GET https://edrsr-ai-server.fun/api/admin/users \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
 ```
 
 #### **Удаление пользователя:**
 ```bash
-curl -X DELETE https://edrsr-ai-server.onrender.com/api/admin/users/USER_UUID \
+curl -X DELETE https://edrsr-ai-server.fun/api/admin/users/USER_UUID \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
 ```
 
@@ -536,7 +536,7 @@ console.log('Total users:', stats.data.total_users);
 
 ### **Подключение**
 ```javascript
-const ws = new WebSocket('wss://edrsr-ai-server.onrender.com');
+const ws = new WebSocket('wss://edrsr-ai-server.fun');
 
 ws.onopen = () => {
   console.log('Connected to WebSocket');

@@ -89,7 +89,7 @@ const STRINGS = {
         logoutBtn: '🚪 Выйти',
       },
       footer: ({ version }) =>
-        `Версия ${version || '—'} | Требуется запущенный сервер на localhost:4000`,
+        `Версия ${version || '—'} | Требуется запущенный сервер API`,
       messages: {
         authRequired: 'Требуется вход. Пожалуйста, войдите.',
         serverConnected: 'Подключено',
@@ -352,7 +352,7 @@ const STRINGS = {
         logoutBtn: '🚪 Вийти',
       },
       footer: ({ version }) =>
-        `Версія ${version || '—'} | Потрібен запущений сервер на localhost:4000`,
+        `Версія ${version || '—'} | Потрібен запущений сервер API`,
       messages: {
         authRequired: 'Потрібен вхід. Будь ласка, увійдіть.',
         serverConnected: 'Підключено',

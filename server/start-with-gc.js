@@ -10,11 +10,14 @@ const __dirname = dirname(__filename);
 
 console.log('🚀 Starting EDRSR-AI server with garbage collection enabled...');
 
+const maxOldSpaceMb = Number.parseInt(process.env.MAX_OLD_SPACE_MB, 10);
+const maxOldSpaceArg = Number.isFinite(maxOldSpaceMb) && maxOldSpaceMb > 0 ? maxOldSpaceMb : 480;
+
 const serverProcess = spawn(
   'node',
   [
     '--expose-gc', // Enable manual garbage collection
-    '--max-old-space-size=480', // Set max heap size to 480MB (leave 32MB buffer)
+    `--max-old-space-size=${maxOldSpaceArg}`, // Configurable heap limit
     join(__dirname, 'index.js'),
   ],
   {

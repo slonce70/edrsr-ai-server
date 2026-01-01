@@ -13,11 +13,11 @@ const extensionDir = path.join(projectRoot, 'extension');
 const buildDir = path.join(projectRoot, 'extension-build');
 
 // Defaults (can be overridden via env)
-const PROD_API_URL = process.env.EXT_PROD_API_URL || 'https://edrsr-ai-server.onrender.com';
+const PROD_API_URL = process.env.EXT_PROD_API_URL || 'https://edrsr-ai-server.fun';
 const DEV_API_URL = process.env.EXT_DEV_API_URL || 'http://localhost:4000';
 
 // --- Start of Edit ---
-const PROD_WS_URL = process.env.EXT_PROD_WS_URL || 'wss://edrsr-ai-server.onrender.com';
+const PROD_WS_URL = process.env.EXT_PROD_WS_URL || 'wss://edrsr-ai-server.fun';
 const DEV_WS_URL = process.env.EXT_DEV_WS_URL || 'ws://localhost:4000';
 
 // Load env for future needs (not used to change Supabase creds; Supabase is same for dev/prod)

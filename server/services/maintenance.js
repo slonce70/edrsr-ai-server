@@ -5,9 +5,17 @@ let cleanupTimer = null;
 
 export function startCacheCleanupService() {
   if (cleanupTimer) return; // already started
+  if (process.env.ENABLE_CACHE_CLEANUP === 'false') {
+    logger.info('[MAINTENANCE] Cache cleanup disabled by config');
+    return;
+  }
 
   const intervalMs = parseInt(process.env.CACHE_CLEANUP_INTERVAL_MS || String(15 * 60 * 1000), 10); // 15m default
   const maxEntries = parseInt(process.env.CACHE_MAX_PARSED_CASES || '1000', 10);
+  if (!Number.isFinite(intervalMs) || intervalMs <= 0) {
+    logger.info('[MAINTENANCE] Cache cleanup disabled (interval <= 0)');
+    return;
+  }
 
   const runOnce = async () => {
     try {

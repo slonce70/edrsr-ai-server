@@ -68,7 +68,7 @@ BATCH_THRESHOLD=15
 BATCH_DELAY=1000
 
 # Максимум параллельных AI‑батчей
-MAX_CONCURRENT_BATCHES=5
+MAX_CONCURRENT_BATCHES=7
 ```
 
 ## **🕸️ Scraper & Parsing**
@@ -115,7 +115,22 @@ WORKER_ID=<uuid-or-name>
 QUEUE_PUMP_INTERVAL_MS=60000
 MAX_JOB_DURATION_MS=1500000
 MAX_STALL_DURATION_MS=1200000
-RENDER_EXTERNAL_URL=https://your-app.onrender.com
+```
+
+## **🧹 Background Cleanup & Recovery**
+
+```env
+ENABLE_WORKER_CLEANUP=true
+ENABLE_WORKER_AUTO_TERMINATE=true
+ENABLE_PERIODIC_RECOVERY=true
+ENABLE_CHAT_CLEANUP=true
+ENABLE_CACHE_CLEANUP=true
+
+WORKER_CLEANUP_INTERVAL_MS=300000
+WORKER_MAX_LIFETIME_MS=7200000
+WORKER_HEALTHCHECK_INTERVAL_MS=600000
+WORKER_HEALTHCHECK_AFTER_MS=1200000
+RECOVERY_INTERVAL_MS=900000
 ```
 
 ## **💬 Chat Sessions**
@@ -132,6 +147,19 @@ CHAT_CLEANUP_INTERVAL_MS=300000
 CACHE_MAX_PARSED_CASES=1000
 CACHE_CLEANUP_INTERVAL_MS=900000
 TEMP_CACHE_TTL_MS=3600000
+```
+
+## **🌐 CORS / WebSocket Origins**
+
+```env
+CORS_ALLOWED_ORIGINS=https://edrsr-ai-server.fun,https://www.edrsr-ai-server.fun
+WS_ALLOWED_ORIGINS=https://edrsr-ai-server.fun,https://www.edrsr-ai-server.fun
+```
+
+## **🧰 Process / GC**
+
+```env
+MAX_OLD_SPACE_MB=1200
 ```
 
 ## **📏 API Validation Limits**
@@ -172,14 +200,14 @@ PG_MAX_USES=7500
 SUPABASE_URL=https://<your-project-ref>.supabase.co
 SUPABASE_ANON_KEY=eyJ...
 SUPABASE_SERVICE_ROLE_KEY=eyJ...
-DATABASE_URL=postgresql://postgres.<project-ref>:<password>@db.<project-ref>.supabase.co:5432/postgres
+DATABASE_URL=postgresql://postgres:<password>@127.0.0.1:5432/edrsr_ai
 
 GEMINI_API_KEY=<your-gemini-api-key>
 MODEL_NAME=gemini-2.5-flash
 FALLBACK_MODEL_NAME=gemini-2.5-pro
 
 BATCH_SIZE=10
-MAX_CONCURRENT_BATCHES=5
+MAX_CONCURRENT_BATCHES=7
 REQUEST_DELAY_MS=1000
 MAX_CONCURRENT_REQUESTS=2
 
@@ -187,17 +215,7 @@ PORT=4000
 NODE_ENV=production
 ```
 
-## **🌐 Render Deployment**
-
-Добавьте переменные в Render Dashboard. Для CLI Proxy включите блок ниже:
-
-```env
-ENABLE_CLI_PROXY=true
-CLI_PROXY_URL=https://cli-proxy-tokens.onrender.com
-CLI_PROXY_MODEL=gemini-3-pro-preview
-CLI_PROXY_API_KEYS=your-api-key-1
-CLI_PROXY_MAX_ATTEMPTS_PER_KEY=5
-```
+> Для production на VPS рекомендуется настроить CORS/WS только на домен и держать PostgreSQL локально.
 
 ## **🆘 Устранение неполадок**
 

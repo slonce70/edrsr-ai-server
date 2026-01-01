@@ -1,20 +1,21 @@
 # Оптимізація пам'яті сервера EDRSR-AI
 
-**Дата:** 30 грудня 2025
-**Платформа:** Render.com (512MB RAM)
+**Дата:** 1 січня 2026
+**Платформа:** VPS (2GB RAM)
 
 ---
 
-## Поточні налаштування (defaults)
+## Поточні налаштування (VPS профіль)
 
 | Змінна | Значення | Коментар |
 |---|---|---|
 | `BATCH_SIZE` | `10` | Розмір batch для завантаження та AI‑аналізу |
-| `MAX_CONCURRENT_BATCHES` | `5` | Паралельні AI‑батчі (рекомендовано: `min(keys, 5)`) |
-| `MEMORY_WARNING_MB` | `200` | Поріг для попереджень та GC |
-| `MAX_MEMORY_MB` | `400` | Ліміт пам'яті перед жорстким перериванням |
-| `CRITICAL_MEMORY_MB` | `420` | Критичний ліміт пам'яті |
-| `MEMORY_LIMIT_MB` | `500` | Поріг для скрейпера/тестів |
+| `MAX_CONCURRENT_BATCHES` | `7` | Паралельні AI‑батчі (рекомендовано: `min(keys, 7)`) |
+| `MEMORY_WARNING_MB` | `700` | Поріг для попереджень та GC |
+| `MAX_MEMORY_MB` | `1200` | Ліміт пам'яті перед жорстким перериванням |
+| `CRITICAL_MEMORY_MB` | `1400` | Критичний ліміт пам'яті |
+| `MEMORY_LIMIT_MB` | `1200` | Поріг для скрейпера/тестів |
+| `MAX_OLD_SPACE_MB` | `1200` | Heap cap для `start:gc` |
 
 ---
 
@@ -39,14 +40,15 @@
 
 ---
 
-## Рекомендований профіль для Render (512MB)
+## Рекомендований профіль для VPS (2GB)
 
 ```env
 BATCH_SIZE=10
-MAX_CONCURRENT_BATCHES=3
-MEMORY_WARNING_MB=200
-MAX_MEMORY_MB=400
-CRITICAL_MEMORY_MB=420
+MAX_CONCURRENT_BATCHES=7
+MEMORY_WARNING_MB=700
+MAX_MEMORY_MB=1200
+CRITICAL_MEMORY_MB=1400
+MAX_OLD_SPACE_MB=1200
 ```
 
 > Примітка: якщо ключів Gemini менше — знижуйте `MAX_CONCURRENT_BATCHES`.

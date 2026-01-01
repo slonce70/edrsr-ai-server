@@ -96,6 +96,21 @@ const COMPILED_REGEX = {
   property: /нерухомість|квартира|будинок|земельна ділянка/i,
 };
 
+function extractCaseNumberFromText(rawText) {
+  if (!rawText) return null;
+  const text = rawText.slice(0, 3000);
+  const patterns = [
+    /(?:^|\n)\s*Категорія\s+справи\s*№\s*([0-9A-Za-zА-Яа-яІіЇїЄєҐґ/-]+)/i,
+    /(?:^|\n)\s*Номер\s+справи\s*№\s*([0-9A-Za-zА-Яа-яІіЇїЄєҐґ/-]+)/i,
+    /(?:^|\n)\s*Справа\s*№\s*([0-9A-Za-zА-Яа-яІіЇїЄєҐґ/-]+)/i,
+  ];
+  for (const re of patterns) {
+    const match = text.match(re);
+    if (match && match[1]) return match[1].trim();
+  }
+  return null;
+}
+
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -724,9 +739,9 @@ function enhanceMetadataFromText(caseData, fullPageText) {
 
   // Покращуємо Номер справи
   if (caseData.caseNumber === 'Не вказано' || !caseData.caseNumber) {
-    const caseNumberMatch = fullPageText.match(COMPILED_REGEX.caseNumber);
-    if (caseNumberMatch && caseNumberMatch[1]) {
-      caseData.caseNumber = caseNumberMatch[1].trim();
+    const extracted = extractCaseNumberFromText(fullPageText);
+    if (extracted) {
+      caseData.caseNumber = extracted;
       console.log(`[Enhancer] [${caseId}] Знайдено номер справи з тексту: ${caseData.caseNumber}`);
     }
   }
@@ -1193,8 +1208,8 @@ export async function downloadAll(urls, cookie = '', onProgress = () => {}, abor
       process.env.OVERALL_REQUEST_TIMEOUT_MS,
     DEFAULT_CASE_TIMEOUT_MS
   );
-  const memWarningMB = parseInt(process.env.MEMORY_WARNING_MB, 10) || 200;
-  const memLimitMB = parseInt(process.env.MEMORY_LIMIT_MB, 10) || 400;
+  const memWarningMB = parseInt(process.env.MEMORY_WARNING_MB, 10) || 0;
+  const memLimitMB = parseInt(process.env.MEMORY_LIMIT_MB, 10) || 0;
   const limiter = pLimit(Math.max(1, MAX_CONCURRENT_REQUESTS));
 
   const isSkippable = (result) =>
@@ -1237,14 +1252,14 @@ export async function downloadAll(urls, cookie = '', onProgress = () => {}, abor
             `📊 [MEMORY] Heap: ${memUsedMB}MB / RSS: ${Math.round(memUsage.rss / 1024 / 1024)}MB`
           );
 
-          if (memUsedMB > memWarningMB && global.gc) {
+          if (memWarningMB > 0 && memUsedMB > memWarningMB && global.gc) {
             console.log(`🗑️ [MEMORY] Профілактичний GC при ${memUsedMB}MB > ${memWarningMB}MB`);
             global.gc();
             const memAfterGC = process.memoryUsage();
             console.log(`🗑️ [MEMORY] Після GC: ${Math.round(memAfterGC.heapUsed / 1024 / 1024)}MB`);
           }
 
-          if (memUsedMB > memLimitMB) {
+          if (memLimitMB > 0 && memUsedMB > memLimitMB) {
             console.warn(
               `⚠️ [MEMORY] Критичний рівень памʼяті (${memUsedMB}MB), додаю затримку...`
             );
