@@ -196,8 +196,8 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
 
     await postStatusUpdate('downloading', 10, `Инициализация загрузки ${links.length} дел...`);
 
-    // Пакетная обработка: зменшено для оптимізації памʼяті (було 25)
-    const BATCH_SIZE = parseInt(process.env.BATCH_SIZE, 10) || 10;
+    // Пакетная обработка: дефолт 25 для більшої швидкості на VPS
+    const BATCH_SIZE = parseInt(process.env.BATCH_SIZE, 10) || 25;
     const batches = [];
     for (let i = 0; i < links.length; i += BATCH_SIZE) {
       batches.push(links.slice(i, i + BATCH_SIZE));
@@ -338,10 +338,11 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
 
       // Логируем метрики после сохранения пакета
       const memAfterSave = process.memoryUsage();
+      const memAfterSaveMB = Math.round(memAfterSave.heapUsed / 1024 / 1024);
       console.log(
-        `📊 [WORKER] После сохранения пакета ${batchIndex + 1}: heap=${Math.round(
-          memAfterSave.heapUsed / 1024 / 1024
-        )}MB rss=${Math.round(memAfterSave.rss / 1024 / 1024)}MB`
+        `📊 [WORKER] После сохранения пакета ${batchIndex + 1}: heap=${memAfterSaveMB}MB rss=${Math.round(
+          memAfterSave.rss / 1024 / 1024
+        )}MB`
       );
 
       // Собираем валидные случаи для анализа (сохраняем оригинальную логику)
@@ -379,8 +380,12 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
       validCasesInBatch.length = 0;
       optimizedCases.length = 0;
 
-      // Принудительный запуск сборщика мусора между пакетами
-      if (global.gc) {
+      // Збірка сміття: рідше для швидкості, але обовʼязково при високій памʼяті
+      const gcEveryN = 3;
+      const shouldGcByInterval = (batchIndex + 1) % gcEveryN === 0;
+      const shouldGcByMemory = MEMORY_WARNING_MB > 0 && memAfterSaveMB > MEMORY_WARNING_MB;
+
+      if (global.gc && (shouldGcByInterval || shouldGcByMemory)) {
         global.gc();
         const memAfterGC = process.memoryUsage();
         console.log(
