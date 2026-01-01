@@ -40,6 +40,115 @@ if (SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) {
   supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 }
 
+// ---- Admin helpers (email cache, super-admin) ----
+const EMAIL_CACHE_MAX = parseInt(process.env.ADMIN_EMAIL_CACHE_MAX || '1000', 10);
+const emailCache = new Map(); // userId -> { email, ts }
+const EMAIL_LOOKUP_MAX_PAGES = parseInt(process.env.ADMIN_EMAIL_LOOKUP_MAX_PAGES || '5', 10);
+const EMAIL_LOOKUP_PER_PAGE = parseInt(process.env.ADMIN_EMAIL_LOOKUP_PER_PAGE || '200', 10);
+
+const SUPER_ADMIN_USER_IDS = new Set(
+  (process.env.SUPER_ADMIN_USER_IDS || '')
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean)
+);
+const SUPER_ADMIN_EMAILS = new Set(
+  (process.env.SUPER_ADMIN_EMAILS || '')
+    .split(',')
+    .map((v) => v.trim().toLowerCase())
+    .filter(Boolean)
+);
+
+function isSuperAdmin(user) {
+  if (!user) return false;
+  if (SUPER_ADMIN_USER_IDS.size > 0 && SUPER_ADMIN_USER_IDS.has(user.id)) return true;
+  if (user.email && SUPER_ADMIN_EMAILS.has(String(user.email).toLowerCase())) return true;
+  return false;
+}
+
+function getCachedEmail(userId) {
+  if (!userId) return null;
+  const cached = emailCache.get(userId);
+  if (!cached) return null;
+  // refresh LRU position
+  emailCache.delete(userId);
+  emailCache.set(userId, cached);
+  return cached.email;
+}
+
+function setCachedEmail(userId, email) {
+  if (!userId || !email) return;
+  if (emailCache.has(userId)) emailCache.delete(userId);
+  emailCache.set(userId, { email, ts: Date.now() });
+  if (emailCache.size > EMAIL_CACHE_MAX) {
+    const oldestKey = emailCache.keys().next().value;
+    if (oldestKey) emailCache.delete(oldestKey);
+  }
+}
+
+async function upsertAppUserEmail(userId, email) {
+  if (!userId || !email) return;
+  const emailLower = String(email).toLowerCase();
+  try {
+    await database.run(
+      `INSERT INTO app_users (user_id, email, email_lower, first_seen_at, last_seen_at)
+       VALUES ($1, $2, $3, NULL, NULL)
+       ON CONFLICT (user_id) DO UPDATE SET
+         email = EXCLUDED.email,
+         email_lower = EXCLUDED.email_lower`,
+      [userId, email, emailLower]
+    );
+  } catch (e) {
+    logger.warn('Could not upsert app_users email cache:', e.message);
+  }
+}
+
+async function backfillUserEmail(userId) {
+  if (!supabaseAdmin || !userId) return null;
+  try {
+    const { data, error } = await supabaseAdmin.auth.admin.getUserById(userId);
+    if (error) return null;
+    const email = data?.user?.email || null;
+    if (email) {
+      setCachedEmail(userId, email);
+      await upsertAppUserEmail(userId, email);
+      return email;
+    }
+  } catch (e) {
+    logger.warn('Could not backfill user email:', e.message);
+  }
+  return null;
+}
+
+async function ensureEmailCached(emailLower) {
+  if (!supabaseAdmin || !emailLower || !emailLower.includes('@')) return;
+  try {
+    const existing = await database.get('SELECT user_id FROM app_users WHERE email_lower = $1', [
+      emailLower,
+    ]);
+    if (existing?.user_id) return;
+
+    for (let page = 1; page <= EMAIL_LOOKUP_MAX_PAGES; page++) {
+      const { data, error } = await supabaseAdmin.auth.admin.listUsers({
+        page,
+        perPage: EMAIL_LOOKUP_PER_PAGE,
+      });
+      if (error || !data?.users) break;
+
+      const found = data.users.find((u) => u.email && String(u.email).toLowerCase() === emailLower);
+      if (found) {
+        await upsertAppUserEmail(found.id, found.email);
+        setCachedEmail(found.id, found.email);
+        break;
+      }
+
+      if (data.users.length < EMAIL_LOOKUP_PER_PAGE) break;
+    }
+  } catch (e) {
+    logger.warn('Email lookup fallback failed:', e.message);
+  }
+}
+
 // =====================
 // ДАШБОРД
 // =====================
@@ -51,7 +160,10 @@ router.get('/dashboard', async (req, res) => {
     // Return cached data if valid (reduces DB load significantly)
     if (dashboardCache && now - dashboardCacheTime < DASHBOARD_CACHE_TTL) {
       await logAdminAction(req.user.id, 'VIEW_DASHBOARD', null, null, { cached: true }, req);
-      return res.json({ success: true, data: dashboardCache });
+      return res.json({
+        success: true,
+        data: { ...dashboardCache, is_super_admin: isSuperAdmin(req.user) },
+      });
     }
 
     // Основная статистика
@@ -71,22 +183,35 @@ router.get('/dashboard', async (req, res) => {
     `);
 
     // Статистика пользователей
-    const userStats = { total_users: 0, new_users_30d: 0, admin_count: 0 };
+    const userStats = { total_users: 0, new_users_30d: 0, active_users_30d: 0, admin_count: 0 };
     if (supabaseAdmin) {
       try {
-        const { data: users, error } = await supabaseAdmin.auth.admin.listUsers();
+        const { data, error } = await supabaseAdmin.auth.admin.listUsers({
+          page: 1,
+          perPage: 1,
+        });
         if (!error) {
-          const now = new Date();
-          const thirtyDaysAgo = new Date(now - 30 * 24 * 60 * 60 * 1000);
-
-          userStats.total_users = users.users.length;
-          userStats.new_users_30d = users.users.filter(
-            (user) => new Date(user.created_at) > thirtyDaysAgo
-          ).length;
+          userStats.total_users = data.total || data.users?.length || 0;
         }
       } catch (error) {
-        logger.warn('Could not fetch user stats from Supabase:', error.message);
+        logger.warn('Could not fetch total users from Supabase:', error.message);
       }
+    }
+
+    // Локальні метрики за останні 30 днів (активні/нові у нашому застосунку)
+    try {
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      const localStats = await database.get(
+        `SELECT
+           SUM(CASE WHEN first_seen_at >= $1 THEN 1 ELSE 0 END)::int AS new_users_30d,
+           SUM(CASE WHEN last_seen_at >= $1 THEN 1 ELSE 0 END)::int AS active_users_30d
+         FROM app_users`,
+        [thirtyDaysAgo]
+      );
+      userStats.new_users_30d = localStats?.new_users_30d || 0;
+      userStats.active_users_30d = localStats?.active_users_30d || 0;
+    } catch (error) {
+      logger.warn('Could not fetch local user activity stats:', error.message);
     }
 
     const adminCount = await database.get(
@@ -120,7 +245,10 @@ router.get('/dashboard', async (req, res) => {
     dashboardCacheTime = Date.now();
 
     await logAdminAction(req.user.id, 'VIEW_DASHBOARD', null, null, { cached: false }, req);
-    res.json({ success: true, data: dashboardData });
+    res.json({
+      success: true,
+      data: { ...dashboardData, is_super_admin: isSuperAdmin(req.user) },
+    });
   } catch (error) {
     logger.error('Dashboard error:', error);
     res.status(500).json({ error: 'Ошибка загрузки дашборда' });
@@ -157,6 +285,14 @@ router.get('/users', async (req, res) => {
       }));
 
       totalUsers = data.total || users.length;
+
+      // Cache user emails locally for admin filtering
+      for (const user of users) {
+        if (user?.id && user?.email) {
+          setCachedEmail(user.id, user.email);
+          await upsertAppUserEmail(user.id, user.email);
+        }
+      }
 
       // Фильтрация по поиску если нужно
       if (search) {
@@ -232,6 +368,7 @@ router.delete('/users/:userId', async (req, res) => {
     await database.run('DELETE FROM chat_messages WHERE user_id = $1', [userId]);
     await database.run('DELETE FROM parsed_cases WHERE user_id = $1', [userId]);
     await database.run('DELETE FROM user_prompts WHERE user_id = $1', [userId]);
+    await database.run('DELETE FROM app_users WHERE user_id = $1', [userId]);
 
     // Удаляем пользователя из Supabase Auth
     if (supabaseAdmin) {
@@ -333,59 +470,77 @@ router.get('/jobs', async (req, res) => {
     const { page = 1, limit = 20, status = '', search = '', email = '' } = req.query;
     const offset = (page - 1) * limit;
 
-    let whereClause = '';
+    const where = [];
     const params = [];
     let paramIndex = 1;
 
     if (status) {
-      whereClause += ` WHERE status = $${paramIndex}`;
+      where.push(`j.status = $${paramIndex}`);
       params.push(status);
       paramIndex++;
     }
 
     if (search) {
-      const searchClause = ` ${whereClause ? 'AND' : 'WHERE'} (title ILIKE $${paramIndex} OR prompt ILIKE $${paramIndex})`;
-      whereClause += searchClause;
+      where.push(`(j.title ILIKE $${paramIndex} OR j.prompt ILIKE $${paramIndex})`);
       params.push(`%${search}%`);
       paramIndex++;
     }
 
-    // Email filter removed for performance - was loading ALL users from Supabase
-    // Client-side filtering is used instead (emails are loaded with jobs anyway)
+    if (email) {
+      const emailLower = String(email).trim().toLowerCase();
+      if (emailLower) {
+        await ensureEmailCached(emailLower);
+        where.push(`au.email_lower ILIKE $${paramIndex}`);
+        params.push(`%${emailLower}%`);
+        paramIndex++;
+      }
+    }
 
-    let jobs = await database.all(
-      `SELECT id, title, status, progress, total_links, processed_links, 
-              created_at, updated_at, user_id, duration, error_message
-       FROM jobs ${whereClause}
-       ORDER BY created_at DESC 
-       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
+    const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+    const jobs = await database.all(
+      `SELECT j.id, j.title, j.status, j.progress, j.total_links, j.processed_links, 
+                j.created_at, j.updated_at, j.user_id, j.duration, j.error_message,
+                au.email AS user_email
+         FROM jobs j
+         LEFT JOIN app_users au ON j.user_id = au.user_id
+         ${whereClause}
+         ORDER BY j.created_at DESC 
+         LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
       [...params, limit, offset]
     );
 
-    // Enrich with user emails for admin visibility (batch request instead of N+1)
-    if (supabaseAdmin && Array.isArray(jobs) && jobs.length > 0) {
-      const uniqueUserIds = [...new Set(jobs.map((j) => j.user_id).filter(Boolean))];
-      const emailMap = new Map();
-
-      // Single batch request instead of N individual getUserById calls
-      try {
-        const { data, error } = await supabaseAdmin.auth.admin.listUsers({ perPage: 100 });
-        if (!error && data?.users) {
-          for (const u of data.users) {
-            if (uniqueUserIds.includes(u.id)) {
-              emailMap.set(u.id, u.email);
-            }
-          }
+    // Fill from cache and backfill missing emails (best-effort)
+    if (Array.isArray(jobs) && jobs.length > 0) {
+      const missingUserIds = new Set();
+      for (const job of jobs) {
+        if (!job.user_id) continue;
+        const cached = getCachedEmail(job.user_id);
+        if (cached) {
+          job.user_email = cached;
+        } else if (job.user_email) {
+          setCachedEmail(job.user_id, job.user_email);
+        } else {
+          missingUserIds.add(job.user_id);
         }
-      } catch (e) {
-        logger.warn('Could not batch fetch user emails:', e.message);
       }
 
-      jobs = jobs.map((j) => ({ ...j, user_email: emailMap.get(j.user_id) || null }));
+      if (supabaseAdmin && missingUserIds.size > 0) {
+        for (const userId of missingUserIds) {
+          const emailFromApi = await backfillUserEmail(userId);
+          if (!emailFromApi) continue;
+          for (const job of jobs) {
+            if (job.user_id === userId) job.user_email = emailFromApi;
+          }
+        }
+      }
     }
 
     const totalCount = await database.get(
-      `SELECT COUNT(*) as count FROM jobs ${whereClause}`,
+      `SELECT COUNT(*) as count
+         FROM jobs j
+         LEFT JOIN app_users au ON j.user_id = au.user_id
+         ${whereClause}`,
       params
     );
 
@@ -459,6 +614,52 @@ router.get('/jobs/:jobId/report', async (req, res) => {
   } catch (error) {
     logger.error('Get job report error:', error);
     res.status(500).json({ error: 'Ошибка получения отчета' });
+  }
+});
+
+// Детальная информация по заданию (для админ-диагностики)
+router.get('/jobs/:jobId/details', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+
+    const job = await database.get(
+      `SELECT j.id, j.title, j.status, j.progress, j.total_links, j.processed_links,
+              j.created_at, j.updated_at, j.duration, j.error_message, j.prompt,
+              j.user_id, j.attempt, j.max_attempts, j.locked_by, j.locked_at,
+              j.lease_until, j.heartbeat_at, au.email AS user_email
+       FROM jobs j
+       LEFT JOIN app_users au ON j.user_id = au.user_id
+       WHERE j.id = $1`,
+      [jobId]
+    );
+
+    if (!job) {
+      return res.status(404).json({ error: 'Задание не найдено' });
+    }
+
+    // Легкая агрегация по статусам ссылок
+    const linkStatsRows = await database.all(
+      `SELECT status, COUNT(*) as count
+       FROM job_links
+       WHERE job_id = $1
+       GROUP BY status`,
+      [jobId]
+    );
+    const linkStats = linkStatsRows.reduce((acc, row) => {
+      acc[row.status] = parseInt(row.count, 10) || 0;
+      return acc;
+    }, {});
+
+    await logAdminAction(req.user.id, 'VIEW_JOB_DETAILS', 'job', jobId, {}, req);
+
+    res.json({
+      success: true,
+      job,
+      link_stats: linkStats,
+    });
+  } catch (error) {
+    logger.error('Get job details error:', error);
+    res.status(500).json({ error: 'Ошибка получения деталей задания' });
   }
 });
 
@@ -798,51 +999,46 @@ router.get('/audit-log', async (req, res) => {
 
     const logs = await database.all(
       `
-      SELECT id, user_id, action, target_type, target_id, details, 
-             ip_address, created_at
-      FROM admin_audit_log 
-      ORDER BY created_at DESC 
+      SELECT l.id, l.user_id, l.action, l.target_type, l.target_id, l.details,
+             l.ip_address, l.created_at, au.email AS user_email
+      FROM admin_audit_log l
+      LEFT JOIN app_users au ON l.user_id = au.user_id
+      ORDER BY l.created_at DESC
       LIMIT $1 OFFSET $2
     `,
       [limit, offset]
     );
 
-    // Получаем уникальные user_id для запроса email-ов
-    const uniqueUserIds = [...new Set(logs.map((log) => log.user_id))];
-    const userEmails = {};
+    // Backfill missing emails (best-effort) using cache + Supabase
+    if (Array.isArray(logs) && logs.length > 0) {
+      const missingUserIds = new Set();
+      for (const log of logs) {
+        if (!log.user_id) continue;
+        const cached = getCachedEmail(log.user_id);
+        if (cached) {
+          log.user_email = cached;
+        } else if (log.user_email) {
+          setCachedEmail(log.user_id, log.user_email);
+        } else {
+          missingUserIds.add(log.user_id);
+        }
+      }
 
-    // Добавляем email текущего пользователя из req.user если он есть в логах
-    if (req.user && uniqueUserIds.includes(req.user.id)) {
-      userEmails[req.user.id] = req.user.email;
-    }
-
-    // Single batch request instead of N individual getUserById calls
-    if (supabaseAdmin && uniqueUserIds.length > 0) {
-      try {
-        const { data, error } = await supabaseAdmin.auth.admin.listUsers({ perPage: 100 });
-        if (!error && data?.users) {
-          for (const u of data.users) {
-            if (uniqueUserIds.includes(u.id) && !userEmails[u.id]) {
-              userEmails[u.id] = u.email;
-            }
+      if (supabaseAdmin && missingUserIds.size > 0) {
+        for (const userId of missingUserIds) {
+          const emailFromApi = await backfillUserEmail(userId);
+          if (!emailFromApi) continue;
+          for (const log of logs) {
+            if (log.user_id === userId) log.user_email = emailFromApi;
           }
         }
-      } catch (e) {
-        logger.warn('Could not batch fetch user emails for audit log:', e.message);
       }
     }
-
-    // Добавляем email к каждому логу
-    const logsWithEmails = logs.map((log) => ({
-      ...log,
-      user_email: userEmails[log.user_id] || null,
-    }));
-
     const totalCount = await database.get('SELECT COUNT(*) as count FROM admin_audit_log');
 
     res.json({
       success: true,
-      logs: logsWithEmails,
+      logs,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
@@ -930,6 +1126,7 @@ router.get('/gemini/stats', async (req, res) => {
     res.json({
       success: true,
       data: enhancedStats,
+      is_super_admin: isSuperAdmin(req.user),
     });
   } catch (error) {
     logger.error('Gemini stats error:', error);
@@ -940,6 +1137,9 @@ router.get('/gemini/stats', async (req, res) => {
 // Скинути статистику використання ключів
 router.post('/gemini/reset-stats', async (req, res) => {
   try {
+    if (!isSuperAdmin(req.user)) {
+      return res.status(403).json({ error: 'Доступ заборонено' });
+    }
     const { apiKeyManager } = await import('../config.js');
 
     // Скидаємо статистику
