@@ -4,6 +4,7 @@ const adminI18n = window.AdminI18n || {
   applyTranslations: () => {},
 };
 const { t, applyTranslations } = adminI18n;
+const TOKEN_STORAGE_KEY = 'admin_token';
 
 document.addEventListener('DOMContentLoaded', async function () {
   applyTranslations(document);
@@ -16,8 +17,13 @@ document.addEventListener('DOMContentLoaded', async function () {
     return;
   }
 
-  // Get auth token from localStorage
-  const authToken = localStorage.getItem('admin_token');
+  // Get auth token from sessionStorage (migrate from localStorage if needed)
+  const authToken =
+    sessionStorage.getItem(TOKEN_STORAGE_KEY) || localStorage.getItem(TOKEN_STORAGE_KEY);
+  if (authToken && !sessionStorage.getItem(TOKEN_STORAGE_KEY)) {
+    sessionStorage.setItem(TOKEN_STORAGE_KEY, authToken);
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
+  }
   if (!authToken) {
     window.location.href = '/admin';
     return;
@@ -26,13 +32,18 @@ document.addEventListener('DOMContentLoaded', async function () {
   // Configure marked.js for rendering markdown
   if (window.marked) {
     const renderer = new marked.Renderer();
+    renderer.html = () => '';
+    renderer.image = () => '';
+    renderer.text = (text) => escapeHtml(text);
     renderer.link = (href, title, text) => {
-      if (href.startsWith('http')) {
-        return `<a href="${href}" title="${title || ''}" target="_blank">${text}</a>`;
-      }
-      return text;
+      const safeHref = sanitizeUrl(href);
+      if (!safeHref) return escapeHtml(text);
+      const safeTitle = title ? escapeHtml(title) : '';
+      return `<a href="${safeHref}" title="${safeTitle}" target="_blank" rel="noopener noreferrer">${escapeHtml(
+        text
+      )}</a>`;
     };
-    marked.setOptions({ renderer });
+    marked.setOptions({ renderer, mangle: false, headerIds: false });
   }
 
   // DOM elements
@@ -87,11 +98,17 @@ document.addEventListener('DOMContentLoaded', async function () {
 
     // Update metadata
     elements.jobMetadata.innerHTML = `
-            <li><strong>${t('report.metadataId')}:</strong> ${job.id}</li>
-            <li><strong>${t('report.metadataStatus')}:</strong> ${getStatusText(job.status)}</li>
-            <li><strong>${t('report.metadataCreated')}:</strong> ${formatReportDateTime(job.created_at)}</li>
-            <li><strong>${t('report.metadataUpdated')}:</strong> ${formatReportDateTime(job.updated_at)}</li>
-            <li><strong>${t('report.metadataLinks')}:</strong> ${job.processed_links} / ${job.total_links}</li>
+            <li><strong>${t('report.metadataId')}:</strong> ${escapeHtml(job.id)}</li>
+            <li><strong>${t('report.metadataStatus')}:</strong> ${escapeHtml(getStatusText(job.status))}</li>
+            <li><strong>${t('report.metadataCreated')}:</strong> ${escapeHtml(
+              formatReportDateTime(job.created_at)
+            )}</li>
+            <li><strong>${t('report.metadataUpdated')}:</strong> ${escapeHtml(
+              formatReportDateTime(job.updated_at)
+            )}</li>
+            <li><strong>${t('report.metadataLinks')}:</strong> ${escapeHtml(
+              String(job.processed_links)
+            )} / ${escapeHtml(String(job.total_links))}</li>
         `;
 
     const analysisContent = typeof analysis === 'string' ? analysis : analysisText;
@@ -203,6 +220,17 @@ document.addEventListener('DOMContentLoaded', async function () {
     if (!dateString) return t('report.na');
     const date = new Date(dateString);
     return date.toLocaleString('uk-UA');
+  }
+
+  function sanitizeUrl(url) {
+    if (!url) return null;
+    try {
+      const parsed = new URL(url, window.location.origin);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+      return parsed.toString();
+    } catch {
+      return null;
+    }
   }
 
   function escapeHtml(text) {

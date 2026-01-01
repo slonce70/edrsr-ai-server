@@ -2,6 +2,11 @@
 let currentPage = 'dashboard';
 let authToken = null;
 let currentUser = null;
+const TOKEN_STORAGE_KEY = 'admin_token';
+const LAST_ACTIVITY_KEY = 'admin_last_activity';
+const ADMIN_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+let idleTimerId = null;
+let eventsInitialized = false;
 const adminI18n = window.AdminI18n || {
   t: (key) => key,
   applyTranslations: () => {},
@@ -32,7 +37,7 @@ async function initializeApp() {
   setupLoginListener();
 
   // Check if we have a saved token
-  authToken = localStorage.getItem('admin_token');
+  authToken = getStoredToken();
 
   if (!authToken) {
     showLoginModal();
@@ -49,7 +54,7 @@ async function initializeApp() {
 
     if (response.status === 401 || response.status === 403) {
       // Token expired or invalid
-      localStorage.removeItem('admin_token');
+      clearStoredToken();
       authToken = null;
       showLoginModal();
       return;
@@ -62,6 +67,8 @@ async function initializeApp() {
     // Token is valid, initialize interface
     hideLoginModal();
     setupEventListeners();
+    recordActivity();
+    startIdleWatcher();
     loadCurrentPage();
     loadCurrentUser();
   } catch (error) {
@@ -78,7 +85,53 @@ function setupLoginListener() {
   }
 }
 
+function getStoredToken() {
+  const token =
+    sessionStorage.getItem(TOKEN_STORAGE_KEY) || localStorage.getItem(TOKEN_STORAGE_KEY);
+  if (token && !sessionStorage.getItem(TOKEN_STORAGE_KEY)) {
+    sessionStorage.setItem(TOKEN_STORAGE_KEY, token);
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
+  }
+  return token;
+}
+
+function setStoredToken(token) {
+  sessionStorage.setItem(TOKEN_STORAGE_KEY, token);
+  localStorage.removeItem(TOKEN_STORAGE_KEY);
+}
+
+function clearStoredToken() {
+  sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+  localStorage.removeItem(TOKEN_STORAGE_KEY);
+  sessionStorage.removeItem(LAST_ACTIVITY_KEY);
+}
+
+function recordActivity() {
+  if (!authToken) return;
+  sessionStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
+}
+
+function attachActivityListeners() {
+  const events = ['click', 'keydown', 'mousemove', 'scroll', 'touchstart'];
+  events.forEach((event) => {
+    document.addEventListener(event, recordActivity, { passive: true });
+  });
+}
+
+function startIdleWatcher() {
+  if (idleTimerId) return;
+  idleTimerId = setInterval(() => {
+    if (!authToken) return;
+    const last = Number.parseInt(sessionStorage.getItem(LAST_ACTIVITY_KEY) || '0', 10);
+    if (last && Date.now() - last > ADMIN_IDLE_TIMEOUT_MS) {
+      logout({ reason: t('messages.sessionExpired') });
+    }
+  }, 60000);
+}
+
 function setupEventListeners() {
+  if (eventsInitialized) return;
+  eventsInitialized = true;
   // Menu navigation
   document.querySelectorAll('.menu-item').forEach((item) => {
     item.addEventListener('click', function (e) {
@@ -90,15 +143,24 @@ function setupEventListeners() {
 
   // Login form already setup in setupLoginListener()
 
+  // Header / global actions
+  document.getElementById('logout-btn')?.addEventListener('click', () => logout());
+  document.getElementById('mobile-menu-btn')?.addEventListener('click', toggleMobileMenu);
+  document.getElementById('mobile-overlay')?.addEventListener('click', closeMobileMenu);
+  document.getElementById('refresh-btn')?.addEventListener('click', refreshCurrentPage);
+
   // Search and filter handlers
   document.getElementById('users-search')?.addEventListener('keypress', function (e) {
     if (e.key === 'Enter') searchUsers();
   });
+  document.getElementById('users-search-btn')?.addEventListener('click', searchUsers);
 
   document.getElementById('jobs-search')?.addEventListener('keypress', function (e) {
     if (e.key === 'Enter') searchJobs();
   });
 
+  document.getElementById('jobs-search-btn')?.addEventListener('click', searchJobs);
+  document.getElementById('jobs-clear-btn')?.addEventListener('click', clearJobFilters);
   document.getElementById('jobs-status-filter')?.addEventListener('change', searchJobs);
 
   // Email filter: Enter to search
@@ -126,6 +188,22 @@ function setupEventListeners() {
       loadJobs(page, status, search, email).finally(() => showJobsInlineLoading(false));
     });
   }
+
+  // System actions
+  document.querySelectorAll('[data-cleanup]')?.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const type = btn.getAttribute('data-cleanup');
+      if (type) performCleanup(type);
+    });
+  });
+  document.getElementById('recover-stuck-btn')?.addEventListener('click', recoverStuckJobsNow);
+  document.getElementById('retry-failed-btn')?.addEventListener('click', retryAllFailedJobs);
+  document.getElementById('view-error-jobs-btn')?.addEventListener('click', viewErrorJobs);
+  document.getElementById('security-refresh-btn')?.addEventListener('click', loadSecurityStats);
+
+  setupTableActionHandlers();
+  setupPaginationHandlers();
+  attachActivityListeners();
 }
 
 function showJobsInlineLoading(isLoading) {
@@ -178,7 +256,9 @@ async function handleLogin(e) {
     }
 
     // Success
-    localStorage.setItem('admin_token', authToken);
+    setStoredToken(authToken);
+    recordActivity();
+    startIdleWatcher();
     hideLoginModal();
     hideLoading();
 
@@ -195,11 +275,12 @@ async function handleLogin(e) {
   }
 }
 
-function logout() {
-  localStorage.removeItem('admin_token');
+function logout({ reason } = {}) {
+  clearStoredToken();
   authToken = null;
   currentUser = null;
   showLoginModal();
+  if (reason) showError(reason);
 }
 
 function navigateToPage(page) {
@@ -349,18 +430,18 @@ async function loadUsers(page = 1, search = '') {
                 <div class="action-buttons">
                     ${
                       !user.is_admin
-                        ? `<button class="btn btn-primary btn-sm" onclick="makeAdmin('${escapeHtml(user.id)}')">
+                        ? `<button class="btn btn-primary btn-sm" data-action="make-admin" data-user-id="${escapeHtml(user.id)}">
                             <i class="fas fa-user-shield"></i> ${t('actions.makeAdmin')}
                         </button>`
                         : user.id !== currentUser?.id
-                          ? `<button class="btn btn-warning btn-sm" onclick="revokeAdmin('${escapeHtml(user.id)}')">
+                          ? `<button class="btn btn-warning btn-sm" data-action="revoke-admin" data-user-id="${escapeHtml(user.id)}">
                                 <i class="fas fa-user-times"></i> ${t('actions.revokeAdmin')}
                             </button>`
                           : `<span class="status-badge status-completed">${t('common.you')}</span>`
                     }
                     ${
                       user.id !== currentUser?.id
-                        ? `<button class="btn btn-danger btn-sm" onclick="deleteUser('${escapeHtml(user.id)}', '${escapeHtml(user.email)}')">
+                        ? `<button class="btn btn-danger btn-sm" data-action="delete-user" data-user-id="${escapeHtml(user.id)}" data-user-email="${escapeHtml(user.email)}">
                             <i class="fas fa-trash"></i> ${t('common.delete')}
                         </button>`
                         : ''
@@ -418,7 +499,7 @@ async function loadJobs(page = 1, status = '', search = '', email = '') {
             <td>
                 <div class="job-title-cell">
                     <span id="title-${escapeHtml(job.id)}">${escapeHtml(job.title) || t('common.untitled')}</span>
-                    <button class="btn btn-link btn-sm" onclick="editJobTitle('${escapeHtml(job.id)}', '${escapeHtml((job.title || '').replace(/'/g, "\\'"))}')" aria-label="Редактировать название">
+                    <button class="btn btn-link btn-sm" data-action="edit-job-title" data-job-id="${escapeHtml(job.id)}" data-job-title="${encodeURIComponent(job.title || '')}" aria-label="Редактировать название">
                         <i class="fas fa-edit"></i>
                     </button>
                 </div>
@@ -437,19 +518,19 @@ async function loadJobs(page = 1, status = '', search = '', email = '') {
                 <div class="action-buttons">
                     ${
                       job.status === 'completed'
-                        ? `<button class="btn btn-info btn-sm" onclick="viewJobReport('${escapeHtml(job.id)}')">
+                        ? `<button class="btn btn-info btn-sm" data-action="view-report" data-job-id="${escapeHtml(job.id)}">
                             <i class="fas fa-file-alt"></i> ${t('common.report')}
                         </button>`
                         : ''
                     }
                     ${
                       job.status === 'error'
-                        ? `<button class="btn btn-warning btn-sm" onclick="retryJob('${escapeHtml(job.id)}')" title="${t('actions.retryJob')}">
+                        ? `<button class="btn btn-warning btn-sm" data-action="retry-job" data-job-id="${escapeHtml(job.id)}" title="${t('actions.retryJob')}">
                             <i class="fas fa-redo"></i> ${t('actions.retryShort')}
                         </button>`
                         : ''
                     }
-                    <button class="btn btn-danger btn-sm" onclick="deleteJob('${escapeHtml(job.id)}')">
+                    <button class="btn btn-danger btn-sm" data-action="delete-job" data-job-id="${escapeHtml(job.id)}">
                         <i class="fas fa-trash"></i> ${t('common.delete')}
                     </button>
                 </div>
@@ -515,17 +596,21 @@ async function loadAuditLog(page = 1) {
 
   tbody.innerHTML = response.logs
     .map((log) => {
-      const userDisplay = log.user_email
-        ? `${log.user_email} (${log.user_id.substring(0, 8)}...)`
-        : log.user_id;
+      const userEmail = log.user_email ? escapeHtml(log.user_email) : null;
+      const userId = log.user_id ? escapeHtml(log.user_id) : '';
+      const userDisplay = userEmail ? `${userEmail} (${userId.substring(0, 8)}...)` : userId;
+      const action = escapeHtml(log.action);
+      const targetType = log.target_type ? escapeHtml(log.target_type) : t('common.na');
+      const targetId = log.target_id ? escapeHtml(log.target_id) : '';
+      const ip = log.ip_address ? escapeHtml(log.ip_address) : t('common.na');
 
       return `
             <tr>
                 <td>${formatDateTime(log.created_at)}</td>
                 <td>${userDisplay}</td>
-                <td>${log.action}</td>
-                <td>${log.target_type || t('common.na')}${log.target_id ? ':' + log.target_id : ''}</td>
-                <td>${log.ip_address || t('common.na')}</td>
+                <td>${action}</td>
+                <td>${targetType}${targetId ? ':' + targetId : ''}</td>
+                <td>${ip}</td>
             </tr>
         `;
     })
@@ -545,7 +630,7 @@ async function loadSecurityStats() {
         .map(
           (item) => `
                 <div class="blocked-item">
-                    <strong>${item.target}</strong><br>
+                    <strong>${escapeHtml(item.target)}</strong><br>
                     <small>${t('securityReasons.reason', {
                       reason:
                         item.reason === 'email_attempts'
@@ -568,7 +653,7 @@ async function loadSecurityStats() {
         .map(
           (item) => `
                 <div class="attempt-item">
-                    <strong>${item.target}</strong><br>
+                    <strong>${escapeHtml(item.target)}</strong><br>
                     <small>${t('securityReasons.attemptsCount', { count: item.count })}</small><br>
                     <small>${t('securityReasons.lastAttempt', { time: formatDateTime(item.lastAttempt) })}</small>
                 </div>
@@ -581,6 +666,62 @@ async function loadSecurityStats() {
   } catch (error) {
     showError(t('messages.securityLoadError', { message: error.message }));
   }
+}
+
+function setupTableActionHandlers() {
+  const usersTable = document.getElementById('users-table-body');
+  if (usersTable) {
+    usersTable.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-action]');
+      if (!btn) return;
+      const action = btn.getAttribute('data-action');
+      const userId = btn.getAttribute('data-user-id');
+      const userEmail = btn.getAttribute('data-user-email') || '';
+      if (!action || !userId) return;
+      if (action === 'make-admin') makeAdmin(userId);
+      if (action === 'revoke-admin') revokeAdmin(userId);
+      if (action === 'delete-user') deleteUser(userId, userEmail);
+    });
+  }
+
+  const jobsTable = document.getElementById('jobs-table-body');
+  if (jobsTable) {
+    jobsTable.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-action]');
+      if (!btn) return;
+      const action = btn.getAttribute('data-action');
+      const jobId = btn.getAttribute('data-job-id');
+      if (!action || !jobId) return;
+      if (action === 'view-report') viewJobReport(jobId);
+      if (action === 'retry-job') retryJob(jobId);
+      if (action === 'delete-job') deleteJob(jobId);
+      if (action === 'edit-job-title') {
+        const encodedTitle = btn.getAttribute('data-job-title') || '';
+        const currentTitle = decodeURIComponent(encodedTitle);
+        editJobTitle(jobId, currentTitle);
+      }
+    });
+  }
+}
+
+function setupPaginationHandlers() {
+  const paginationConfigs = [
+    { id: 'users-pagination', type: 'users' },
+    { id: 'jobs-pagination', type: 'jobs' },
+    { id: 'audit-pagination', type: 'audit' },
+  ];
+
+  paginationConfigs.forEach(({ id, type }) => {
+    const container = document.getElementById(id);
+    if (!container) return;
+    container.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-page]');
+      if (!btn || btn.disabled) return;
+      const page = Number.parseInt(btn.getAttribute('data-page') || '0', 10);
+      if (!page || Number.isNaN(page) || page < 1) return;
+      changePage(type, page);
+    });
+  });
 }
 
 // Action functions
@@ -609,7 +750,8 @@ async function revokeAdmin(userId) {
 }
 
 async function deleteUser(userId, email) {
-  if (!confirm(t('confirm.deleteUser', { email }))) return;
+  if (!confirmWithKeyword(t('confirm.deleteUser', { email }), 'DELETE', t('confirm.typeDelete')))
+    return;
 
   try {
     await apiCall(`/api/admin/users/${userId}`, 'DELETE');
@@ -621,7 +763,7 @@ async function deleteUser(userId, email) {
 }
 
 async function deleteJob(jobId) {
-  if (!confirm(t('confirm.deleteJob'))) return;
+  if (!confirmWithKeyword(t('confirm.deleteJob'), 'DELETE', t('confirm.typeDelete'))) return;
 
   try {
     await apiCall(`/api/admin/jobs/${jobId}`, 'DELETE');
@@ -681,9 +823,8 @@ async function editJobTitle(jobId, currentTitle) {
 }
 
 async function viewJobReport(jobId) {
-  // Открываем отчет в новой вкладке
   const reportUrl = `/admin/report.html?jobId=${jobId}`;
-  window.open(reportUrl, '_blank');
+  window.location.href = reportUrl;
 }
 
 async function performCleanup(type) {
@@ -693,7 +834,14 @@ async function performCleanup(type) {
     old_cache: t('confirm.cleanupOldCache'),
   };
 
-  if (!confirm(confirmMessages[type])) return;
+  if (
+    !confirmWithKeyword(
+      confirmMessages[type] || t('confirm.cleanupOldJobs'),
+      'CLEAN',
+      t('confirm.typeCleanup')
+    )
+  )
+    return;
 
   try {
     showLoading();
@@ -849,16 +997,20 @@ async function apiCall(url, method = 'GET', body = null) {
   const response = await fetch(url, options);
 
   if (response.status === 401 || response.status === 403) {
-    logout();
+    logout({ reason: t('messages.sessionExpired') });
     throw new Error(t('messages.sessionExpired'));
   }
 
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'API request failed');
+    const error = await response.json().catch(() => ({}));
+    const message =
+      response.status >= 500 ? t('messages.serverError') : error.error || 'API request failed';
+    throw new Error(message);
   }
 
-  return await response.json();
+  const data = await response.json();
+  recordActivity();
+  return data;
 }
 
 // Format duration provided in seconds into human-readable string
@@ -901,19 +1053,19 @@ function updatePagination(type, pagination) {
   let html = '';
 
   // Previous button
-  html += `<button ${page <= 1 ? 'disabled' : ''} onclick="changePage('${type}', ${page - 1})" aria-label="Предыдущая страница">
+  html += `<button ${page <= 1 ? 'disabled' : ''} data-page="${page - 1}" aria-label="Предыдущая страница">
                 <i class="fas fa-chevron-left"></i>
              </button>`;
 
   // Page numbers
   for (let i = Math.max(1, page - 2); i <= Math.min(totalPages, page + 2); i++) {
-    html += `<button class="${i === page ? 'active' : ''}" onclick="changePage('${type}', ${i})" aria-label="Страница ${i}" ${i === page ? 'aria-current="page"' : ''}>
+    html += `<button class="${i === page ? 'active' : ''}" data-page="${i}" aria-label="Страница ${i}" ${i === page ? 'aria-current="page"' : ''}>
                     ${i}
                  </button>`;
   }
 
   // Next button
-  html += `<button ${page >= totalPages ? 'disabled' : ''} onclick="changePage('${type}', ${page + 1})" aria-label="Следующая страница">
+  html += `<button ${page >= totalPages ? 'disabled' : ''} data-page="${page + 1}" aria-label="Следующая страница">
                 <i class="fas fa-chevron-right"></i>
              </button>`;
 
@@ -966,6 +1118,8 @@ function showToast(message, type = 'success') {
   const toast = document.createElement('div');
   toast.className = `toast toast-${type}`;
   toast.textContent = message;
+  toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
+  toast.setAttribute('aria-live', type === 'error' ? 'assertive' : 'polite');
   document.body.appendChild(toast);
 
   setTimeout(() => {
@@ -980,6 +1134,16 @@ function showSuccess(message) {
 
 function showError(message) {
   showToast(message, 'error');
+}
+
+function confirmWithKeyword(message, keyword, promptMessage) {
+  if (!confirm(message)) return false;
+  const typed = prompt(promptMessage);
+  if (!typed || typed.trim().toUpperCase() !== keyword) {
+    showError(t('messages.confirmFailed'));
+    return false;
+  }
+  return true;
 }
 
 // Mobile menu functions

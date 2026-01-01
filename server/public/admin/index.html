@@ -5,14 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title data-i18n="title">EDRSR-AI - Админская панель</title>
     <link rel="stylesheet" href="styles.css" />
-    <link
-      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
-      rel="stylesheet"
-    />
+    <link href="vendor/fontawesome/all.min.css" rel="stylesheet" />
   </head>
   <body>
     <!-- Mobile overlay -->
-    <div class="mobile-overlay" onclick="closeMobileMenu()"></div>
+    <div class="mobile-overlay" id="mobile-overlay"></div>
 
     <div class="admin-container">
       <!-- Sidebar -->
@@ -68,7 +65,7 @@
             <i class="fas fa-user-shield"></i>
             <span id="current-user" data-i18n="sidebar.currentUserLoading">Загрузка...</span>
           </div>
-          <button class="btn-logout" onclick="logout()">
+          <button class="btn-logout" id="logout-btn">
             <i class="fas fa-sign-out-alt"></i>
             <span data-i18n="sidebar.logout">Выйти</span>
           </button>
@@ -79,7 +76,7 @@
       <main class="main-content">
         <!-- Header -->
         <header class="top-header">
-          <button class="mobile-menu-btn" onclick="toggleMobileMenu()" aria-label="Открыть меню">
+          <button class="mobile-menu-btn" id="mobile-menu-btn" aria-label="Открыть меню">
             <i class="fas fa-bars"></i>
           </button>
           <h1 id="page-title" data-i18n="nav.dashboard">Дашборд</h1>
@@ -88,7 +85,7 @@
               <option value="uk">UA</option>
               <option value="ru">RU</option>
             </select>
-            <button class="btn btn-refresh" onclick="refreshCurrentPage()">
+            <button class="btn btn-refresh" id="refresh-btn">
               <i class="fas fa-sync-alt"></i><span data-i18n="header.refresh"> Обновить</span>
             </button>
           </div>
@@ -189,7 +186,7 @@
                   data-i18n-placeholder="users.searchPlaceholder"
                   placeholder="Поиск пользователей..."
                 />
-                <button onclick="searchUsers()" aria-label="Найти пользователей">
+                <button id="users-search-btn" aria-label="Найти пользователей">
                   <i class="fas fa-search"></i>
                 </button>
               </div>
@@ -244,10 +241,10 @@
                   data-i18n-placeholder="jobs.searchPlaceholder"
                   placeholder="Поиск заданий..."
                 />
-                <button id="jobs-search-btn" onclick="searchJobs()" aria-label="Найти задания">
+                <button id="jobs-search-btn" aria-label="Найти задания">
                   <i class="fas fa-search"></i>
                 </button>
-                <button id="jobs-clear-btn" class="btn btn-secondary" onclick="clearJobFilters()">
+                <button id="jobs-clear-btn" class="btn btn-secondary">
                   <i class="fas fa-times-circle"></i>
                   <span data-i18n="jobs.clearFilters">Очистить</span>
                 </button>
@@ -293,17 +290,17 @@
                 </p>
 
                 <div class="cleanup-options">
-                  <button class="btn btn-warning" onclick="performCleanup('old_jobs')">
+                  <button class="btn btn-warning" data-cleanup="old_jobs">
                     <i class="fas fa-trash"></i>
                     <span data-i18n="system.cleanupOldJobs">Старые задания (90+ дней)</span>
                   </button>
 
-                  <button class="btn btn-warning" onclick="performCleanup('failed_jobs')">
+                  <button class="btn btn-warning" data-cleanup="failed_jobs">
                     <i class="fas fa-exclamation-triangle"></i>
                     <span data-i18n="system.cleanupFailedJobs">Проваленные задания (7+ дней)</span>
                   </button>
 
-                  <button class="btn btn-warning" onclick="performCleanup('old_cache')">
+                  <button class="btn btn-warning" data-cleanup="old_cache">
                     <i class="fas fa-database"></i>
                     <span data-i18n="system.cleanupOldCache">Старый кеш (30+ дней)</span>
                   </button>
@@ -317,16 +314,16 @@
                 </p>
 
                 <div class="cleanup-options">
-                  <button class="btn btn-primary" onclick="recoverStuckJobsNow()">
+                  <button class="btn btn-primary" id="recover-stuck-btn">
                     <i class="fas fa-first-aid"></i>
                     <span data-i18n="system.recoverStuck">Восстановить зависшие сейчас</span>
                   </button>
-                  <button class="btn btn-success" onclick="retryAllFailedJobs()">
+                  <button class="btn btn-success" id="retry-failed-btn">
                     <i class="fas fa-redo"></i>
                     <span data-i18n="system.retryFailed">Retry всех failed заданий</span>
                   </button>
 
-                  <button class="btn btn-info" onclick="viewErrorJobs()">
+                  <button class="btn btn-info" id="view-error-jobs-btn">
                     <i class="fas fa-exclamation-circle"></i>
                     <span data-i18n="system.viewErrorJobs">Просмотр заданий с ошибками</span>
                   </button>
@@ -397,7 +394,7 @@
             </div>
 
             <div class="security-actions">
-              <button class="btn btn-info" onclick="loadSecurityStats()">
+              <button class="btn btn-info" id="security-refresh-btn">
                 <i class="fas fa-sync"></i>
                 <span data-i18n="security.refresh">Обновить статистику</span>
               </button>
@@ -425,7 +422,7 @@
           <button type="submit" class="btn btn-primary" data-i18n="login.submit">Войти</button>
         </form>
 
-        <div id="login-error" class="error-message"></div>
+        <div id="login-error" class="error-message" role="alert" aria-live="polite"></div>
       </div>
     </div>
 
