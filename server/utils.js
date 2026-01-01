@@ -262,7 +262,10 @@ export function sleep(ms) {
  * @returns {number} - Optimal batch size
  */
 export function calculateOptimalBatchSize(totalCases) {
-  const BATCH_SIZE = parseInt(process.env.BATCH_SIZE, 10) || 10;
+  const BATCH_SIZE =
+    parseInt(process.env.AI_BATCH_SIZE, 10) ||
+    parseInt(process.env.BATCH_SIZE, 10) ||
+    10;
 
   if (totalCases <= BATCH_SIZE) {
     return totalCases; // Process all in one batch if under or equal to the desired size
