@@ -226,6 +226,33 @@ function showJobsInlineLoading(isLoading) {
   if (btn) btn.disabled = !!isLoading;
 }
 
+function getLoginErrorMessage(payload) {
+  const code = payload?.error_code;
+  switch (code) {
+    case 'invalid_credentials':
+      return t('login.invalidCredentials');
+    case 'email_not_confirmed':
+      return t('login.emailNotConfirmed');
+    case 'missing_credentials':
+      return t('login.missingCredentials');
+    case 'rate_limited':
+      return t('login.rateLimited');
+    case 'supabase_not_configured':
+      return t('login.supabaseNotConfigured');
+    default:
+      break;
+  }
+
+  const raw = String(payload?.error || '');
+  if (/invalid login credentials/i.test(raw) || /invalid email or password/i.test(raw)) {
+    return t('login.invalidCredentials');
+  }
+  if (/email not confirmed/i.test(raw)) return t('login.emailNotConfirmed');
+  if (/supabase not configured/i.test(raw)) return t('login.supabaseNotConfigured');
+  if (/email and password are required/i.test(raw)) return t('login.missingCredentials');
+  return raw || t('login.authFailed');
+}
+
 async function handleLogin(e) {
   e.preventDefault();
 
@@ -246,8 +273,8 @@ async function handleLogin(e) {
     });
 
     if (!authResponse.ok) {
-      const error = await authResponse.json();
-      throw new Error(error.error || t('login.authFailed'));
+      const errorPayload = await authResponse.json().catch(() => ({}));
+      throw new Error(getLoginErrorMessage(errorPayload));
     }
 
     const authData = await authResponse.json();
