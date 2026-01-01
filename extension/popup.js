@@ -264,8 +264,8 @@ document.addEventListener('DOMContentLoaded', () => {
           statusText = getStatusText(jobData.status);
           break;
         case 'downloading':
-          // Hide row below; keep empty text
-          statusText = '';
+          // Show detailed progress while downloading (fallback to status label)
+          statusText = jobData.message ? jobData.message : getStatusText(jobData.status);
           break;
         case 'analyzing':
           // Show detailed progress message from server while AI processes batches
@@ -281,9 +281,9 @@ document.addEventListener('DOMContentLoaded', () => {
           statusText = getStatusText(jobData.status);
       }
     }
-    // If downloading, hide the status row; otherwise show with text
+    // Hide status row only when there is no text to show
     if (elements.jobStatusRow) {
-      elements.jobStatusRow.classList.toggle('hidden', jobData.status === 'downloading');
+      elements.jobStatusRow.classList.toggle('hidden', !statusText);
     }
     elements.jobStatusText.textContent = statusText;
     elements.jobProgress.textContent = `${jobData.progress || 0}%`;
