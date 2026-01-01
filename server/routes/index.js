@@ -38,6 +38,23 @@ if (SUPABASE_URL && SUPABASE_ANON_KEY) {
   supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 }
 
+function mapAuthErrorCode(error) {
+  const message = String(error?.message || '').toLowerCase();
+  if (
+    message.includes('invalid login credentials') ||
+    message.includes('invalid email or password')
+  )
+    return 'invalid_credentials';
+  if (message.includes('email not confirmed')) return 'email_not_confirmed';
+  if (
+    message.includes('rate limit') ||
+    message.includes('too many requests') ||
+    error?.status === 429
+  )
+    return 'rate_limited';
+  return 'auth_failed';
+}
+
 // Auth endpoints (public)
 router.post(
   '/auth/signin',
@@ -50,11 +67,15 @@ router.post(
       const { email, password } = req.body;
 
       if (!email || !password) {
-        return res.status(400).json({ error: 'Email and password are required' });
+        return res
+          .status(400)
+          .json({ error: 'Email and password are required', error_code: 'missing_credentials' });
       }
 
       if (!supabase) {
-        return res.status(500).json({ error: 'Supabase not configured' });
+        return res
+          .status(500)
+          .json({ error: 'Supabase not configured', error_code: 'supabase_not_configured' });
       }
 
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -63,7 +84,7 @@ router.post(
       });
 
       if (error) {
-        return res.status(401).json({ error: error.message });
+        return res.status(401).json({ error: error.message, error_code: mapAuthErrorCode(error) });
       }
 
       res.json({
@@ -75,7 +96,7 @@ router.post(
       });
     } catch (error) {
       logger.error('Sign in error:', error);
-      res.status(500).json({ error: 'Authentication failed' });
+      res.status(500).json({ error: 'Authentication failed', error_code: 'auth_failed' });
     }
   }
 );
