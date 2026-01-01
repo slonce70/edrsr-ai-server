@@ -98,12 +98,12 @@
 13. [x] Додати step‑up підтвердження для критичних дій (cleanup/delete/retry‑all).
 14. [x] Вирівняти повідомлення помилок (без витоку деталей).
 15. [x] Додати `Permissions-Policy` та інші базові security‑headers.
-16. [ ] Перевірити rate‑limit для адмін‑роутів та login (значення/повідомлення).
-17. [ ] UX‑полірування: візуальні стани, пусті таблиці, завантаження.
+16. [x] Перевірити rate‑limit для адмін‑роутів та login (значення/повідомлення).
+17. [x] UX‑полірування: візуальні стани, пусті таблиці, завантаження.
 18. [x] Перевірити доступність (контраст, фокус, aria‑labels, keyboard).
 19. [x] Оновити `docs/ADMIN_SETUP.md` з новими правилами (CSP/сесії).
 20. [x] Оновити `docs/SECURITY_AUDIT_REPORT.md` (новий аудит/зміни).
-21. [ ] Smoke‑тест адмінки: login, dashboard, users, jobs, audit, system.
-22. [ ] XSS‑тести: вставка HTML у title/analysis/log‑fields.
+21. [x] Smoke‑тест адмінки: login, dashboard, users, jobs, audit, system.
+22. [x] XSS‑тести: вставка HTML у title/analysis/log‑fields.
 23. [x] Перевірка CSP у браузері (blocked resources/errors).
 24. [x] Підготувати short rollback‑notes.
