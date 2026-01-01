@@ -107,6 +107,8 @@ async function generateContent(prompt, reservedKeyIndex = null) {
 
         const isQuotaError = message.includes('429') || message.includes('RESOURCE_EXHAUSTED');
         const isOverloadError = message.includes('503') || message.includes('overloaded');
+        const isEmptyResponse =
+          message.includes('порожню відповідь') || message.toLowerCase().includes('empty response');
         const isInvalidKey =
           message.includes('400') ||
           message.includes('401') ||
@@ -125,10 +127,10 @@ async function generateContent(prompt, reservedKeyIndex = null) {
           break;
         }
 
-        if (isQuotaError || isOverloadError) {
+        if (isQuotaError || isOverloadError || isEmptyResponse) {
           // Спробувати fallback модель на цьому ж ключі
           if (currentModel === modelName && modelsToTry.length > 1) {
-            logger.info(`⚠️ ${currentModel} rate limited, пробую fallback модель...`);
+            logger.info(`⚠️ ${currentModel} недоступна, пробую fallback модель...`);
             await new Promise((resolve) => setTimeout(resolve, 1000));
             continue; // Спробувати наступну модель
           }
@@ -137,7 +139,9 @@ async function generateContent(prompt, reservedKeyIndex = null) {
           // Використовуємо адаптивний cooldown на основі моделі
           apiKeyManager.markRateLimited(keyIndex, null, currentModel);
           keysFullyTried.add(keyIndex);
-          logger.info(`⚠️ Ключ #${keyIndex + 1} повністю rate limited, пробую інший ключ...`);
+          logger.info(
+            `⚠️ Ключ #${keyIndex + 1} тимчасово недоступний, пробую інший ключ...`
+          );
           break; // Вийти з циклу моделей, спробувати інший ключ
         }
 
