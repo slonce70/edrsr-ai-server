@@ -105,5 +105,5 @@
 20. [x] Оновити `docs/SECURITY_AUDIT_REPORT.md` (новий аудит/зміни).
 21. [ ] Smoke‑тест адмінки: login, dashboard, users, jobs, audit, system.
 22. [ ] XSS‑тести: вставка HTML у title/analysis/log‑fields.
-23. [ ] Перевірка CSP у браузері (blocked resources/errors).
+23. [x] Перевірка CSP у браузері (blocked resources/errors).
 24. [x] Підготувати short rollback‑notes.
