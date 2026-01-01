@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import database from '../database/connection.js';
 import { logger, getClientIp } from '../utils.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -71,6 +72,25 @@ export async function attachUser(req, _res, next) {
     // Successful authentication
     req.user = { id: data.user.id, email: data.user.email };
     logger.debug(`[AUTH] User authenticated: ${data.user.email} from ${ip}`);
+
+    // Best-effort local user cache for admin filtering/stats
+    if (data.user.id && data.user.email) {
+      try {
+        const emailLower = String(data.user.email).toLowerCase();
+        await database.run(
+          `INSERT INTO app_users (user_id, email, email_lower, first_seen_at, last_seen_at)
+           VALUES ($1, $2, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+           ON CONFLICT (user_id) DO UPDATE SET
+             email = EXCLUDED.email,
+             email_lower = EXCLUDED.email_lower,
+             last_seen_at = CURRENT_TIMESTAMP,
+             first_seen_at = COALESCE(app_users.first_seen_at, EXCLUDED.first_seen_at)`,
+          [data.user.id, data.user.email, emailLower]
+        );
+      } catch (dbErr) {
+        logger.warn('[AUTH] Failed to upsert app_users cache:', dbErr.message);
+      }
+    }
     return next();
   } catch (e) {
     // Log unexpected errors
