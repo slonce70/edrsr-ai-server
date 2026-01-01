@@ -73,3 +73,37 @@
 - [x] Фінальний бекап перед cutover зроблено.
 - [ ] Розширення оновлене у користувачів (або опублікований новий реліз).
 - [ ] Повідомлено команду про момент відключення старого бекенду.
+
+---
+
+# План безпеки та покращення адмін‑панелі (2026‑01‑01)
+
+## Легенда
+- [ ] не виконано
+- [x] виконано
+
+## План (24 кроки)
+1. [x] Інвентаризувати адмін‑поверхню та залежності (`server/routes/admin.js`, `server/middleware/*`, `server/public/admin/*`, `docs/*`).
+2. [x] Зафіксувати threat‑model адмінки (XSS/CSRF, role escalation, data‑leak, mass‑ops, rate‑limit, audit‑trail).
+3. [x] Перевірити всі `innerHTML`/динамічні вставки в UI та скласти список XSS‑ризиків.
+4. [x] Усунути XSS у звіті: безпечний markdown‑renderer (без HTML), sanitize link/image.
+5. [x] Перевести `marked` на локальний файл (без CDN).
+6. [x] Перевести Font Awesome на локальні файли (без CDN).
+7. [x] Прибрати inline‑handlers (`onclick`) у `index.html`, перенести в `script.js`.
+8. [x] Посилити CSP для `/admin` (без `unsafe-inline` для script, без CDN).
+9. [x] Екранувати/санітизувати audit/security блоки в адмін‑UI.
+10. [x] Оновити metadata/HTML у `report.js` з повним escape для полів job.
+11. [x] Перейти з `localStorage` на `sessionStorage` для адмін‑токена (м’яка міграція).
+12. [x] Додати idle‑timeout (30 хв) + авто‑logout за неактивності.
+13. [x] Додати step‑up підтвердження для критичних дій (cleanup/delete/retry‑all).
+14. [x] Вирівняти повідомлення помилок (без витоку деталей).
+15. [x] Додати `Permissions-Policy` та інші базові security‑headers.
+16. [ ] Перевірити rate‑limit для адмін‑роутів та login (значення/повідомлення).
+17. [ ] UX‑полірування: візуальні стани, пусті таблиці, завантаження.
+18. [x] Перевірити доступність (контраст, фокус, aria‑labels, keyboard).
+19. [x] Оновити `docs/ADMIN_SETUP.md` з новими правилами (CSP/сесії).
+20. [x] Оновити `docs/SECURITY_AUDIT_REPORT.md` (новий аудит/зміни).
+21. [ ] Smoke‑тест адмінки: login, dashboard, users, jobs, audit, system.
+22. [ ] XSS‑тести: вставка HTML у title/analysis/log‑fields.
+23. [ ] Перевірка CSP у браузері (blocked resources/errors).
+24. [x] Підготувати short rollback‑notes.

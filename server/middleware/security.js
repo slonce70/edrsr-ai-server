@@ -257,13 +257,23 @@ export function securityHeaders(req, res, next) {
     res.setHeader(
       'Content-Security-Policy',
       "default-src 'self'; " +
-        "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; " +
-        "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; " +
-        "font-src 'self' https://cdnjs.cloudflare.com; " +
+        "script-src 'self'; " +
+        "style-src 'self' 'unsafe-inline'; " +
         "img-src 'self' data:; " +
-        "connect-src 'self';"
+        "font-src 'self' data:; " +
+        "connect-src 'self'; " +
+        "object-src 'none'; " +
+        "base-uri 'self'; " +
+        "frame-ancestors 'none'; " +
+        "form-action 'self';"
     );
   }
+
+  // Permissions Policy (reduce browser feature surface)
+  res.setHeader(
+    'Permissions-Policy',
+    'geolocation=(), camera=(), microphone=(), payment=(), usb=(), bluetooth=(), hid=()'
+  );
 
   next();
 }
