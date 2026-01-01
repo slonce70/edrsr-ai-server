@@ -88,8 +88,7 @@ const STRINGS = {
         recoverBtn: '🔁 Забыли пароль?',
         logoutBtn: '🚪 Выйти',
       },
-      footer: ({ version }) =>
-        `Версия ${version || '—'} | Требуется запущенный сервер API`,
+      footer: ({ version }) => `Версия ${version || '—'} | Требуется запущенный сервер API`,
       messages: {
         authRequired: 'Требуется вход. Пожалуйста, войдите.',
         serverConnected: 'Подключено',
@@ -351,8 +350,7 @@ const STRINGS = {
         recoverBtn: '🔁 Забули пароль?',
         logoutBtn: '🚪 Вийти',
       },
-      footer: ({ version }) =>
-        `Версія ${version || '—'} | Потрібен запущений сервер API`,
+      footer: ({ version }) => `Версія ${version || '—'} | Потрібен запущений сервер API`,
       messages: {
         authRequired: 'Потрібен вхід. Будь ласка, увійдіть.',
         serverConnected: 'Підключено',
