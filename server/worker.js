@@ -197,7 +197,10 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
     await postStatusUpdate('downloading', 10, `Инициализация загрузки ${links.length} дел...`);
 
     // Пакетная обработка: дефолт 25 для більшої швидкості на VPS
-    const BATCH_SIZE = parseInt(process.env.BATCH_SIZE, 10) || 25;
+    const BATCH_SIZE =
+      parseInt(process.env.DOWNLOAD_BATCH_SIZE, 10) ||
+      parseInt(process.env.BATCH_SIZE, 10) ||
+      25;
     const batches = [];
     for (let i = 0; i < links.length; i += BATCH_SIZE) {
       batches.push(links.slice(i, i + BATCH_SIZE));

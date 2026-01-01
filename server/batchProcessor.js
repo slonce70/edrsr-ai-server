@@ -182,12 +182,44 @@ async function generateContent(prompt, reservedKeyIndex = null) {
  * @param {number|null} reservedKeyIndex - Опціональний індекс зарезервованого ключа для batch.
  * @returns {string} A concise, focused summary of the batch.
  */
+const MAX_FALLBACK_DEPTH = parseInt(process.env.BATCH_FALLBACK_MAX_DEPTH, 10) || 2;
+
+const isRetryableGeminiError = (message) => {
+  const msg = String(message || '').toLowerCase();
+  return (
+    msg.includes('порожню відповідь') ||
+    msg.includes('empty response') ||
+    msg.includes('вичерпано всі спроби') ||
+    msg.includes('resource_exhausted') ||
+    msg.includes('429') ||
+    msg.includes('503') ||
+    msg.includes('overloaded') ||
+    msg.includes('fetch failed') ||
+    msg.includes('enetwork') ||
+    msg.includes('enet') ||
+    msg.includes('econn')
+  );
+};
+
+const buildFallbackSummary = (batchCases, message) => {
+  const lines = batchCases.map(
+    (c) => `- ${c.caseNumber || c.id || 'Н/Д'} | ${c.url || 'URL не вказано'}`
+  );
+  return [
+    '⚠️ Частина справ не була проаналізована через тимчасову помилку AI.',
+    `Причина: ${message || 'Невідома помилка'}.`,
+    'Перелік справ для ручної перевірки:',
+    ...lines,
+  ].join('\n');
+};
+
 async function getBatchSummary(
   batchCases,
   batchNumber,
   totalBatches,
   finalUserPrompt = null,
-  reservedKeyIndex = null
+  reservedKeyIndex = null,
+  fallbackDepth = 0
 ) {
   logger.debug(
     `📦 Summarizing batch ${batchNumber}/${totalBatches} (${batchCases.length} cases) for task: ${finalUserPrompt || 'default'}`
@@ -266,7 +298,38 @@ ${corpus}
     logger.info(`✅ Summary for batch ${batchNumber} received: ${summary.length} chars`);
     return summary;
   } catch (err) {
-    console.error(`❌ Error summarizing batch ${batchNumber}: ${err.message}`);
+    const message = err?.message || String(err);
+    console.error(`❌ Error summarizing batch ${batchNumber}: ${message}`);
+
+    if (isRetryableGeminiError(message)) {
+      if (batchCases.length > 1 && fallbackDepth < MAX_FALLBACK_DEPTH) {
+        const mid = Math.ceil(batchCases.length / 2);
+        logger.warn(
+          `⚠️ Batch ${batchNumber} failed, splitting into smaller chunks (depth ${fallbackDepth + 1}/${MAX_FALLBACK_DEPTH})`
+        );
+        const left = await getBatchSummary(
+          batchCases.slice(0, mid),
+          batchNumber,
+          totalBatches,
+          finalUserPrompt,
+          null,
+          fallbackDepth + 1
+        );
+        const right = await getBatchSummary(
+          batchCases.slice(mid),
+          batchNumber,
+          totalBatches,
+          finalUserPrompt,
+          null,
+          fallbackDepth + 1
+        );
+        return `${left}\n\n${right}`;
+      }
+
+      logger.warn(`⚠️ Batch ${batchNumber} skipped after retries: ${message}`);
+      return buildFallbackSummary(batchCases, message);
+    }
+
     // Re-throw the error to ensure the job stops if a batch fails permanently.
     throw err;
   }

@@ -309,7 +309,7 @@ function startWorker({ jobId, links, cookie, prompt, claimed = false }) {
     } else if (msg.type === 'jobError') {
       const { errorMessage, duration } = msg.payload;
       await updateStatus('error', 0, `Критическая ошибка: ${errorMessage}`, {
-        errorMessage,
+        error_message: errorMessage,
         duration,
       });
       await dbService.clearJobLock(jobId);
@@ -327,7 +327,7 @@ function startWorker({ jobId, links, cookie, prompt, claimed = false }) {
     } else if (msg.type === 'jobCancelled') {
       const { message } = msg.payload;
       await updateStatus('error', 0, `Задача отменена: ${message}`, {
-        errorMessage: message,
+        error_message: message,
       });
       await dbService.clearJobLock(jobId);
       // Удаляем воркер из отслеживания
@@ -347,7 +347,7 @@ function startWorker({ jobId, links, cookie, prompt, claimed = false }) {
   worker.on('error', async (error) => {
     logger.error(`❌ Критическая ошибка воркера для задания ${jobId}:`, error.message);
     await updateStatus('error', 0, `Критическая ошибка: ${error.message}`, {
-      errorMessage: error.message,
+      error_message: error.message,
     });
     await dbService.clearJobLock(jobId);
   });

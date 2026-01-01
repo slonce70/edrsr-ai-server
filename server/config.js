@@ -548,7 +548,11 @@ export const SAFETY_SETTINGS = [
 ];
 
 // Batching configuration from environment
-export const OPTIMAL_BATCH_SIZE = parseInt(process.env.BATCH_SIZE) || 10;
+export const AI_BATCH_SIZE =
+  parseInt(process.env.AI_BATCH_SIZE, 10) ||
+  parseInt(process.env.BATCH_SIZE, 10) ||
+  10;
+export const OPTIMAL_BATCH_SIZE = AI_BATCH_SIZE;
 export const DELAY_BETWEEN_BATCHES = parseInt(process.env.BATCH_DELAY) || 1500;
 export const BATCH_THRESHOLD = parseInt(process.env.BATCH_THRESHOLD) || 15;
 export const MAX_TOKENS_PER_BATCH = parseInt(process.env.MAX_TOKENS_PER_BATCH) || 60000;
