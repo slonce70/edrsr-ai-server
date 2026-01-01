@@ -105,14 +105,8 @@ function postStatusUpdate(status, progress, message, extra = {}) {
 async function processJobInWorker(jobId, links, cookie, prompt) {
   const startTime = Date.now();
   // Разрешенное общее время задачи и таймаут отсутствия прогресса (можно переопределить через env)
-  const MAX_JOB_DURATION = parseOptionalInt(
-    process.env.MAX_JOB_DURATION_MS,
-    25 * 60 * 1000
-  ); // за замовчуванням 25 хв
-  const MAX_STALL_DURATION = parseOptionalInt(
-    process.env.MAX_STALL_DURATION_MS,
-    20 * 60 * 1000
-  ); // за замовчуванням 20 хв без прогресу
+  const MAX_JOB_DURATION = parseOptionalInt(process.env.MAX_JOB_DURATION_MS, 25 * 60 * 1000); // за замовчуванням 25 хв
+  const MAX_STALL_DURATION = parseOptionalInt(process.env.MAX_STALL_DURATION_MS, 20 * 60 * 1000); // за замовчуванням 20 хв без прогресу
   const MAX_MEMORY_MB = parseOptionalInt(process.env.MAX_MEMORY_MB, 400); // Максимум памʼяті в MB
   const MEMORY_WARNING_MB = parseOptionalInt(process.env.MEMORY_WARNING_MB, 200); // Знижено з 300 для раннього GC
   const CRITICAL_MEMORY_MB = parseOptionalInt(process.env.CRITICAL_MEMORY_MB, 420); // Жорстке відсікання для Render free tier
@@ -198,9 +192,7 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
 
     // Пакетная обработка: дефолт 25 для більшої швидкості на VPS
     const BATCH_SIZE =
-      parseInt(process.env.DOWNLOAD_BATCH_SIZE, 10) ||
-      parseInt(process.env.BATCH_SIZE, 10) ||
-      25;
+      parseInt(process.env.DOWNLOAD_BATCH_SIZE, 10) || parseInt(process.env.BATCH_SIZE, 10) || 25;
     const batches = [];
     for (let i = 0; i < links.length; i += BATCH_SIZE) {
       batches.push(links.slice(i, i + BATCH_SIZE));
