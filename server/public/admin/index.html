@@ -58,6 +58,18 @@
               <span data-i18n="nav.security">Безопасность</span>
             </a>
           </li>
+          <li>
+            <a href="#workers" class="menu-item" data-page="workers">
+              <i class="fas fa-robot"></i>
+              <span data-i18n="nav.workers">Воркеры</span>
+            </a>
+          </li>
+          <li>
+            <a href="#gemini" class="menu-item" data-page="gemini">
+              <i class="fas fa-bolt"></i>
+              <span data-i18n="nav.gemini">Gemini</span>
+            </a>
+          </li>
         </ul>
 
         <div class="sidebar-footer">
@@ -400,6 +412,182 @@
               </button>
             </div>
           </div>
+
+          <!-- Workers/Queue Page -->
+          <div id="workers-page" class="page">
+            <div class="page-header">
+              <div class="filters">
+                <button class="btn btn-info" id="workers-refresh-btn">
+                  <i class="fas fa-sync"></i>
+                  <span data-i18n="workers.refresh">Обновить</span>
+                </button>
+                <button class="btn btn-danger" id="workers-terminate-all-btn">
+                  <i class="fas fa-stop"></i>
+                  <span data-i18n="workers.terminateAll">Остановить все</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="system-grid">
+              <div class="system-card">
+                <h3 data-i18n="workers.queueTitle">Очередь</h3>
+                <div class="stat-row">
+                  <strong data-i18n="workers.queueLength">Длина очереди:</strong>
+                  <span id="workers-queue-length">-</span>
+                </div>
+                <div class="stat-row">
+                  <strong data-i18n="workers.queueProcessing">Обработка:</strong>
+                  <span id="workers-queue-processing">-</span>
+                </div>
+                <div class="stat-row">
+                  <strong data-i18n="workers.queueCached">Кешировано:</strong>
+                  <span id="workers-queue-cached">-</span>
+                </div>
+              </div>
+
+              <div class="system-card">
+                <h3 data-i18n="workers.systemTitle">Система</h3>
+                <div class="stat-row">
+                  <strong data-i18n="workers.memory">Память:</strong>
+                  <span id="workers-memory">-</span>
+                </div>
+                <div class="stat-row">
+                  <strong data-i18n="workers.uptime">Uptime:</strong>
+                  <span id="workers-uptime">-</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="table-container">
+              <div class="table-header">
+                <h3 data-i18n="workers.activeTitle">Активные воркеры</h3>
+                <div class="results-count">
+                  <span data-i18n="workers.activeCountLabel">Активные:</span>
+                  <span id="workers-active-count">0</span>
+                </div>
+              </div>
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th data-i18n="workers.thJob">Job ID</th>
+                    <th data-i18n="workers.thStatus">Статус</th>
+                    <th data-i18n="workers.thRuntime">Время</th>
+                    <th data-i18n="workers.thActions">Действия</th>
+                  </tr>
+                </thead>
+                <tbody id="workers-table-body">
+                  <tr>
+                    <td colspan="4" class="loading" data-i18n="workers.loading">Загрузка...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Gemini Usage Page -->
+          <div id="gemini-page" class="page">
+            <div class="page-header">
+              <div class="filters">
+                <button class="btn btn-info" id="gemini-refresh-btn">
+                  <i class="fas fa-sync"></i>
+                  <span data-i18n="gemini.refresh">Обновить</span>
+                </button>
+                <button class="btn btn-warning" id="gemini-reset-btn" style="display: none">
+                  <i class="fas fa-undo"></i>
+                  <span data-i18n="gemini.reset">Сбросить статистику</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="stats-grid">
+              <div class="stat-card">
+                <div class="stat-icon jobs">
+                  <i class="fas fa-key"></i>
+                </div>
+                <div class="stat-info">
+                  <h3 id="gemini-total-keys">-</h3>
+                  <p data-i18n="gemini.totalKeys">Всего ключей</p>
+                </div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-icon completed">
+                  <i class="fas fa-check-circle"></i>
+                </div>
+                <div class="stat-info">
+                  <h3 id="gemini-available-keys">-</h3>
+                  <p data-i18n="gemini.availableKeys">Доступно</p>
+                </div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-icon retry">
+                  <i class="fas fa-clock"></i>
+                </div>
+                <div class="stat-info">
+                  <h3 id="gemini-keys-on-cooldown">-</h3>
+                  <p data-i18n="gemini.onCooldown">На cooldown</p>
+                </div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-icon users">
+                  <i class="fas fa-list"></i>
+                </div>
+                <div class="stat-info">
+                  <h3 id="gemini-queued-jobs">-</h3>
+                  <p data-i18n="gemini.queuedJobs">Queued jobs</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="dashboard-grid">
+              <div class="dashboard-card">
+                <h3 data-i18n="gemini.totalRequests">Запросов</h3>
+                <div class="big-number" id="gemini-total-requests">-</div>
+              </div>
+              <div class="dashboard-card">
+                <h3 data-i18n="gemini.totalErrors">Ошибок</h3>
+                <div class="big-number" id="gemini-total-errors">-</div>
+              </div>
+              <div class="dashboard-card">
+                <h3 data-i18n="gemini.totalRateLimits">Rate limits</h3>
+                <div class="big-number" id="gemini-total-rate-limits">-</div>
+              </div>
+            </div>
+
+            <p class="muted">
+              <span data-i18n="gemini.updatedAt">Обновлено:</span>
+              <span id="gemini-updated-at">-</span>
+            </p>
+
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th data-i18n="gemini.thKey">Ключ</th>
+                    <th data-i18n="gemini.thRequests">Запросы</th>
+                    <th data-i18n="gemini.thErrors">Ошибки</th>
+                    <th data-i18n="gemini.thRateLimits">429/Rate</th>
+                    <th data-i18n="gemini.thInvalid">Invalid</th>
+                  </tr>
+                </thead>
+                <tbody id="gemini-usage-body">
+                  <tr>
+                    <td colspan="5" class="loading" data-i18n="gemini.loading">Загрузка...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="system-grid">
+              <div class="system-card">
+                <h3 data-i18n="gemini.cooldownsTitle">Cooldowns</h3>
+                <ul id="gemini-cooldowns" class="simple-list"></ul>
+              </div>
+              <div class="system-card">
+                <h3 data-i18n="gemini.softbansTitle">Soft bans</h3>
+                <ul id="gemini-softbans" class="simple-list"></ul>
+              </div>
+            </div>
+          </div>
         </div>
       </main>
     </div>
@@ -423,6 +611,20 @@
         </form>
 
         <div id="login-error" class="error-message" role="alert" aria-live="polite"></div>
+      </div>
+    </div>
+
+    <!-- Job Details Modal -->
+    <div id="job-details-modal" class="modal">
+      <div class="modal-content modal-large">
+        <div class="modal-header">
+          <h2 id="job-details-title" data-i18n="jobDetails.title">Детали задания</h2>
+          <button class="btn btn-secondary btn-sm" id="job-details-close">
+            <i class="fas fa-times"></i>
+            <span data-i18n="jobDetails.close">Закрыть</span>
+          </button>
+        </div>
+        <div id="job-details-body" class="details-body"></div>
       </div>
     </div>
 

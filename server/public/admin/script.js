@@ -2,6 +2,7 @@
 let currentPage = 'dashboard';
 let authToken = null;
 let currentUser = null;
+let currentUserIsSuperAdmin = false;
 const TOKEN_STORAGE_KEY = 'admin_token';
 const LAST_ACTIVITY_KEY = 'admin_last_activity';
 const ADMIN_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
@@ -200,6 +201,18 @@ function setupEventListeners() {
   document.getElementById('retry-failed-btn')?.addEventListener('click', retryAllFailedJobs);
   document.getElementById('view-error-jobs-btn')?.addEventListener('click', viewErrorJobs);
   document.getElementById('security-refresh-btn')?.addEventListener('click', loadSecurityStats);
+  document.getElementById('workers-refresh-btn')?.addEventListener('click', loadWorkersQueue);
+  document
+    .getElementById('workers-terminate-all-btn')
+    ?.addEventListener('click', terminateAllWorkers);
+  document.getElementById('gemini-refresh-btn')?.addEventListener('click', loadGeminiStats);
+  document.getElementById('gemini-reset-btn')?.addEventListener('click', resetGeminiStats);
+
+  // Job details modal
+  document.getElementById('job-details-close')?.addEventListener('click', closeJobDetailsModal);
+  document.getElementById('job-details-modal')?.addEventListener('click', (e) => {
+    if (e.target?.id === 'job-details-modal') closeJobDetailsModal();
+  });
 
   setupTableActionHandlers();
   setupPaginationHandlers();
@@ -312,6 +325,8 @@ function updatePageTitle(page) {
     system: t('nav.system'),
     audit: t('nav.audit'),
     security: t('nav.security'),
+    workers: t('nav.workers'),
+    gemini: t('nav.gemini'),
   };
   const titleEl = document.getElementById('page-title');
   if (titleEl) titleEl.textContent = titles[page] || titles.dashboard;
@@ -346,6 +361,12 @@ async function loadPageData(page) {
         break;
       case 'security':
         await loadSecurityStats();
+        break;
+      case 'workers':
+        await loadWorkersQueue();
+        break;
+      case 'gemini':
+        await loadGeminiStats();
         break;
     }
   } catch (error) {
@@ -398,6 +419,9 @@ async function loadDashboard() {
     data.uptime_hours !== null && data.uptime_hours !== undefined
       ? `${data.uptime_hours.toFixed(1)} ${t('common.hoursShort')}`
       : '-';
+
+  currentUserIsSuperAdmin = !!data.is_super_admin;
+  updateGeminiResetVisibility();
 }
 
 async function loadUsers(page = 1, search = '') {
@@ -530,6 +554,9 @@ async function loadJobs(page = 1, status = '', search = '', email = '') {
                         </button>`
                         : ''
                     }
+                    <button class="btn btn-secondary btn-sm" data-action="job-details" data-job-id="${escapeHtml(job.id)}">
+                        <i class="fas fa-info-circle"></i> ${t('actions.details')}
+                    </button>
                     <button class="btn btn-danger btn-sm" data-action="delete-job" data-job-id="${escapeHtml(job.id)}">
                         <i class="fas fa-trash"></i> ${t('common.delete')}
                     </button>
@@ -668,6 +695,284 @@ async function loadSecurityStats() {
   }
 }
 
+async function loadWorkersQueue() {
+  try {
+    const [workersRes, systemRes] = await Promise.all([
+      apiCall('/api/workers/active'),
+      apiCall('/api/system/stats'),
+    ]);
+
+    // Queue/System stats
+    const queue = systemRes.queue || {};
+    const memory = systemRes.memory || {};
+    const uptimeSeconds = Number.isFinite(systemRes.uptime) ? systemRes.uptime : 0;
+
+    document.getElementById('workers-queue-length').textContent = queue.length ?? 0;
+    document.getElementById('workers-queue-processing').textContent = queue.isProcessing
+      ? t('workers.queueProcessingYes')
+      : t('workers.queueProcessingNo');
+    document.getElementById('workers-queue-cached').textContent = queue.cachedCookies ?? 0;
+    document.getElementById('workers-memory').textContent = `${memory.heapUsed ?? 0} / ${
+      memory.heapTotal ?? 0
+    } MB`;
+    document.getElementById('workers-uptime').textContent = formatDurationSeconds(
+      Math.round(uptimeSeconds)
+    );
+
+    // Workers list
+    const tbody = document.getElementById('workers-table-body');
+    const workers = workersRes.workers || [];
+    const total = workersRes.count || 0;
+    const countEl = document.getElementById('workers-active-count');
+    if (countEl) countEl.textContent = String(total);
+
+    if (workers.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="4" class="loading">${t('workers.empty')}</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = workers
+      .map(
+        (w) => `
+        <tr>
+          <td>${escapeHtml(w.jobId)}</td>
+          <td>${escapeHtml(w.status || '')}</td>
+          <td>${escapeHtml(w.runningTimeFormatted || '')}</td>
+          <td>
+            <button class="btn btn-warning btn-sm" data-action="terminate-worker" data-job-id="${escapeHtml(
+              w.jobId
+            )}">
+              <i class="fas fa-stop"></i> ${t('workers.terminate')}
+            </button>
+          </td>
+        </tr>
+      `
+      )
+      .join('');
+  } catch (error) {
+    showError(t('messages.loadError', { message: error.message }));
+  }
+}
+
+async function terminateWorker(jobId) {
+  if (!confirm(t('confirm.terminateWorker'))) return;
+  try {
+    await apiCall(`/api/workers/${jobId}/terminate`, 'POST', {
+      reason: 'Admin terminate via UI',
+    });
+    showSuccess(t('messages.workerTerminated'));
+    await loadWorkersQueue();
+  } catch (error) {
+    showError(t('messages.workerTerminateError', { message: error.message }));
+  }
+}
+
+async function terminateAllWorkers() {
+  if (!confirmWithKeyword(t('confirm.terminateAllWorkers'), 'STOP', t('confirm.typeStop'))) return;
+  try {
+    await apiCall('/api/workers/terminate-all', 'POST', {
+      reason: 'Admin terminate-all via UI',
+    });
+    showSuccess(t('messages.workersTerminated'));
+    await loadWorkersQueue();
+  } catch (error) {
+    showError(t('messages.workersTerminateError', { message: error.message }));
+  }
+}
+
+async function loadGeminiStats() {
+  try {
+    const response = await apiCall('/api/admin/gemini/stats');
+    const stats = response.data || {};
+    currentUserIsSuperAdmin = !!response.is_super_admin;
+    updateGeminiResetVisibility();
+
+    document.getElementById('gemini-total-keys').textContent = stats.totalKeys ?? 0;
+    document.getElementById('gemini-available-keys').textContent = stats.availableKeys ?? 0;
+    document.getElementById('gemini-queued-jobs').textContent = stats.queuedJobs ?? 0;
+    document.getElementById('gemini-total-requests').textContent =
+      stats.summary?.totalRequests ?? 0;
+    document.getElementById('gemini-total-errors').textContent = stats.summary?.totalErrors ?? 0;
+    document.getElementById('gemini-total-rate-limits').textContent =
+      stats.summary?.totalRateLimits ?? 0;
+    document.getElementById('gemini-keys-on-cooldown').textContent =
+      stats.summary?.keysOnCooldown ?? 0;
+    document.getElementById('gemini-updated-at').textContent = stats.timestamp
+      ? formatDateTime(stats.timestamp)
+      : t('common.na');
+
+    const usageBody = document.getElementById('gemini-usage-body');
+    const usage = Array.isArray(stats.usage) ? stats.usage : [];
+    if (usage.length === 0) {
+      usageBody.innerHTML = `<tr><td colspan="5" class="loading">${t(
+        'gemini.usageEmpty'
+      )}</td></tr>`;
+    } else {
+      usageBody.innerHTML = usage
+        .map(
+          (u) => `
+        <tr>
+          <td>${escapeHtml(String(u.key))}</td>
+          <td>${escapeHtml(String(u.requests ?? 0))}</td>
+          <td>${escapeHtml(String(u.errors ?? 0))}</td>
+          <td>${escapeHtml(String(u.rateLimits ?? 0))}</td>
+          <td>${u.invalid ? t('common.yes') : t('common.no')}</td>
+        </tr>
+      `
+        )
+        .join('');
+    }
+
+    const cooldownList = document.getElementById('gemini-cooldowns');
+    const cooldowns = Array.isArray(stats.cooldowns) ? stats.cooldowns : [];
+    if (cooldowns.length === 0) {
+      cooldownList.innerHTML = `<li class="muted">${t('gemini.cooldownsEmpty')}</li>`;
+    } else {
+      cooldownList.innerHTML = cooldowns
+        .map(
+          (c) =>
+            `<li>${t('gemini.keyLabel', { key: c.keyIndex })}: ${escapeHtml(
+              String(c.remainingSeconds)
+            )}s</li>`
+        )
+        .join('');
+    }
+
+    const softBanList = document.getElementById('gemini-softbans');
+    const softBans = Array.isArray(stats.softBans) ? stats.softBans : [];
+    if (softBans.length === 0) {
+      softBanList.innerHTML = `<li class="muted">${t('gemini.softbansEmpty')}</li>`;
+    } else {
+      softBanList.innerHTML = softBans
+        .map(
+          (c) =>
+            `<li>${t('gemini.keyLabel', { key: c.keyIndex })}: ${escapeHtml(
+              String(c.remainingSeconds)
+            )}s</li>`
+        )
+        .join('');
+    }
+  } catch (error) {
+    showError(t('messages.geminiLoadError', { message: error.message }));
+  }
+}
+
+async function resetGeminiStats() {
+  if (!currentUserIsSuperAdmin) {
+    showError(t('messages.geminiResetDenied'));
+    return;
+  }
+  if (!confirmWithKeyword(t('confirm.resetGeminiStats'), 'RESET', t('confirm.typeReset'))) return;
+  try {
+    await apiCall('/api/admin/gemini/reset-stats', 'POST');
+    showSuccess(t('messages.geminiResetSuccess'));
+    await loadGeminiStats();
+  } catch (error) {
+    showError(t('messages.geminiResetError', { message: error.message }));
+  }
+}
+
+function updateGeminiResetVisibility() {
+  const btn = document.getElementById('gemini-reset-btn');
+  if (!btn) return;
+  btn.style.display = currentUserIsSuperAdmin ? 'inline-flex' : 'none';
+}
+
+async function showJobDetails(jobId) {
+  try {
+    showLoading();
+    const response = await apiCall(`/api/admin/jobs/${jobId}/details`);
+    const job = response.job || {};
+    const stats = response.link_stats || {};
+
+    document.getElementById('job-details-title').textContent = job.title || t('common.untitled');
+
+    document.getElementById('job-details-body').innerHTML = `
+      <div class="details-grid">
+        <div>
+          <h4>${t('jobDetails.sectionJob')}</h4>
+          <div class="detail-row"><strong>${t('jobDetails.id')}:</strong> ${escapeHtml(
+            job.id || ''
+          )}</div>
+          <div class="detail-row"><strong>${t('jobDetails.status')}:</strong> ${escapeHtml(
+            job.status || ''
+          )}</div>
+          <div class="detail-row"><strong>${t('jobDetails.progress')}:</strong> ${escapeHtml(
+            String(job.progress ?? 0)
+          )}%</div>
+          <div class="detail-row"><strong>${t('jobDetails.user')}:</strong> ${
+            job.user_email ? escapeHtml(job.user_email) : t('common.na')
+          }</div>
+          <div class="detail-row"><strong>${t('jobDetails.attempts')}:</strong> ${escapeHtml(
+            String(job.attempt ?? 0)
+          )} / ${escapeHtml(String(job.max_attempts ?? 0))}</div>
+          <div class="detail-row"><strong>${t('jobDetails.createdAt')}:</strong> ${escapeHtml(
+            formatDateTime(job.created_at)
+          )}</div>
+          <div class="detail-row"><strong>${t('jobDetails.updatedAt')}:</strong> ${escapeHtml(
+            formatDateTime(job.updated_at)
+          )}</div>
+          <div class="detail-row"><strong>${t('jobDetails.duration')}:</strong> ${escapeHtml(
+            String(job.duration ?? '-')
+          )}</div>
+        </div>
+        <div>
+          <h4>${t('jobDetails.sectionQueue')}</h4>
+          <div class="detail-row"><strong>${t('jobDetails.lockedBy')}:</strong> ${
+            job.locked_by ? escapeHtml(job.locked_by) : t('common.na')
+          }</div>
+          <div class="detail-row"><strong>${t('jobDetails.lockedAt')}:</strong> ${
+            job.locked_at ? escapeHtml(formatDateTime(job.locked_at)) : t('common.na')
+          }</div>
+          <div class="detail-row"><strong>${t('jobDetails.leaseUntil')}:</strong> ${
+            job.lease_until ? escapeHtml(formatDateTime(job.lease_until)) : t('common.na')
+          }</div>
+          <div class="detail-row"><strong>${t('jobDetails.heartbeat')}:</strong> ${
+            job.heartbeat_at ? escapeHtml(formatDateTime(job.heartbeat_at)) : t('common.na')
+          }</div>
+        </div>
+      </div>
+      <div class="details-block">
+        <h4>${t('jobDetails.sectionLinks')}</h4>
+        <div class="detail-row"><strong>${t('jobDetails.linksTotal')}:</strong> ${escapeHtml(
+          String(job.total_links ?? 0)
+        )}</div>
+        <div class="detail-row"><strong>${t('jobDetails.linksProcessed')}:</strong> ${escapeHtml(
+          String(job.processed_links ?? 0)
+        )}</div>
+        <div class="detail-row"><strong>${t('jobDetails.linksError')}:</strong> ${escapeHtml(
+          String(stats.error ?? 0)
+        )}</div>
+        <div class="detail-row"><strong>${t('jobDetails.linksPending')}:</strong> ${escapeHtml(
+          String(stats.pending ?? 0)
+        )}</div>
+      </div>
+      <div class="details-block">
+        <h4>${t('jobDetails.sectionError')}</h4>
+        <pre class="details-pre">${escapeHtml(job.error_message || t('common.na'))}</pre>
+      </div>
+      <div class="details-block">
+        <h4>${t('jobDetails.sectionPrompt')}</h4>
+        <pre class="details-pre">${escapeHtml(job.prompt || t('common.na'))}</pre>
+      </div>
+    `;
+
+    openJobDetailsModal();
+  } catch (error) {
+    showError(t('messages.jobDetailsError', { message: error.message }));
+  } finally {
+    hideLoading();
+  }
+}
+
+function openJobDetailsModal() {
+  document.getElementById('job-details-modal')?.classList.add('active');
+}
+
+function closeJobDetailsModal() {
+  document.getElementById('job-details-modal')?.classList.remove('active');
+}
+
 function setupTableActionHandlers() {
   const usersTable = document.getElementById('users-table-body');
   if (usersTable) {
@@ -695,11 +1000,23 @@ function setupTableActionHandlers() {
       if (action === 'view-report') viewJobReport(jobId);
       if (action === 'retry-job') retryJob(jobId);
       if (action === 'delete-job') deleteJob(jobId);
+      if (action === 'job-details') showJobDetails(jobId);
       if (action === 'edit-job-title') {
         const encodedTitle = btn.getAttribute('data-job-title') || '';
         const currentTitle = decodeURIComponent(encodedTitle);
         editJobTitle(jobId, currentTitle);
       }
+    });
+  }
+
+  const workersTable = document.getElementById('workers-table-body');
+  if (workersTable) {
+    workersTable.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-action="terminate-worker"]');
+      if (!btn) return;
+      const jobId = btn.getAttribute('data-job-id');
+      if (!jobId) return;
+      terminateWorker(jobId);
     });
   }
 }

@@ -224,6 +224,15 @@ body {
   background: #c0392b;
 }
 
+.btn-secondary {
+  background: #6c757d;
+  color: white;
+}
+
+.btn-secondary:hover {
+  background: #5a6268;
+}
+
 .btn-refresh {
   background: #27ae60;
   color: white;
@@ -544,6 +553,18 @@ body {
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
 }
 
+.modal-content.modal-large {
+  max-width: 900px;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
 .modal-content h2 {
   text-align: center;
   margin-bottom: 1.5rem;
@@ -580,6 +601,56 @@ body {
   text-align: center;
   margin-top: 1rem;
   font-size: 0.9rem;
+}
+
+.muted {
+  color: #6c757d;
+}
+
+.table-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.simple-list {
+  list-style: none;
+  padding-left: 0;
+}
+
+.simple-list li {
+  padding: 0.35rem 0;
+}
+
+.details-body {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.details-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1.5rem;
+}
+
+.details-block {
+  margin-top: 1.5rem;
+}
+
+.detail-row {
+  margin-bottom: 0.4rem;
+}
+
+.details-pre {
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 6px;
+  padding: 0.75rem;
+  white-space: pre-wrap;
+  max-height: 200px;
+  overflow-y: auto;
+  font-family: inherit;
 }
 
 /* Loading overlay */

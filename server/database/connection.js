@@ -283,6 +283,16 @@ class Database {
             )
         `;
 
+    const appUsersTable = `
+            CREATE TABLE IF NOT EXISTS app_users (
+              user_id UUID PRIMARY KEY,
+              email TEXT,
+              email_lower TEXT,
+              first_seen_at TIMESTAMPTZ,
+              last_seen_at TIMESTAMPTZ
+            )
+        `;
+
     await this.query(jobsTable);
     await this.query(linksTable);
     await this.query(resultsTable);
@@ -290,6 +300,7 @@ class Database {
     await this.query(edrsrTable);
     await this.query(parsedCasesTable);
     await this.query(userPromptsTable);
+    await this.query(appUsersTable);
 
     // --- Schema Migrations ---
     // This is a simple way to alter tables without a full migration system.
@@ -417,6 +428,11 @@ class Database {
       'CREATE INDEX IF NOT EXISTS idx_user_prompts_user_id ON user_prompts(user_id)',
       'CREATE UNIQUE INDEX IF NOT EXISTS idx_user_prompts_user_name ON user_prompts(user_id, name)',
       'CREATE INDEX IF NOT EXISTS idx_user_prompts_updated_at ON user_prompts(updated_at DESC)',
+
+      // App users indexes (admin filtering/metrics)
+      'CREATE INDEX IF NOT EXISTS idx_app_users_email_lower ON app_users(email_lower)',
+      'CREATE INDEX IF NOT EXISTS idx_app_users_first_seen_at ON app_users(first_seen_at DESC)',
+      'CREATE INDEX IF NOT EXISTS idx_app_users_last_seen_at ON app_users(last_seen_at DESC)',
 
       // Text search index
       "CREATE INDEX IF NOT EXISTS idx_edrsr_name_search ON edrsr USING GIN(to_tsvector('simple', name))",
