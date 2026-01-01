@@ -109,6 +109,23 @@ export function buildMetadataContext(cases) {
   return context;
 }
 
+function buildStrictCaseLinkMap(cases) {
+  if (!cases || cases.length === 0) return 'Немає справ для відображення.';
+  return cases
+    .map((caseItem) => {
+      const caseNumber = caseItem?.caseNumber || caseItem?.id || 'Н/Д';
+      const url = caseItem?.url || 'URL не вказано';
+      const date =
+        caseItem?.decisionDate ||
+        caseItem?.date ||
+        caseItem?.decision_date ||
+        caseItem?.metadata?.decisionDate ||
+        'не вказано';
+      return `- Справа №${caseNumber} — ${url} (${date})`;
+    })
+    .join('\n');
+}
+
 /**
  * Assembles the final, complete prompt for the AI by combining the base
  * prompt, dynamic context, and the specific task instructions.
@@ -163,6 +180,9 @@ ${userPromptKey}
 
   let finalPrompt = base.replace('{{analytical_context}}', `## ${reportTitle}\n${metadataTable}`);
   finalPrompt += `\n**ВАЖЛИВА ВКАЗІВКА:** Твій аналіз має охоплювати **${cases.length}** справ. Усі статистичні дані та висновки мають базуватися на цій загальній кількості.`;
+  finalPrompt += `\n\n# **СТРОГИЙ СПИСОК ВІДПОВІДНОСТІ (номер ↔ URL)**\n${buildStrictCaseLinkMap(
+    cases
+  )}\n\n**ПРАВИЛА ДЛЯ ПОСИЛАНЬ:**\n- Використовуй ТІЛЬКИ пари номер↔URL з цього списку.\n- Не вигадуй і не змінюй URL.\n- Якщо посилаєшся на справу, копіюй номер і URL з цього списку дослівно.`;
   finalPrompt += task;
   finalPrompt += `\n\n# **МАТЕРІАЛИ ДЛЯ АНАЛІЗУ**\n\n${corpus}`;
 
