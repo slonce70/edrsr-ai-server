@@ -1,6 +1,6 @@
 {
   "name": "edrsr-gemini-backend",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "type": "module",
   "description": "Backend server for ЄДРСР AI analysis with Gemini",
   "main": "index.js",
