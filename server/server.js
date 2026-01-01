@@ -23,18 +23,15 @@ import { startCacheCleanupService } from './services/maintenance.js';
  * Falls back to permissive mode in development only.
  */
 const getAllowedOrigins = () => {
-  // Base origins that are always allowed
-  const baseOrigins = [
-    'https://reyestr.court.gov.ua', // EDRSR website
-    'https://edrsr-ai-server.onrender.com', // Render.com admin panel
-  ];
+  // Base origins that are always allowed (keep minimal for production)
+  const baseOrigins = ['https://edrsr-ai-server.fun', 'https://www.edrsr-ai-server.fun'];
 
   // Add configured origins if present
   if (process.env.CORS_ALLOWED_ORIGINS) {
     const configuredOrigins = process.env.CORS_ALLOWED_ORIGINS.split(',').map((origin) =>
       origin.trim()
     );
-    return [...new Set([...baseOrigins, ...configuredOrigins])];
+    return [...new Set([...configuredOrigins, ...baseOrigins])];
   }
 
   // Development: add localhost

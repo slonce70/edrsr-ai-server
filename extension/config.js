@@ -1,7 +1,7 @@
 // --- EDRSR-AI Extension Configuration ---
 
-export const API_BASE_URL = 'http://localhost:4000/api';
-export const WS_URL = 'ws://localhost:4000';
+export const API_BASE_URL = 'https://edrsr-ai-server.fun/api';
+export const WS_URL = 'wss://edrsr-ai-server.fun';
 // Supabase (dev): fill with your project values
 export const SUPABASE_URL = 'https://dhgqmkhkptbzlwskktte.supabase.co';
 export const SUPABASE_ANON_KEY =
@@ -9,4 +9,4 @@ export const SUPABASE_ANON_KEY =
 // URL для редиректа после восстановления пароля (добавьте в Redirect URLs в Supabase Settings → Auth → URL Configuration)
 // Куда Supabase будет возвращать пользователя после подтверждения/восстановления.
 // Для разработки: локальный сервер этого проекта.
-export const SUPABASE_REDIRECT_TO = 'http://localhost:4000/auth/callback';
+export const SUPABASE_REDIRECT_TO = 'https://edrsr-ai-server.fun/auth/callback';

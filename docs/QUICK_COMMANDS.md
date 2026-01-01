@@ -10,14 +10,20 @@ npm run dev
 # Остановка сервера
 Ctrl+C
 
-# Проверка что сервер работает
+# Проверка что сервер работает (локально)
 curl http://localhost:4000/api/health/light
+
+# Проверка что сервер работает (production)
+curl https://edrsr-ai-server.fun/api/health/light
 ```
 
 ### **Админка**
 ```bash
-# Открыть админку в браузере
+# Открыть админку в браузере (локально)
 http://localhost:4000/admin
+
+# Открыть админку в браузере (production)
+https://edrsr-ai-server.fun/admin
 ```
 
 ### **Сборка расширения**
@@ -44,20 +50,20 @@ npm run transfer:jobs -- user@example.com
 ### **Проверка системы**
 ```bash
 # Health light (public)
-curl http://localhost:4000/api/health/light
+curl https://edrsr-ai-server.fun/api/health/light
 
 # Health full (admin-only)
-curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:4000/api/health/full
+curl -H "Authorization: Bearer YOUR_TOKEN" https://edrsr-ai-server.fun/api/health/full
 
 # Статистика админки
-curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:4000/api/admin/dashboard
+curl -H "Authorization: Bearer YOUR_TOKEN" https://edrsr-ai-server.fun/api/admin/dashboard
 
 # Ручное восстановление зависших заданий
 curl -X POST \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"grace_minutes": 10}' \
-  http://localhost:4000/api/admin/jobs/recover-stuck
+  https://edrsr-ai-server.fun/api/admin/jobs/recover-stuck
 ```
 
 ### **QA для AI‑отчётов**
@@ -67,20 +73,11 @@ node server/scripts/test-ai-modes.js --mode practice_overview --verbose
 
 ## **Deployment**
 
-### **Обновление на Render**
+### **Systemd (production VPS)**
 ```bash
-git add .
-git commit -m "docs: update documentation"
-git push origin main
-```
-
-### **Проверка переменных окружения**
-```bash
-# В Render Dashboard проверить:
-# - DATABASE_URL (порт 5432, не 6543)
-# - SUPABASE_URL
-# - SUPABASE_ANON_KEY
-# - SUPABASE_SERVICE_ROLE_KEY
+sudo systemctl status edrsr-ai
+sudo systemctl restart edrsr-ai
+sudo journalctl -u edrsr-ai -n 200 --no-pager
 ```
 
 ## **Устранение неполадок**
@@ -89,9 +86,14 @@ git push origin main
 ```
 [ERROR] SASL: SCRAM-SERVER-FINAL-MESSAGE: server signature is missing
 ```
-**Быстрое решение:** в Render замените `DATABASE_URL` на строку Supabase:
+**Быстрое решение:** проверь `DATABASE_URL`.
+Для Supabase Postgres:
 ```
 postgresql://postgres.<project-ref>:<password>@db.<project-ref>.supabase.co:5432/postgres
+```
+Для локальной БД на VPS:
+```
+postgresql://postgres:<password>@127.0.0.1:5432/edrsr_ai
 ```
 
 ### **Ошибка авторизации**
@@ -106,7 +108,6 @@ npm run admin:grant -- <user_id>
 ## **Полезные ссылки**
 
 - **Локальный сервер:** http://localhost:4000
-- **Админка:** http://localhost:4000/admin
+- **Админка (prod):** https://edrsr-ai-server.fun/admin
 - **Supabase:** https://supabase.com/dashboard
-- **Render:** https://dashboard.render.com
 *Полезно:* см. также `docs/API_REFERENCE.md` и `docs/ENVIRONMENT_VARIABLES.md`.

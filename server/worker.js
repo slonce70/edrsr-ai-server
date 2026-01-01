@@ -3,6 +3,11 @@ import dbService from './services/dbService.js';
 import { downloadAll } from './scraper.js';
 import { analyzeCases } from './gemini.js';
 
+const parseOptionalInt = (value, fallback) => {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
 // --- Request-Response Mechanism for Main Thread Communication ---
 const pendingAcks = new Map(); // requestId -> { resolve, createdAt }
 let nextRequestId = 0;
@@ -41,6 +46,10 @@ parentPort.on('message', (msg) => {
     // Відповідаємо на перевірку здоровʼя з детальною інформацією
     const memUsage = process.memoryUsage();
     const memUsedMB = Math.round(memUsage.heapUsed / 1024 / 1024);
+    const highThreshold = parseOptionalInt(process.env.MEMORY_WARNING_MB, 300);
+    const criticalThreshold = parseOptionalInt(process.env.CRITICAL_MEMORY_MB, 400);
+    const isHighMemory = highThreshold > 0 && memUsedMB > highThreshold;
+    const isCriticalMemory = criticalThreshold > 0 && memUsedMB > criticalThreshold;
 
     parentPort.postMessage({
       type: 'healthCheckResponse',
@@ -48,12 +57,12 @@ parentPort.on('message', (msg) => {
       alive: true,
       memoryUsage: memUsage,
       memoryUsedMB: memUsedMB,
-      isHighMemory: memUsedMB > 300,
-      isCriticalMemory: memUsedMB > 400,
+      isHighMemory,
+      isCriticalMemory,
     });
 
     // Якщо памʼять критично висока, примусово запускаємо GC
-    if (memUsedMB > 350 && global.gc) {
+    if (criticalThreshold > 0 && memUsedMB > Math.max(350, criticalThreshold) && global.gc) {
       console.log(
         `🗑️ [WORKER] Health check triggered GC через високе використання памʼяті: ${memUsedMB}MB`
       );
@@ -96,11 +105,17 @@ function postStatusUpdate(status, progress, message, extra = {}) {
 async function processJobInWorker(jobId, links, cookie, prompt) {
   const startTime = Date.now();
   // Разрешенное общее время задачи и таймаут отсутствия прогресса (можно переопределить через env)
-  const MAX_JOB_DURATION = parseInt(process.env.MAX_JOB_DURATION_MS, 10) || 25 * 60 * 1000; // за замовчуванням 25 хв
-  const MAX_STALL_DURATION = parseInt(process.env.MAX_STALL_DURATION_MS, 10) || 20 * 60 * 1000; // за замовчуванням 20 хв без прогресу
-  const MAX_MEMORY_MB = parseInt(process.env.MAX_MEMORY_MB, 10) || 400; // Максимум памʼяті в MB
-  const MEMORY_WARNING_MB = parseInt(process.env.MEMORY_WARNING_MB, 10) || 200; // Знижено з 300 для раннього GC
-  const CRITICAL_MEMORY_MB = parseInt(process.env.CRITICAL_MEMORY_MB, 10) || 420; // Жорстке відсікання для Render free tier
+  const MAX_JOB_DURATION = parseOptionalInt(
+    process.env.MAX_JOB_DURATION_MS,
+    25 * 60 * 1000
+  ); // за замовчуванням 25 хв
+  const MAX_STALL_DURATION = parseOptionalInt(
+    process.env.MAX_STALL_DURATION_MS,
+    20 * 60 * 1000
+  ); // за замовчуванням 20 хв без прогресу
+  const MAX_MEMORY_MB = parseOptionalInt(process.env.MAX_MEMORY_MB, 400); // Максимум памʼяті в MB
+  const MEMORY_WARNING_MB = parseOptionalInt(process.env.MEMORY_WARNING_MB, 200); // Знижено з 300 для раннього GC
+  const CRITICAL_MEMORY_MB = parseOptionalInt(process.env.CRITICAL_MEMORY_MB, 420); // Жорстке відсікання для Render free tier
 
   let lastProgressTime = Date.now();
   let lastProcessedCount = 0;
@@ -116,54 +131,60 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
   let lastStatusUpdateAt = Date.now();
 
   // Глобальный таймаут для всей задачи
-  const jobTimeout = setTimeout(() => {
-    const maxMins = Math.round(MAX_JOB_DURATION / 60000);
-    console.error(
-      `⏰ [WORKER] Задание ${jobId} превысило максимальное время выполнения (${maxMins} минут)`
-    );
-    isJobCancelled = true;
-    abortController.abort();
+  const jobTimeout =
+    MAX_JOB_DURATION > 0
+      ? setTimeout(() => {
+          const maxMins = Math.round(MAX_JOB_DURATION / 60000);
+          console.error(
+            `⏰ [WORKER] Задание ${jobId} превысило максимальное время выполнения (${maxMins} минут)`
+          );
+          isJobCancelled = true;
+          abortController.abort();
 
-    parentPort.postMessage({
-      type: 'jobError',
-      payload: {
-        errorMessage: 'Задание превысило максимальное время выполнения (30 минут)',
-        duration: Math.round((Date.now() - startTime) / 1000),
-      },
-    });
-  }, MAX_JOB_DURATION);
+          parentPort.postMessage({
+            type: 'jobError',
+            payload: {
+              errorMessage: `Задание превысило максимальное время выполнения (${maxMins} минут)`,
+              duration: Math.round((Date.now() - startTime) / 1000),
+            },
+          });
+        }, MAX_JOB_DURATION)
+      : null;
 
   // Таймаут для отслеживания зависания (отсутствие прогресса)
-  const stallCheckInterval = setInterval(() => {
-    const now = Date.now();
-    const timeSinceLastProgress = now - lastProgressTime;
+  const stallCheckInterval =
+    MAX_STALL_DURATION > 0
+      ? setInterval(() => {
+          const now = Date.now();
+          const timeSinceLastProgress = now - lastProgressTime;
 
-    if (timeSinceLastProgress > MAX_STALL_DURATION && !isJobCancelled) {
-      console.error(
-        `⏰ [WORKER] Задание ${jobId} зависло — нет прогресса ${Math.round(timeSinceLastProgress / 1000)} секунд`
-      );
-      isJobCancelled = true;
-      abortController.abort();
+          if (timeSinceLastProgress > MAX_STALL_DURATION && !isJobCancelled) {
+            console.error(
+              `⏰ [WORKER] Задание ${jobId} зависло — нет прогресса ${Math.round(timeSinceLastProgress / 1000)} секунд`
+            );
+            isJobCancelled = true;
+            abortController.abort();
 
-      clearTimeout(jobTimeout);
-      clearInterval(stallCheckInterval);
+            if (jobTimeout) clearTimeout(jobTimeout);
+            if (stallCheckInterval) clearInterval(stallCheckInterval);
 
-      parentPort.postMessage({
-        type: 'jobError',
-        payload: {
-          errorMessage: `Задание зависло — нет прогресса более ${Math.round(
-            MAX_STALL_DURATION / 60000
-          )} минут`,
-          duration: Math.round((Date.now() - startTime) / 1000),
-        },
-      });
-    }
-  }, 30000); // Проверяем каждые 30 секунд
+            parentPort.postMessage({
+              type: 'jobError',
+              payload: {
+                errorMessage: `Задание зависло — нет прогресса более ${Math.round(
+                  MAX_STALL_DURATION / 60000
+                )} минут`,
+                duration: Math.round((Date.now() - startTime) / 1000),
+              },
+            });
+          }
+        }, 30000)
+      : null; // Проверяем каждые 30 секунд
 
   try {
     // Check if job was cancelled before starting
     if (isJobCancelled) {
-      clearTimeout(jobTimeout);
+      if (jobTimeout) clearTimeout(jobTimeout);
       throw new Error('Задание отменено до начала обработки');
     }
 
@@ -254,7 +275,7 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
           }
 
           // Проактивный мониторинг памяти
-          if (memUsedMB > MEMORY_WARNING_MB) {
+          if (MEMORY_WARNING_MB > 0 && memUsedMB > MEMORY_WARNING_MB) {
             console.warn(`⚠️ [WORKER] Високе використання памʼяті: ${memUsedMB}MB`);
             // Принудительная сборка мусора при превышении предупреждения
             if (global.gc) {
@@ -265,23 +286,23 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
                 `🗑️ [WORKER] Примусова збірка сміття: ${memUsedMB}MB -> ${memAfterGCMB}MB`
               );
 
-              if (memAfterGCMB > MAX_MEMORY_MB) {
+              if (MAX_MEMORY_MB > 0 && memAfterGCMB > MAX_MEMORY_MB) {
                 throw new Error(
                   `Перевищено ліміт памʼяті: ${memAfterGCMB}MB > ${MAX_MEMORY_MB}MB після GC`
                 );
               }
 
-              if (memAfterGCMB > CRITICAL_MEMORY_MB) {
+              if (CRITICAL_MEMORY_MB > 0 && memAfterGCMB > CRITICAL_MEMORY_MB) {
                 throw new Error(
                   `Перевищено критичний ліміт памʼяті: ${memAfterGCMB}MB > ${CRITICAL_MEMORY_MB}MB`
                 );
               }
-            } else if (memUsedMB > MAX_MEMORY_MB) {
+            } else if (MAX_MEMORY_MB > 0 && memUsedMB > MAX_MEMORY_MB) {
               throw new Error(`Перевищено ліміт памʼяті: ${memUsedMB}MB > ${MAX_MEMORY_MB}MB`);
             }
           }
 
-          if (memUsedMB > CRITICAL_MEMORY_MB) {
+          if (CRITICAL_MEMORY_MB > 0 && memUsedMB > CRITICAL_MEMORY_MB) {
             throw new Error(
               `Перевищено критичний ліміт памʼяті: ${memUsedMB}MB > ${CRITICAL_MEMORY_MB}MB`
             );
@@ -400,15 +421,15 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
     }
 
     const duration = Math.round((Date.now() - startTime) / 1000);
-    clearTimeout(jobTimeout);
-    clearInterval(stallCheckInterval);
+    if (jobTimeout) clearTimeout(jobTimeout);
+    if (stallCheckInterval) clearInterval(stallCheckInterval);
     parentPort.postMessage({
       type: 'jobSuccess',
       payload: { duration },
     });
   } catch (error) {
-    clearTimeout(jobTimeout);
-    clearInterval(stallCheckInterval);
+    if (jobTimeout) clearTimeout(jobTimeout);
+    if (stallCheckInterval) clearInterval(stallCheckInterval);
     console.error(`❌ Помилка обробки завдання ${jobId} у воркері:`, error.message, error.stack);
     const duration = Math.round((Date.now() - startTime) / 1000);
     // Convert fatal batch failure into retryable job status by signaling a soft error

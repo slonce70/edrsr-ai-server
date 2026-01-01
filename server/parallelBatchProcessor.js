@@ -10,7 +10,7 @@ import { sleep } from './utils.js';
 import { logger } from './utils.js';
 
 // Максимальна кількість паралельних батчів (обмеження через пам'ять на Render.com 512MB)
-const MAX_SAFE_CONCURRENT = parseInt(process.env.MAX_CONCURRENT_BATCHES, 10) || 5;
+const MAX_SAFE_CONCURRENT = parseInt(process.env.MAX_CONCURRENT_BATCHES, 10) || 7;
 
 /**
  * Розрахувати оптимальну кількість паралельних батчів

@@ -95,6 +95,10 @@ const CHAT_CLEANUP_INTERVAL_MS = Number.parseInt(
   process.env.CHAT_CLEANUP_INTERVAL_MS || String(5 * 60 * 1000),
   10
 ); // каждые 5 минут
+const ENABLE_WORKER_CLEANUP = process.env.ENABLE_WORKER_CLEANUP !== 'false';
+const ENABLE_PERIODIC_RECOVERY = process.env.ENABLE_PERIODIC_RECOVERY !== 'false';
+const ENABLE_CHAT_CLEANUP = process.env.ENABLE_CHAT_CLEANUP !== 'false';
+const ENABLE_WORKER_AUTO_TERMINATE = process.env.ENABLE_WORKER_AUTO_TERMINATE !== 'false';
 const activeWorkers = new Map(); // Для отслеживания активных воркеров: jobId -> worker
 
 // Автоочищення зависших воркерів кожні 5 хвилин (TTL 30 хвилин)
@@ -275,8 +279,14 @@ function startWorker({ jobId, links, cookie, prompt, claimed = false }) {
           logger.warn(
             `[HEALTH_CHECK] Критическое потребление памяти воркером ${jobId}: ${msg.memoryUsedMB}MB`
           );
-          // Жестко завершаем, чтобы избежать OOM на 512MB инстансе
-          forceTerminateWorker(jobId, 'Critical memory reported by worker');
+          // Жестко завершаем только если разрешено конфигом (Render‑ограничение)
+          if (ENABLE_WORKER_AUTO_TERMINATE) {
+            forceTerminateWorker(jobId, 'Critical memory reported by worker');
+          } else {
+            logger.info(
+              `[HEALTH_CHECK] Auto‑terminate disabled, worker ${jobId} left running`
+            );
+          }
         }
       }
     } else if (msg.type === 'jobSuccess') {
@@ -512,11 +522,27 @@ try {
 
 // Автоматическая очистка зависших воркеров
 function startWorkerCleanupService() {
-  const CLEANUP_INTERVAL = 30 * 1000; // Проверяем каждые 30 секунд (было 2 минуты)
-  const MAX_WORKER_LIFETIME = 25 * 60 * 1000; // 25 минут максимум (синхронизировано с worker.js)
-  const HEALTH_CHECK_INTERVAL = 2 * 60 * 1000; // Проверяем здоровье воркеров каждые 2 минуты (было 5 минут)
-  const MEMORY_CHECK_THRESHOLD = 5 * 60 * 1000; // Проверяем память воркеров старше 5 минут
+  if (!ENABLE_WORKER_CLEANUP) {
+    logger.info('[CLEANUP] Worker cleanup disabled by config');
+    return;
+  }
+
+  const CLEANUP_INTERVAL = parseInt(process.env.WORKER_CLEANUP_INTERVAL_MS || '30000', 10); // 30s default
+  const MAX_WORKER_LIFETIME = parseInt(process.env.WORKER_MAX_LIFETIME_MS || '1500000', 10); // 25m default
+  const HEALTH_CHECK_INTERVAL = parseInt(
+    process.env.WORKER_HEALTHCHECK_INTERVAL_MS || '120000',
+    10
+  ); // 2m default
+  const MEMORY_CHECK_THRESHOLD = parseInt(
+    process.env.WORKER_HEALTHCHECK_AFTER_MS || '300000',
+    10
+  ); // 5m default
   let lastHealthCheck = Date.now();
+
+  if (!Number.isFinite(CLEANUP_INTERVAL) || CLEANUP_INTERVAL <= 0) {
+    logger.info('[CLEANUP] Worker cleanup interval disabled (<= 0)');
+    return;
+  }
 
   setInterval(() => {
     const now = Date.now();
@@ -527,7 +553,7 @@ function startWorkerCleanupService() {
       const runningTime = now - workerInfo.startTime;
 
       // Если воркер работает дольше максимального времени
-      if (runningTime > MAX_WORKER_LIFETIME) {
+      if (MAX_WORKER_LIFETIME > 0 && runningTime > MAX_WORKER_LIFETIME) {
         workersToTerminate.push({
           jobId,
           runningTime,
@@ -535,7 +561,7 @@ function startWorkerCleanupService() {
         });
       }
       // Если воркер работает долго, но еще не превысил лимит - проверим его здоровье
-      else if (runningTime > MEMORY_CHECK_THRESHOLD) {
+      else if (MEMORY_CHECK_THRESHOLD > 0 && runningTime > MEMORY_CHECK_THRESHOLD) {
         // Больше 5 минут - проверяем здоровье и память
         workersToHealthCheck.push({ jobId, workerInfo, runningTime });
       }
@@ -545,16 +571,24 @@ function startWorkerCleanupService() {
     if (workersToTerminate.length > 0) {
       logger.warn(`[CLEANUP] Найдено ${workersToTerminate.length} зависших воркеров, завершаю...`);
 
-      for (const { jobId, runningTime, reason } of workersToTerminate) {
-        logger.warn(
-          `[CLEANUP] Завершаю зависший воркер ${jobId} (работал ${Math.round(runningTime / 1000 / 60)} минут)`
-        );
-        forceTerminateWorker(jobId, reason);
+      if (ENABLE_WORKER_AUTO_TERMINATE) {
+        for (const { jobId, runningTime, reason } of workersToTerminate) {
+          logger.warn(
+            `[CLEANUP] Завершаю зависший воркер ${jobId} (работал ${Math.round(runningTime / 1000 / 60)} минут)`
+          );
+          forceTerminateWorker(jobId, reason);
+        }
+      } else {
+        logger.info('[CLEANUP] Auto‑terminate disabled, skip worker termination');
       }
     }
 
     // Проверяем здоровье долго работающих воркеров
-    if (workersToHealthCheck.length > 0 && now - lastHealthCheck > HEALTH_CHECK_INTERVAL) {
+    if (
+      workersToHealthCheck.length > 0 &&
+      HEALTH_CHECK_INTERVAL > 0 &&
+      now - lastHealthCheck > HEALTH_CHECK_INTERVAL
+    ) {
       logger.info(
         `[CLEANUP] Проверяю здоровье ${workersToHealthCheck.length} долго работающих воркеров...`
       );
@@ -622,13 +656,20 @@ async function recoverStuckJobs() {
 // Периодическое восстановление зависших заданий
 function startPeriodicRecovery() {
   // Запускаем восстановление каждые 5 минут
-  const RECOVERY_INTERVAL = 5 * 60 * 1000;
+  const RECOVERY_INTERVAL = parseInt(process.env.RECOVERY_INTERVAL_MS || '300000', 10);
+  if (!Number.isFinite(RECOVERY_INTERVAL) || RECOVERY_INTERVAL <= 0) {
+    logger.info('[RECOVERY] Periodic recovery disabled (interval <= 0)');
+    return;
+  }
 
   setInterval(() => {
     recoverStuckJobs();
   }, RECOVERY_INTERVAL);
 
-  logger.info('[RECOVERY] Периодическое восстановление зависших заданий запущено (каждые 5 минут)');
+  const mins = Math.round(RECOVERY_INTERVAL / 60000);
+  logger.info(
+    `[RECOVERY] Периодическое восстановление зависших заданий запущено (каждые ${mins} минут)`
+  );
 }
 
 // Инициализация всех служб мониторинга
@@ -647,7 +688,11 @@ function initializeMonitoringServices() {
 
   // Запуск служб
   startWorkerCleanupService();
-  startPeriodicRecovery();
+  if (ENABLE_PERIODIC_RECOVERY) {
+    startPeriodicRecovery();
+  } else {
+    logger.info('[RECOVERY] Periodic recovery disabled by config');
+  }
 
   logger.info('🔧 [MONITORING] Все службы мониторинга и восстановления запущены');
 }
@@ -699,12 +744,18 @@ export default function (clients) {
   initializeMonitoringServices();
   // Запускаем периодическую очистку чат‑сессий
   try {
-    setInterval(() => evictExpiredChatSessions('interval'), CHAT_CLEANUP_INTERVAL_MS);
-    // Стартовая разовая очистка (на случай рестарта)
-    evictExpiredChatSessions('startup');
-    logger.info(
-      `[CHAT_CLEANUP] Service started. TTL=${CHAT_TTL_MS}ms, MAX=${CHAT_MAX_SESSIONS}, INTERVAL=${CHAT_CLEANUP_INTERVAL_MS}ms`
-    );
+    if (!ENABLE_CHAT_CLEANUP) {
+      logger.info('[CHAT_CLEANUP] Disabled by config');
+    } else if (!Number.isFinite(CHAT_CLEANUP_INTERVAL_MS) || CHAT_CLEANUP_INTERVAL_MS <= 0) {
+      logger.info('[CHAT_CLEANUP] Disabled (interval <= 0)');
+    } else {
+      setInterval(() => evictExpiredChatSessions('interval'), CHAT_CLEANUP_INTERVAL_MS);
+      // Стартовая разовая очистка (на случай рестарта)
+      evictExpiredChatSessions('startup');
+      logger.info(
+        `[CHAT_CLEANUP] Service started. TTL=${CHAT_TTL_MS}ms, MAX=${CHAT_MAX_SESSIONS}, INTERVAL=${CHAT_CLEANUP_INTERVAL_MS}ms`
+      );
+    }
   } catch (e) {
     logger.error('[CHAT_CLEANUP] Failed to start cleanup interval', e);
   }

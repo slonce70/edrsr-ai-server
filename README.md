@@ -3,7 +3,7 @@
 **A professional system for collecting and analyzing court decisions from the EDRSR using Gemini AI.**
 
 [![Status](https://img.shields.io/badge/Status-Production%20Ready-brightgreen)]()
-[![Version](https://img.shields.io/badge/Version-1.0.8-blue)]()
+[![Version](https://img.shields.io/badge/Version-2.0.0-blue)]()
 [![AI](https://img.shields.io/badge/AI-Gemini%203%20Pro%20%2B%202.5%20Flash-orange)]()
 [![Database](https://img.shields.io/badge/Database-PostgreSQL-blue)]()
 
@@ -11,13 +11,13 @@ This is a comprehensive system for automatically collecting court decisions from
 
 ## 🎯 **Project Status: PRODUCTION READY**
 
-The system is fully ready for production use with major performance optimizations. Memory usage has been optimized from 500MB+ to stable 30MB, all critical bugs have been fixed, and the project features a professional UI/UX design, robust error handling, and real-time progress updates and chat with the AI.
+The system is production‑ready and deployed on a VPS with a local PostgreSQL database. Performance is stable on small VPS resources, and the project features a professional UI/UX, robust error handling, and real‑time progress updates with AI chat.
 
 ## 🌟 **Key Features**
 
 - **📥 Automated Collection**: Intelligent parsing of court decisions from any page of the ЄДРСР, now including the **decision date**.
 - **⚡️ Intelligent Caching**: All scraped cases are stored in a persistent global cache with automatic cleanup. Subsequent analyses of the same case are performed instantly, without redundant network requests, dramatically saving time and resources.
-- **🧠 Memory Optimization**: Advanced memory management with garbage collection, preventing memory leaks and ensuring stable operation even with large datasets (optimized from 500MB+ to stable 30MB usage).
+- **🧠 Memory Optimization**: Advanced memory management with garbage collection, preventing memory leaks and ensuring stable operation even with large datasets (limits are configurable per environment).
 - **🤖 Advanced AI Analysis**: A highly flexible system with multiple analysis modes:
   - **Context-Aware Summaries**: For custom queries, the AI first understands the end goal, then creates highly relevant, detailed summaries from each case.
   - **Detailed Annotation**: A special mode to generate deep, structured annotations for each individual case in a large batch.
@@ -42,7 +42,7 @@ The project is a monorepo containing the `server` and `extension` directories.
 ## ⚙️ **Installation and Setup**
 
 ### **1. System Requirements**
-- **Node.js**: 16+
+- **Node.js**: 16+ (20.x recommended)
 - **PostgreSQL**: 12+
 - **Browser**: Chrome or Edge
 - **API Key**: Gemini AI API key
@@ -54,15 +54,16 @@ The project is a monorepo containing the `server` and `extension` directories.
 npm install
 cd server && npm install
 
-# Setup PostgreSQL database
+# Setup PostgreSQL database (local VPS recommended)
 createdb edrsr_ai
 
 # Create and configure .env file
 cp server/.env.example server/.env
 # Then edit server/.env with your configuration:
 # - GEMINI_API_KEY
-# - DATABASE_URL (Supabase Postgres or your Postgres)
+# - DATABASE_URL (local Postgres recommended)
 # - SUPABASE_URL, SUPABASE_ANON_KEY (for token validation)
+# - SUPABASE_SERVICE_ROLE_KEY (admin panel)
 ```
 
 ### **3. Supabase Authentication**
@@ -71,6 +72,7 @@ cp server/.env.example server/.env
 - In Settings → Auth → URL Configuration: add your redirect URL used by the extension (SUPABASE_REDIRECT_TO).
 - Optional: apply RLS policies for strict per‑user isolation:
   - Run: `npm run apply:rls` (uses `server/sql/apply_rls.sql`).
+> Supabase is used for authentication only. Application data is stored in local PostgreSQL on the VPS.
 
 ### **Supabase Quick Start (Checklist)**
 - Create project: supabase.com → New project → wait for provisioning.
@@ -83,7 +85,7 @@ cp server/.env.example server/.env
   ```env
   SUPABASE_URL=https://<your-project>.supabase.co
   SUPABASE_ANON_KEY=<anon_public_key>
-  DATABASE_URL=postgresql://<supabase-conn-string>
+  DATABASE_URL=postgresql://<local-conn-string>
   GEMINI_API_KEY=...
   ```
   
@@ -107,14 +109,20 @@ npm run dev
 npm run start:gc
 ```
 
-**Memory Optimization**: The production mode (`start:gc`) enables manual garbage collection and sets a heap limit (~480MB) to ensure stable operation with large datasets.
+**Memory Optimization**: The production mode (`start:gc`) enables manual garbage collection and sets a heap limit (configured via `MAX_OLD_SPACE_MB`).
+
+### **Production URLs (VPS)**
+- API: `https://edrsr-ai-server.fun/api`
+- Admin: `https://edrsr-ai-server.fun/admin`
+- WebSocket: `wss://edrsr-ai-server.fun`
 
 Environment variables:
 
-- `BATCH_SIZE` — number of links per batch (default: 5).
+- `BATCH_SIZE` — number of links per batch (default: 10).
 - `OVERALL_REQUEST_TIMEOUT_MS` — overall timeout per URL (default: 60000).
 - `GOT_REQUEST_TIMEOUT_MS` — per‑attempt HTTP timeout (default: 45000).
-- `MEMORY_LIMIT_MB` — soft limit for logging warnings (default: 500).
+- `MEMORY_LIMIT_MB` — soft limit for logging warnings.
+- `MAX_OLD_SPACE_MB` — Node.js heap cap for `start:gc`.
 
 ### **5. Building and Installing the Chrome Extension**
 
@@ -157,12 +165,12 @@ For Chrome Web Store publishing, use the generated `.zip` archive.
 ### **Memory Management**
 - **Optimized Memory Usage**: Reduced peak usage via batch processing and manual GC
 - **Automatic Cleanup**: Memory is cleared after each batch and after AI analysis
-- **Cache Management**: Intelligent cache cleanup keeps only the 1000 most recent entries
+- **Cache Management**: Intelligent cache cleanup with configurable retention
 - **Real-time Monitoring**: Memory usage is tracked and displayed during processing
 
 ### **Production Deployment**
 - Use `npm run start:gc` for production with manual GC and heap cap
-- Heap limit set to ~480MB (`--max-old-space-size=480`)
+- Heap limit configured via `MAX_OLD_SPACE_MB`
 - Batches of 10 by default (`BATCH_SIZE`), with forced `global.gc()` between batches (when available)
 - Structured memory metrics in logs: batch progress with heap and rss, warnings at `MEMORY_WARNING_MB`
 
