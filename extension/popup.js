@@ -81,7 +81,7 @@ document.addEventListener('DOMContentLoaded', () => {
     return doc.body.innerHTML;
   }
   // --- Global State & Port Connection ---
-  let port = chrome.runtime.connect({ name: 'popup' });
+  let port = null;
   let currentJobData = null;
   let clientId = null;
   let lastHistory = null;
@@ -98,6 +98,7 @@ document.addEventListener('DOMContentLoaded', () => {
     tabs: document.querySelectorAll('.tab'),
     tabContents: document.querySelectorAll('.tab-content'),
     collectBtn: document.getElementById('collectBtn'),
+    copyUrlsBtn: document.getElementById('copyUrlsBtn'),
     collectInfo: document.getElementById('collectInfo'),
     linksCount: document.getElementById('linksCount'),
     currentPage: document.getElementById('currentPage'),
@@ -156,8 +157,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // Descriptions are now imported directly from the prompt-definitions module.
   // The old dynamic import is no longer needed.
 
-  // --- Port Message Listener ---
-  port.onMessage.addListener((message) => {
+  // --- Port Connection Management ---
+  const handlePortMessage = (message) => {
     console.log('[POPUP] Received message from service worker:', message);
     const { type, payload } = message;
 
@@ -185,18 +186,24 @@ document.addEventListener('DOMContentLoaded', () => {
       case 'AUTH_REQUIRED':
         switchTab('auth');
         elements.authStatus.textContent = t('popup.messages.authRequired');
+        void updateAuthUI();
         break;
     }
-  });
+  };
 
-  port.onDisconnect.addListener(() => {
-    console.warn('[POPUP] Port disconnected. Attempting to reconnect...');
-    updateServerStatus('reconnecting');
-    // Simple reconnection logic
-    setTimeout(() => {
-      port = chrome.runtime.connect({ name: 'popup' });
-    }, 1000);
-  });
+  const connectPort = () => {
+    port = chrome.runtime.connect({ name: 'popup' });
+    port.onMessage.addListener(handlePortMessage);
+    port.onDisconnect.addListener(() => {
+      console.warn('[POPUP] Port disconnected. Attempting to reconnect...');
+      updateServerStatus('reconnecting');
+      setTimeout(() => {
+        connectPort();
+      }, 1000);
+    });
+  };
+
+  connectPort();
 
   // --- UI Update Functions ---
 
@@ -555,42 +562,7 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.collectBtn.innerHTML = '<div class="loading"></div>';
     elements.collectBtn.disabled = true;
     try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
-      // Запрашиваем данные у content.js, а не инжектим свой скрипт
-      const links = await chrome.tabs.sendMessage(tab.id, { type: 'GET_DECISION_LINKS' });
-
-      if (!links || links.length === 0) {
-        throw new Error(t('popup.messages.errorNoLinks'));
-      }
-
-      // Optionally filter only unique (not in user's job history)
-      let finalLinks = links;
-      if (elements.uniqueOnlyToggle?.checked) {
-        const res = await chrome.runtime.sendMessage({
-          type: 'API_CHECK_PROCESSED',
-          urls: finalLinks.map((l) => l.url),
-        });
-        if (res && res.success && Array.isArray(res.urls)) {
-          const processed = new Set(res.urls);
-          finalLinks = finalLinks.filter((l) => l && l.url && !processed.has(l.url));
-        }
-        if (finalLinks.length === 0) {
-          throw new Error(t('popup.messages.errorNoUnique'));
-        }
-      }
-
-      // Optionally ignore links already sent in this session
-      if (elements.ignoreSessionToggle?.checked) {
-        const sessionRes = await chrome.runtime.sendMessage({ type: 'API_GET_SESSION_VISITED' });
-        if (sessionRes && sessionRes.success && Array.isArray(sessionRes.urls)) {
-          const sessionSet = new Set(sessionRes.urls);
-          finalLinks = finalLinks.filter((l) => l && l.url && !sessionSet.has(l.url));
-        }
-        if (finalLinks.length === 0) {
-          throw new Error(t('popup.messages.errorNoNewSession'));
-        }
-      }
+      const { tab, links: finalLinks } = await getFilteredLinksForAction();
 
       let prompt;
       let promptLabel = null;
@@ -645,6 +617,92 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   };
 
+  async function copyTextToClipboard(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      try {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+  }
+
+  const copyDecisionUrls = async () => {
+    if (!elements.copyUrlsBtn) return;
+    elements.copyUrlsBtn.innerHTML = '<div class="loading"></div>';
+    elements.copyUrlsBtn.disabled = true;
+    try {
+      const { links } = await getFilteredLinksForAction();
+      const urls = (links || []).map((l) => l?.url).filter(Boolean);
+      if (urls.length === 0) {
+        throw new Error(t('popup.messages.copyUrlsEmpty'));
+      }
+      const ok = await copyTextToClipboard(urls.join('\n'));
+      if (!ok) {
+        throw new Error(t('popup.messages.copyUrlsFailed'));
+      }
+      elements.copyUrlsBtn.innerHTML = `<span>${t('popup.messages.copyUrlsCopied', {
+        count: urls.length,
+      })}</span>`;
+    } catch (error) {
+      alert(t('common.errorPrefix', { message: error.message }));
+    } finally {
+      setTimeout(() => {
+        updatePageInfo();
+      }, 1200);
+    }
+  };
+
+  const getFilteredLinksForAction = async () => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+    // Запрашиваем данные у content.js, а не инжектим свой скрипт
+    const links = await chrome.tabs.sendMessage(tab.id, { type: 'GET_DECISION_LINKS' });
+
+    if (!links || links.length === 0) {
+      throw new Error(t('popup.messages.errorNoLinks'));
+    }
+
+    // Optionally filter only unique (not in user's job history)
+    let finalLinks = links;
+    if (elements.uniqueOnlyToggle?.checked) {
+      const res = await chrome.runtime.sendMessage({
+        type: 'API_CHECK_PROCESSED',
+        urls: finalLinks.map((l) => l.url),
+      });
+      if (res && res.success && Array.isArray(res.urls)) {
+        const processed = new Set(res.urls);
+        finalLinks = finalLinks.filter((l) => l && l.url && !processed.has(l.url));
+      }
+      if (finalLinks.length === 0) {
+        throw new Error(t('popup.messages.errorNoUnique'));
+      }
+    }
+
+    // Optionally ignore links already sent in this session
+    if (elements.ignoreSessionToggle?.checked) {
+      const sessionRes = await chrome.runtime.sendMessage({ type: 'API_GET_SESSION_VISITED' });
+      if (sessionRes && sessionRes.success && Array.isArray(sessionRes.urls)) {
+        const sessionSet = new Set(sessionRes.urls);
+        finalLinks = finalLinks.filter((l) => l && l.url && !sessionSet.has(l.url));
+      }
+      if (finalLinks.length === 0) {
+        throw new Error(t('popup.messages.errorNoNewSession'));
+      }
+    }
+
+    return { tab, links: finalLinks };
+  };
+
   const updatePageInfo = async () => {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -693,16 +751,24 @@ document.addEventListener('DOMContentLoaded', () => {
         elements.collectBtn.innerHTML = `<span>${t('popup.collect.collectBtnWithCount', {
           count: finalCount,
         })}</span>`;
+        if (elements.copyUrlsBtn) {
+          elements.copyUrlsBtn.innerHTML = `<span>${t('popup.collect.copyUrlsBtnWithCount', {
+            count: finalCount,
+          })}</span>`;
+          elements.copyUrlsBtn.disabled = finalCount === 0;
+        }
         elements.collectInfo.style.display = 'block';
         elements.collectBtn.disabled = false;
       } else {
         elements.currentPage.textContent = t('popup.messages.currentPageNo');
         elements.collectInfo.style.display = 'none';
         elements.collectBtn.disabled = true;
+        if (elements.copyUrlsBtn) elements.copyUrlsBtn.disabled = true;
       }
     } catch {
       elements.collectInfo.style.display = 'none';
       elements.collectBtn.disabled = true;
+      if (elements.copyUrlsBtn) elements.copyUrlsBtn.disabled = true;
     }
   };
 
@@ -915,6 +981,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   elements.tabs.forEach((tab) => tab.addEventListener('click', () => switchTab(tab.dataset.tab)));
   elements.collectBtn.addEventListener('click', collectLinks);
+  elements.copyUrlsBtn?.addEventListener('click', copyDecisionUrls);
   elements.localeSelect?.addEventListener('change', async () => {
     await setLocale(elements.localeSelect.value);
     await applyLocale();

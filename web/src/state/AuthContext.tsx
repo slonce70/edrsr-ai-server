@@ -91,7 +91,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return null;
       },
       signOut: async () => {
-        await supabase.auth.signOut();
+        await supabase.auth.signOut({ scope: 'local' });
       },
     };
   }, [session, user, isLoading]);

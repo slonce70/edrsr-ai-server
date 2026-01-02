@@ -3,7 +3,7 @@
 // This service worker uses a modern, robust architecture with WebSockets
 // and long-lived port connections to ensure reliability and prevent termination.
 import { API_BASE_URL, WS_URL } from './config.js';
-import { getAccessToken, isAuthenticated, forceRefresh } from './auth.js';
+import { getAccessToken, isAuthenticated, forceRefresh, clearSession } from './auth.js';
 import { initI18n, setLocale, t } from './i18n.js';
 import {
   PROMPT_GROUPS_I18N,
@@ -1145,10 +1145,13 @@ async function apiFetch(path, init = {}) {
         }
       }
       res = await attempt(token);
+    } else {
+      await clearSession();
     }
   }
 
   if (res.status === 401 || res.status === 403) {
+    await clearSession();
     if (popupPort) popupPort.postMessage({ type: 'AUTH_REQUIRED' });
   }
 
