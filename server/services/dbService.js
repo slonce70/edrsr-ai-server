@@ -207,6 +207,55 @@ class DatabaseService {
     return await database.all(`${base} ORDER BY created_at DESC LIMIT $1`, [limit]);
   }
 
+  async getJobsPage({ page = 1, limit = 20, status = '', search = '', userId = null } = {}) {
+    const safePage = Math.max(1, parseInt(page, 10) || 1);
+    const safeLimit = Math.max(1, parseInt(limit, 10) || 20);
+    const where = [];
+    const params = [];
+    let idx = 1;
+
+    if (userId) {
+      where.push(`user_id = $${idx}`);
+      params.push(userId);
+      idx++;
+    }
+    if (status) {
+      where.push(`status = $${idx}`);
+      params.push(status);
+      idx++;
+    }
+    if (search) {
+      const safeSearch = `%${escapeLike(search)}%`;
+      where.push(`(title ILIKE $${idx} OR prompt ILIKE $${idx})`);
+      params.push(safeSearch);
+      idx++;
+    }
+
+    const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const offset = (safePage - 1) * safeLimit;
+
+    const jobs = await database.all(
+      `SELECT id, status, progress, processed_links, total_links, created_at, updated_at, title, duration
+       FROM jobs
+       ${whereClause}
+       ORDER BY created_at DESC
+       LIMIT $${idx} OFFSET $${idx + 1}`,
+      [...params, safeLimit, offset]
+    );
+
+    const totalRow = await database.get(
+      `SELECT COUNT(*)::int AS total FROM jobs ${whereClause}`,
+      params
+    );
+
+    return {
+      jobs,
+      total: totalRow?.total || 0,
+      page: safePage,
+      limit: safeLimit,
+    };
+  }
+
   async getJobLight(jobId, userId = null) {
     const sql = userId
       ? `SELECT id, title, status, progress, processed_links, total_links, prompt, created_at, updated_at, duration FROM jobs WHERE id = $1 AND user_id = $2`

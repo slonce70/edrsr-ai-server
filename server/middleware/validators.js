@@ -21,7 +21,7 @@ export function validateCollectRequest(req, res, next) {
   try {
     const { links, cookie = '', prompt = null, clientId } = req.body || {};
 
-    if (!clientId || typeof clientId !== 'string') {
+    if (typeof clientId !== 'undefined' && typeof clientId !== 'string') {
       return res.status(400).json({ error: 'Неверный clientId' });
     }
     if (!Array.isArray(links) || links.length === 0) {
