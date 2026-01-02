@@ -84,8 +84,39 @@ export const PROMPT_DESCRIPTIONS_I18N = {
 export const PROMPT_GROUPS = PROMPT_GROUPS_I18N.uk;
 export const PROMPT_DESCRIPTIONS = PROMPT_DESCRIPTIONS_I18N.uk;
 
+const isCustomGroup = (label, prompts) => {
+  if (prompts && Object.prototype.hasOwnProperty.call(prompts, 'custom')) {
+    return true;
+  }
+  const normalized = String(label || '').toLowerCase();
+  return (
+    normalized.includes('індивіду') ||
+    normalized.includes('индивиду') ||
+    normalized.includes('custom')
+  );
+};
+
+export function orderPromptGroups(groups) {
+  if (!groups || typeof groups !== 'object') return groups;
+  const entries = Object.entries(groups);
+  if (entries.length <= 1) return groups;
+
+  const normal = [];
+  const custom = [];
+  for (const [label, prompts] of entries) {
+    if (isCustomGroup(label, prompts)) {
+      custom.push([label, prompts]);
+    } else {
+      normal.push([label, prompts]);
+    }
+  }
+
+  return Object.fromEntries([...normal, ...custom]);
+}
+
 export function getPromptGroupLabels(locale = 'uk') {
-  return PROMPT_GROUPS_I18N[locale] || PROMPT_GROUPS_I18N.uk;
+  const groups = PROMPT_GROUPS_I18N[locale] || PROMPT_GROUPS_I18N.uk;
+  return orderPromptGroups(groups);
 }
 
 export function getPromptDescriptions(locale = 'uk') {
