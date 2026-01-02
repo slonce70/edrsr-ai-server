@@ -8,6 +8,24 @@ const TOKEN_STORAGE_KEY = 'admin_token';
 
 document.addEventListener('DOMContentLoaded', async function () {
   applyTranslations(document);
+  const decodeTextarea = document.createElement('textarea');
+  const escapeDiv = document.createElement('div');
+
+  // DOM elements
+  const elements = {
+    jobTitle: document.getElementById('jobTitle'),
+    jobMetadata: document.getElementById('jobMetadata'),
+    analysisResult: document.getElementById('analysisResult'),
+    statusBadge: document.getElementById('statusBadge'),
+    copyBtn: document.getElementById('copyBtn'),
+    downloadBtn: document.getElementById('downloadBtn'),
+    printBtn: document.getElementById('printBtn'),
+  };
+
+  let currentJobData = null;
+  let analysisText = '';
+  let analysisTextForExport = '';
+
   // Get job ID from URL parameters
   const urlParams = new URLSearchParams(window.location.search);
   const jobId = urlParams.get('jobId');
@@ -47,20 +65,6 @@ document.addEventListener('DOMContentLoaded', async function () {
     marked.setOptions({ renderer, mangle: false, headerIds: false });
   }
 
-  // DOM elements
-  const elements = {
-    jobTitle: document.getElementById('jobTitle'),
-    jobMetadata: document.getElementById('jobMetadata'),
-    analysisResult: document.getElementById('analysisResult'),
-    statusBadge: document.getElementById('statusBadge'),
-    copyBtn: document.getElementById('copyBtn'),
-    downloadBtn: document.getElementById('downloadBtn'),
-    printBtn: document.getElementById('printBtn'),
-  };
-
-  let currentJobData = null;
-  let analysisText = '';
-
   // Load job report
   try {
     const response = await fetch(`/api/admin/jobs/${jobId}/report`, {
@@ -82,6 +86,7 @@ document.addEventListener('DOMContentLoaded', async function () {
     const data = await response.json();
     currentJobData = data.job;
     analysisText = typeof data.analysis === 'string' ? data.analysis : String(data.analysis || '');
+    analysisTextForExport = decodeHtmlEntitiesDeep(analysisText);
 
     renderReport(data.job, data.analysis);
     setupEventListeners();
@@ -134,12 +139,12 @@ document.addEventListener('DOMContentLoaded', async function () {
     // Copy button
     elements.copyBtn.addEventListener('click', async function () {
       try {
-        await navigator.clipboard.writeText(analysisText);
+        await navigator.clipboard.writeText(analysisTextForExport || analysisText);
         showSuccess(t('messages.reportCopySuccess'));
       } catch {
         // Fallback for older browsers
         const textArea = document.createElement('textarea');
-        textArea.value = analysisText;
+        textArea.value = analysisTextForExport || analysisText;
         document.body.appendChild(textArea);
         textArea.select();
         document.execCommand('copy');
@@ -168,7 +173,9 @@ document.addEventListener('DOMContentLoaded', async function () {
         .replace(/[\\/:*?"<>|]/g, '_')
         .trim() || t('report.reportTitle');
     const fileName = `${safeBase}_${currentJobData.id}.txt`;
-    const blob = new Blob([analysisText], { type: 'text/plain;charset=utf-8' });
+    const blob = new Blob([analysisTextForExport || analysisText], {
+      type: 'text/plain;charset=utf-8',
+    });
     const url = URL.createObjectURL(blob);
 
     const a = document.createElement('a');
@@ -236,8 +243,18 @@ document.addEventListener('DOMContentLoaded', async function () {
   }
 
   function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+    escapeDiv.textContent = decodeHtmlEntitiesDeep(text);
+    return escapeDiv.innerHTML;
+  }
+
+  function decodeHtmlEntitiesDeep(text, maxPasses = 3) {
+    let current = text == null ? '' : String(text);
+    for (let i = 0; i < maxPasses; i++) {
+      decodeTextarea.innerHTML = current;
+      const decoded = decodeTextarea.value;
+      if (decoded === current) break;
+      current = decoded;
+    }
+    return current;
   }
 });
