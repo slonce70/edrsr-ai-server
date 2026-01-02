@@ -288,11 +288,23 @@ select {
   color: #991b1b;
 }
 
+.card--danger {
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  background: #fff7f7;
+}
+
 .card__header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 12px;
+}
+
+.card__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .card__title {
@@ -410,6 +422,15 @@ select {
   box-shadow: var(--shadow-soft);
 }
 
+.btn-danger {
+  background: rgba(239, 68, 68, 0.15);
+  color: #b91c1c;
+}
+
+.btn-danger:hover {
+  background: rgba(239, 68, 68, 0.22);
+}
+
 .btn-ghost {
   background: transparent;
   color: var(--accent-strong);
@@ -417,6 +438,14 @@ select {
 
 .btn-ghost:hover {
   background: rgba(15, 118, 110, 0.08);
+}
+
+.btn-ghost.btn-danger {
+  color: #b91c1c;
+}
+
+.btn-ghost.btn-danger:hover {
+  background: rgba(239, 68, 68, 0.16);
 }
 
 .badge {
@@ -449,6 +478,21 @@ select {
 .badge-cancelled {
   background: rgba(107, 114, 128, 0.15);
   color: #4b5563;
+}
+
+.badge-active {
+  background: rgba(34, 197, 94, 0.15);
+  color: #15803d;
+}
+
+.badge-expired {
+  background: rgba(107, 114, 128, 0.15);
+  color: #4b5563;
+}
+
+.badge-revoked {
+  background: rgba(239, 68, 68, 0.15);
+  color: #991b1b;
 }
 
 .pill-group {
@@ -536,6 +580,11 @@ select {
 }
 
 .muted {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.meta {
   color: var(--muted);
   font-size: 12px;
 }

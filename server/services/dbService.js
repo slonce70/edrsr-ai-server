@@ -520,7 +520,7 @@ class DatabaseService {
     const offset = (safePage - 1) * safeLimit;
 
     const jobs = await database.all(
-      `SELECT id, status, progress, processed_links, total_links, created_at, updated_at, title, duration
+      `SELECT id, status, progress, processed_links, total_links, created_at, updated_at, title, duration, matter_id
        FROM jobs
        ${whereClause}
        ORDER BY created_at DESC
@@ -1636,18 +1636,20 @@ class DatabaseService {
     const token = crypto.randomBytes(24).toString('hex');
     const tokenHash = hashToken(token);
     const id = uuid();
+    const host = process.env.PUBLIC_SHARE_BASE_URL || process.env.APP_BASE_URL || '';
+    const shareUrl = host ? `${host.replace(/\/$/, '')}/share/${token}` : null;
     const row = await database.get(
-      `INSERT INTO share_links (id, job_id, token_hash, expires_at, created_by, created_at)
-       VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
-       RETURNING id, job_id, expires_at, created_by, created_at`,
-      [id, jobId, tokenHash, expiresAt, createdBy]
+      `INSERT INTO share_links (id, job_id, token_hash, share_url, expires_at, created_by, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+       RETURNING id, job_id, share_url, expires_at, created_by, created_at`,
+      [id, jobId, tokenHash, shareUrl, expiresAt, createdBy]
     );
     return { token, link: row };
   }
 
   async listShareLinksForWorkspace(workspaceId) {
     return await database.all(
-      `SELECT s.id, s.job_id, s.expires_at, s.created_by, s.created_at, s.revoked_at,
+      `SELECT s.id, s.job_id, s.share_url, s.expires_at, s.created_by, s.created_at, s.revoked_at,
         j.title
        FROM share_links s
        JOIN jobs j ON j.id = s.job_id
@@ -1657,13 +1659,21 @@ class DatabaseService {
     );
   }
 
-  async revokeShareLink(id) {
+  async revokeShareLink(id, workspaceId = null) {
+    const params = [id];
+    let workspaceClause = '';
+
+    if (workspaceId) {
+      params.push(workspaceId);
+      workspaceClause = ` AND job_id IN (SELECT id FROM jobs WHERE workspace_id = $2)`;
+    }
+
     const row = await database.get(
       `UPDATE share_links
        SET revoked_at = CURRENT_TIMESTAMP
-       WHERE id = $1 AND revoked_at IS NULL
+       WHERE id = $1 AND revoked_at IS NULL${workspaceClause}
        RETURNING id`,
-      [id]
+      params
     );
     return !!row?.id;
   }

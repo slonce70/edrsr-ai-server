@@ -347,14 +347,12 @@ router.post('/share-links', async (req, res, next) => {
     if (!job) return res.status(404).json({ error: 'Job not found' });
 
     const result = await dbService.createShareLink(jobId, req.user.id, expiresAt);
-    const host = process.env.PUBLIC_SHARE_BASE_URL || process.env.APP_BASE_URL || '';
-    const shareUrl = host ? `${host.replace(/\/$/, '')}/share/${result.token}` : null;
 
     res.json({
       success: true,
       share: {
         ...result.link,
-        url: shareUrl,
+        url: result.link?.share_url || null,
       },
       token: result.token,
     });
@@ -365,7 +363,7 @@ router.post('/share-links', async (req, res, next) => {
 
 router.post('/share-links/:id/revoke', async (req, res, next) => {
   try {
-    const revoked = await dbService.revokeShareLink(req.params.id);
+    const revoked = await dbService.revokeShareLink(req.params.id, req.workspace?.id || null);
     res.json({ success: true, revoked });
   } catch (error) {
     next(error);

@@ -16,6 +16,7 @@ export function AppLayout() {
     { to: '/create', label: t('nav.create') },
     { to: '/matters', label: t('nav.matters') },
     { to: '/prompts', label: t('nav.prompts') },
+    { to: '/share-links', label: t('nav.shareLinks') },
     { to: '/settings', label: t('nav.settings') },
   ];
 

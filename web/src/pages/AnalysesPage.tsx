@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { type MouseEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { apiRequest } from '../lib/api';
 import { formatDateShort, formatStatus } from '../lib/format';
@@ -47,6 +47,7 @@ export function AnalysesPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const totalPages = useMemo(() => {
     return Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -113,6 +114,32 @@ export function AnalysesPage() {
     setSearch('');
     setStatusFilter('');
     setPage(1);
+  };
+
+  const handleDelete = async (event: MouseEvent, jobId: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!accessToken) return;
+    if (!window.confirm(t('analyses.deleteConfirm'))) return;
+    setDeletingId(jobId);
+    setError(null);
+    try {
+      await apiRequest(`/jobs/${jobId}`, {
+        token: accessToken,
+        method: 'DELETE',
+        workspaceId: activeWorkspaceId || undefined,
+      });
+      if (jobs.length === 1 && page > 1) {
+        setPage((prev) => Math.max(1, prev - 1));
+      } else {
+        await fetchJobs();
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t('errors.generic');
+      setError(message);
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   return (
@@ -203,7 +230,16 @@ export function AnalysesPage() {
                     })}
                   </div>
                 </div>
-                <StatusBadge status={job.status} />
+                <div className="card__actions">
+                  <StatusBadge status={job.status} />
+                  <button
+                    className="btn btn-ghost btn-danger"
+                    onClick={(event) => handleDelete(event, job.id)}
+                    disabled={deletingId === job.id}
+                  >
+                    {t('common.remove')}
+                  </button>
+                </div>
               </div>
               <div className="card__body">
                 <ProgressBar value={job.progress} />

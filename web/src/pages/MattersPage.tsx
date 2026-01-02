@@ -31,6 +31,13 @@ export function MattersPage() {
   const [clientName, setClientName] = useState('');
   const [description, setDescription] = useState('');
   const [saving, setSaving] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+
+  const resetForm = () => {
+    setTitle('');
+    setClientName('');
+    setDescription('');
+  };
 
   const loadMatters = useCallback(async () => {
     if (!accessToken || !activeWorkspaceId) return;
@@ -71,9 +78,8 @@ export function MattersPage() {
           description: description.trim() || null,
         },
       });
-      setTitle('');
-      setClientName('');
-      setDescription('');
+      resetForm();
+      setShowForm(false);
       await loadMatters();
     } catch (err) {
       setError(err instanceof Error ? err.message : t('errors.generic'));
@@ -89,52 +95,81 @@ export function MattersPage() {
           <h1>{t('matters.title')}</h1>
           <p>{t('matters.subtitle')}</p>
         </div>
-        <button className="btn btn-primary" onClick={handleCreate} disabled={saving || !title}>
-          {t('matters.newMatter')}
+        <button
+          className="btn btn-primary"
+          onClick={() => setShowForm((prev) => !prev)}
+          disabled={saving}
+        >
+          {showForm ? t('common.cancel') : t('matters.newMatter')}
         </button>
       </div>
 
-      <div className="card">
-        <div className="card__header">
-          <div>
-            <div className="card__title">{t('matters.newMatter')}</div>
-            <div className="card__meta">{t('common.optional')}</div>
+      {showForm ? (
+        <div className="card">
+          <div className="card__header">
+            <div>
+              <div className="card__title">{t('matters.newMatter')}</div>
+              <div className="card__meta">{t('matters.newMatterMeta')}</div>
+            </div>
+          </div>
+          <div className="card__body stack">
+            <label className="field">
+              <span>{t('common.title')}</span>
+              <input value={title} onChange={(event) => setTitle(event.target.value)} />
+            </label>
+            <label className="field">
+              <span>{t('common.client')}</span>
+              <input
+                value={clientName}
+                onChange={(event) => setClientName(event.target.value)}
+                placeholder={t('common.optional')}
+              />
+            </label>
+            <label className="field">
+              <span>{t('common.description')}</span>
+              <textarea
+                rows={3}
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                placeholder={t('common.optional')}
+              />
+            </label>
+            <div className="actions">
+              <button
+                className="btn btn-primary"
+                onClick={handleCreate}
+                disabled={saving || !title.trim()}
+              >
+                {saving ? t('common.saving') : t('common.create')}
+              </button>
+              <button
+                className="btn btn-ghost"
+                onClick={() => {
+                  resetForm();
+                  setShowForm(false);
+                }}
+              >
+                {t('common.cancel')}
+              </button>
+            </div>
           </div>
         </div>
-        <div className="card__body stack">
-          <label className="field">
-            <span>{t('common.title')}</span>
-            <input value={title} onChange={(event) => setTitle(event.target.value)} />
-          </label>
-          <label className="field">
-            <span>{t('common.client')}</span>
-            <input
-              value={clientName}
-              onChange={(event) => setClientName(event.target.value)}
-              placeholder={t('common.optional')}
-            />
-          </label>
-          <label className="field">
-            <span>{t('common.description')}</span>
-            <textarea
-              rows={3}
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              placeholder={t('common.optional')}
-            />
-          </label>
-          <button className="btn btn-primary" onClick={handleCreate} disabled={saving || !title}>
-            {saving ? t('common.saving') : t('common.create')}
-          </button>
-        </div>
-      </div>
+      ) : null}
 
       {loading ? (
         <div className="card">{t('common.loading')}</div>
       ) : error ? (
         <div className="card card--error">{error}</div>
       ) : matters.length === 0 ? (
-        <EmptyState title={t('matters.emptyTitle')} message={t('matters.emptyMessage')} />
+        <EmptyState
+          title={t('matters.emptyTitle')}
+          message={t('matters.emptyMessage')}
+          action={
+            <button className="btn btn-primary" onClick={() => setShowForm(true)}>
+              {t('matters.newMatter')}
+            </button>
+          }
+        />
       ) : (
         <div className="list">
           {matters.map((matter) => (
