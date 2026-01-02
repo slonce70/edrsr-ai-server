@@ -30,7 +30,7 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
   const listenersRef = useRef(new Set<(payload: JobUpdatePayload) => void>());
   const retryDelayRef = useRef(2000);
   const reconnectRef = useRef<number | null>(null);
-  const connectRef = useRef<() => void>();
+  const connectRef = useRef<(() => void) | null>(null);
 
   const notify = useCallback((payload: JobUpdatePayload) => {
     listenersRef.current.forEach((handler) => handler(payload));
