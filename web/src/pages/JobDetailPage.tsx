@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { apiRequest } from '../lib/api';
-import { formatCount, formatDate, formatDateShort, formatDurationSeconds } from '../lib/format';
+import { formatDate, formatDateShort, formatDurationSeconds, formatStatus } from '../lib/format';
 import { renderMarkdown } from '../lib/markdown';
 import { useAuth } from '../state/AuthContext';
+import { useLocale } from '../state/LocaleContext';
 import { useWebSocket } from '../state/WebSocketContext';
+import { useWorkspace } from '../state/WorkspaceContext';
 import { EmptyState } from '../components/EmptyState';
 import { ProgressBar } from '../components/ProgressBar';
 import { StatusBadge } from '../components/StatusBadge';
@@ -22,12 +24,14 @@ type JobDetail = {
   updated_at: string;
   duration?: number | null;
   error_message?: string | null;
+  matter_id?: string | null;
 };
 
 type LinkInfo = {
   url: string;
   status: string;
   decision_date?: string | null;
+  evidence_snippet?: string | null;
 };
 
 type ChatMessage = {
@@ -59,6 +63,8 @@ export function JobDetailPage() {
   const { jobId } = useParams();
   const { accessToken } = useAuth();
   const { subscribe, onJobUpdate } = useWebSocket();
+  const { t, dateLocale } = useLocale();
+  const { activeWorkspaceId } = useWorkspace();
   const [job, setJob] = useState<JobDetail | null>(null);
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [links, setLinks] = useState<LinkInfo[]>([]);
@@ -67,19 +73,24 @@ export function JobDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState('');
+  const [matter, setMatter] = useState<{ id: string; title: string } | null>(null);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [shareDays, setShareDays] = useState(14);
+  const [shareLoading, setShareLoading] = useState(false);
+  const [shareNotice, setShareNotice] = useState<string | null>(null);
 
   const fetchAnalysis = useCallback(async () => {
     if (!accessToken || !jobId) return;
     try {
       const data = await apiRequest<{ success: boolean; analysis: string }>(
         `/jobs/${jobId}/analysis`,
-        { token: accessToken }
+        { token: accessToken, workspaceId: activeWorkspaceId || undefined }
       );
       setAnalysis(data.analysis || null);
     } catch {
       // ignore
     }
-  }, [accessToken, jobId]);
+  }, [accessToken, activeWorkspaceId, jobId]);
 
   const fetchStatus = useCallback(async () => {
     if (!accessToken || !jobId) return;
@@ -88,6 +99,7 @@ export function JobDetailPage() {
     try {
       const data = await apiRequest<StatusResponse>(`/status/${jobId}`, {
         token: accessToken,
+        workspaceId: activeWorkspaceId || undefined,
         query: { include: ['links'] },
       });
       setJob(data);
@@ -101,22 +113,38 @@ export function JobDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [accessToken, analysis, fetchAnalysis, jobId]);
+  }, [accessToken, activeWorkspaceId, analysis, fetchAnalysis, jobId]);
 
   const fetchChat = useCallback(async () => {
     if (!accessToken || !jobId) return;
     try {
-      const data = await apiRequest<ChatResponse>(`/chat/${jobId}`, { token: accessToken });
+      const data = await apiRequest<ChatResponse>(`/chat/${jobId}`, {
+        token: accessToken,
+        workspaceId: activeWorkspaceId || undefined,
+      });
       setChat(data || []);
     } catch {
       // ignore
     }
-  }, [accessToken, jobId]);
+  }, [accessToken, activeWorkspaceId, jobId]);
 
   useEffect(() => {
     fetchStatus();
     fetchChat();
   }, [fetchStatus, fetchChat]);
+
+  useEffect(() => {
+    if (!accessToken || !job?.matter_id || !activeWorkspaceId) {
+      setMatter(null);
+      return;
+    }
+    apiRequest<{ success: boolean; matter: { id: string; title: string } }>(
+      `/matters/${job.matter_id}`,
+      { token: accessToken, workspaceId: activeWorkspaceId }
+    )
+      .then((data) => setMatter(data.matter))
+      .catch(() => setMatter(null));
+  }, [accessToken, activeWorkspaceId, job?.matter_id]);
 
   useEffect(() => {
     if (jobId) subscribe(jobId);
@@ -153,6 +181,7 @@ export function JobDetailPage() {
         token: accessToken,
         method: 'POST',
         body: { message: message.trim() },
+        workspaceId: activeWorkspaceId || undefined,
       });
       setMessage('');
       fetchChat();
@@ -175,8 +204,8 @@ export function JobDetailPage() {
 
   const handleDownloadReport = () => {
     const safeTitle = job?.title ? job.title.replace(/[^a-zA-Z0-9_-]+/g, '_') : 'report';
-    const content = analysis || 'No analysis content yet.';
-    downloadText(`${safeTitle}.md`, content);
+    const content = analysis || t('job.reportEmpty');
+    downloadText(`${safeTitle}.txt`, content);
   };
 
   const handleDownloadLinks = async () => {
@@ -185,7 +214,10 @@ export function JobDetailPage() {
       const data = await apiRequest<{
         success: boolean;
         links: { url: string; content: string }[];
-      }>(`/jobs/${jobId}/links-content`, { token: accessToken });
+      }>(`/jobs/${jobId}/links-content`, {
+        token: accessToken,
+        workspaceId: activeWorkspaceId || undefined,
+      });
       const lines = data.links
         .map((link) => `URL: ${link.url}\n${link.content || ''}\n`)
         .join('\n---\n\n');
@@ -202,16 +234,14 @@ export function JobDetailPage() {
     if (!printWindow) return;
     printWindow.document.write(
       `<!doctype html><html><head><title>${
-        job?.title || 'Report'
+        job?.title || t('job.report')
       }</title><style>body{font-family:Arial, sans-serif; padding:32px;} h1{margin-bottom:16px;} .meta{color:#555; font-size:12px; margin-bottom:24px;} pre,code{white-space:pre-wrap;} a{color:#0f766e;}</style></head><body>`
     );
-    printWindow.document.write(`<h1>${job?.title || 'Report'}</h1>`);
-    printWindow.document.write(
-      `<div class="meta">Created: ${formatDate(job?.created_at)} | Links: ${formatCount(
-        job?.processed_links,
-        job?.total_links
-      )}</div>`
-    );
+    printWindow.document.write(`<h1>${job?.title || t('job.report')}</h1>`);
+    const meta = `${t('job.created', {
+      date: formatDate(job?.created_at, dateLocale),
+    })} | ${progressLabel}`;
+    printWindow.document.write(`<div class="meta">${meta}</div>`);
     printWindow.document.write(html);
     printWindow.document.write('</body></html>');
     printWindow.document.close();
@@ -219,13 +249,54 @@ export function JobDetailPage() {
     printWindow.print();
   };
 
+  const handleCreateShareLink = async () => {
+    if (!accessToken || !jobId) return;
+    setShareLoading(true);
+    setShareNotice(null);
+    try {
+      const data = await apiRequest<{
+        success: boolean;
+        share?: { url?: string | null };
+        token?: string;
+      }>(`/share-links`, {
+        token: accessToken,
+        method: 'POST',
+        workspaceId: activeWorkspaceId || undefined,
+        body: { jobId, expiresInDays: shareDays },
+      });
+      const url =
+        data.share?.url || (data.token ? `${window.location.origin}/share/${data.token}` : null);
+      setShareUrl(url);
+      setShareNotice(t('share.created'));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('errors.generic'));
+    } finally {
+      setShareLoading(false);
+    }
+  };
+
+  const handleCopyShare = async () => {
+    if (!shareUrl) return;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setShareNotice(t('share.copied'));
+    } catch {
+      setShareNotice(shareUrl);
+    }
+  };
+
   const progressLabel = useMemo(() => {
     if (!job) return '';
-    return `${formatCount(job.processed_links, job.total_links)} links processed`;
-  }, [job]);
+    return t('job.progress', {
+      processed: typeof job.processed_links === 'number' ? job.processed_links : 0,
+      total: typeof job.total_links === 'number' ? job.total_links : 0,
+    });
+  }, [job, t]);
+
+  const evidenceLinks = useMemo(() => links.filter((link) => link.evidence_snippet), [links]);
 
   if (loading && !job) {
-    return <div className="card">Loading analysis...</div>;
+    return <div className="card">{t('common.loading')}</div>;
   }
 
   if (error && !job) {
@@ -233,14 +304,14 @@ export function JobDetailPage() {
       <div className="card card--error">
         <div>{error}</div>
         <Link to="/analyses" className="btn btn-ghost">
-          Back to list
+          {t('job.back')}
         </Link>
       </div>
     );
   }
 
   if (!job) {
-    return <EmptyState title="Analysis not found" message="Pick another job." />;
+    return <EmptyState title={t('job.notFoundTitle')} message={t('job.notFoundMessage')} />;
   }
 
   return (
@@ -248,20 +319,25 @@ export function JobDetailPage() {
       <div className="page-header">
         <div>
           <Link to="/analyses" className="link">
-            Back to analyses
+            {t('job.back')}
           </Link>
-          <h1>{job.title || 'Untitled analysis'}</h1>
-          <p>Created {formatDate(job.created_at)}</p>
+          <h1>{job.title || t('analyses.untitled')}</h1>
+          <p>{t('job.created', { date: formatDate(job.created_at, dateLocale) })}</p>
+          {matter ? (
+            <Link to={`/matters/${matter.id}`} className="pill">
+              {matter.title}
+            </Link>
+          ) : null}
         </div>
         <div className="page-header__actions">
           <button className="btn btn-ghost" onClick={handlePrint}>
-            Print / Save PDF
+            {t('job.printPdf')}
           </button>
           <button className="btn btn-ghost" onClick={handleDownloadLinks}>
-            Download links TXT
+            {t('job.downloadLinks')}
           </button>
           <button className="btn btn-primary" onClick={handleDownloadReport}>
-            Download report
+            {t('job.downloadReport')}
           </button>
         </div>
       </div>
@@ -270,7 +346,7 @@ export function JobDetailPage() {
         <div className="card">
           <div className="card__header">
             <div>
-              <div className="card__title">Status</div>
+              <div className="card__title">{t('job.status')}</div>
               <div className="card__meta">{progressLabel}</div>
             </div>
             <StatusBadge status={job.status} />
@@ -279,16 +355,16 @@ export function JobDetailPage() {
             <ProgressBar value={job.progress} />
             <div className="stats">
               <div>
-                <span>Updated</span>
-                <strong>{formatDate(job.updated_at)}</strong>
+                <span>{t('job.updated')}</span>
+                <strong>{formatDate(job.updated_at, dateLocale)}</strong>
               </div>
               <div>
-                <span>Duration</span>
+                <span>{t('job.duration')}</span>
                 <strong>{formatDurationSeconds(job.duration ?? null)}</strong>
               </div>
               <div>
-                <span>Prompt</span>
-                <strong>{job.prompt ? 'Custom' : 'Default'}</strong>
+                <span>{t('job.prompt')}</span>
+                <strong>{job.prompt ? t('job.promptCustom') : t('job.promptDefault')}</strong>
               </div>
             </div>
           </div>
@@ -296,13 +372,13 @@ export function JobDetailPage() {
         <div className="card">
           <div className="card__header">
             <div>
-              <div className="card__title">Sources</div>
-              <div className="card__meta">{links.length} links</div>
+              <div className="card__title">{t('job.sources')}</div>
+              <div className="card__meta">{t('job.sourcesCount', { count: links.length })}</div>
             </div>
           </div>
           <div className="card__body list list--compact">
             {links.length === 0 ? (
-              <div className="muted">Links will appear once processing starts.</div>
+              <div className="muted">{t('job.linksEmpty')}</div>
             ) : (
               links.map((link) => (
                 <div key={link.url} className="list__row">
@@ -310,9 +386,22 @@ export function JobDetailPage() {
                     <a href={link.url} target="_blank" rel="noreferrer" className="link">
                       {link.url}
                     </a>
-                    <div className="meta">{formatDateShort(link.decision_date || null)}</div>
+                    <div className="meta">
+                      {formatDateShort(link.decision_date || null, dateLocale)}
+                    </div>
                   </div>
-                  <span className={`badge badge-${link.status}`}>{link.status}</span>
+                  <span className={`badge badge-${link.status}`}>
+                    {formatStatus(link.status, {
+                      queued: t('status.queued'),
+                      downloading: t('status.downloading'),
+                      analyzing: t('status.analyzing'),
+                      completed: t('status.completed'),
+                      failed: t('status.failed'),
+                      cancelled: t('status.cancelled'),
+                      pending: t('status.pending'),
+                      unknown: t('status.unknown'),
+                    })}
+                  </span>
                 </div>
               ))
             )}
@@ -323,15 +412,15 @@ export function JobDetailPage() {
       <div className="card">
         <div className="card__header">
           <div>
-            <div className="card__title">Report</div>
-            <div className="card__meta">Markdown report generated by the model.</div>
+            <div className="card__title">{t('job.report')}</div>
+            <div className="card__meta">{t('job.reportMeta')}</div>
           </div>
         </div>
         <div className="card__body">
           {analysis ? (
             <MarkdownView markdown={analysis} />
           ) : (
-            <div className="muted">The report will appear after processing completes.</div>
+            <div className="muted">{t('job.reportEmpty')}</div>
           )}
         </div>
       </div>
@@ -339,14 +428,76 @@ export function JobDetailPage() {
       <div className="card">
         <div className="card__header">
           <div>
-            <div className="card__title">Chat</div>
-            <div className="card__meta">Ask follow-up questions about the report.</div>
+            <div className="card__title">{t('job.evidenceTitle')}</div>
+            <div className="card__meta">{t('job.evidenceMeta')}</div>
+          </div>
+        </div>
+        <div className="card__body list">
+          {evidenceLinks.length === 0 ? (
+            <div className="muted">{t('job.evidenceEmpty')}</div>
+          ) : (
+            evidenceLinks.map((link) => (
+              <div key={`evidence-${link.url}`} className="list__row list__row--stack">
+                <a href={link.url} target="_blank" rel="noreferrer" className="link">
+                  {link.url}
+                </a>
+                <div className="snippet">{link.evidence_snippet}</div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card__header">
+          <div>
+            <div className="card__title">{t('share.title')}</div>
+            <div className="card__meta">{t('share.subtitle')}</div>
+          </div>
+        </div>
+        <div className="card__body stack">
+          <label className="field">
+            <span>{t('share.expiresIn')}</span>
+            <select
+              value={shareDays}
+              onChange={(event) => setShareDays(Number(event.target.value))}
+            >
+              <option value={7}>7</option>
+              <option value={14}>14</option>
+              <option value={30}>30</option>
+            </select>
+          </label>
+          <button
+            className="btn btn-primary"
+            onClick={handleCreateShareLink}
+            disabled={shareLoading}
+          >
+            {shareLoading ? t('common.loading') : t('share.create')}
+          </button>
+          {shareUrl ? (
+            <div className="share-link">
+              <input value={shareUrl} readOnly />
+              <button className="btn btn-ghost" onClick={handleCopyShare}>
+                {t('common.copy')}
+              </button>
+            </div>
+          ) : null}
+          {shareNotice ? <div className="form__notice">{shareNotice}</div> : null}
+          <div className="muted">{t('share.publicNote')}</div>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card__header">
+          <div>
+            <div className="card__title">{t('job.chatTitle')}</div>
+            <div className="card__meta">{t('job.chatMeta')}</div>
           </div>
         </div>
         <div className="card__body">
           <div className="chat">
             {chat.length === 0 ? (
-              <div className="muted">No chat messages yet.</div>
+              <div className="muted">{t('job.chatEmpty')}</div>
             ) : (
               chat.map((entry, index) => (
                 <div
@@ -354,7 +505,9 @@ export function JobDetailPage() {
                   className={`chat__row chat__row--${entry.role}`}
                 >
                   <div className="chat__bubble">
-                    <div className="chat__role">{entry.role === 'ai' ? 'AI' : 'You'}</div>
+                    <div className="chat__role">
+                      {entry.role === 'ai' ? t('job.chatRoleAi') : t('job.chatRoleUser')}
+                    </div>
                     <div>{entry.content}</div>
                   </div>
                 </div>
@@ -365,11 +518,11 @@ export function JobDetailPage() {
             <textarea
               value={message}
               onChange={(event) => setMessage(event.target.value)}
-              placeholder="Ask a question about this report"
+              placeholder={t('job.chatPlaceholder')}
               rows={3}
             />
             <button className="btn btn-primary" onClick={handleSend} disabled={sending}>
-              {sending ? 'Sending...' : 'Send'}
+              {sending ? t('common.loading') : t('job.chatSend')}
             </button>
           </div>
         </div>

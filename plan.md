@@ -1,26 +1,53 @@
-# Plan
+# План реалізації: портал користувача + розширені можливості
 
-Deliver the MVP web portal on the existing VPS under `app.edrsr-ai-server.fun`, using the
-current backend and WebSocket flow, with minimal API changes and a Vite+React SPA served
-via Nginx from `/var/www/edrsr-ai-app`. The approach is to add the web app skeleton,
-wire auth + jobs flow, and expand deploy to build and sync the portal.
+## Ціль
+Зробити веб-портал для користувачів розширення з локалізацією, командною роботою,
+“Matters”, evidence‑snippets у звіті, публічним share‑link, та експортами у TXT/PDF.
 
-## Scope
-- In: DNS + TLS for `app.*`, Nginx static+proxy, `web/` SPA, minimal API tweaks
-  (optional clientId, `/api/me`, jobs pagination), deploy workflow update, smoke checks.
-- Out: Matters/org/sharing/monitoring/evidence/analytics (next phases).
+## Фази (MVP → V1 → V2)
+### MVP (швидкий старт)
+- [x] Локалізація (UA/RU) для логіну і сторінок.
+- [x] Реєстрація/логін/відновлення пароля через Supabase magic link.
+- [x] “Мої аналізи” + сторінка job (progress, report, чат).
+- [x] Експорт звіту у TXT/PDF (друк з браузера).
+- [x] Share‑link (token + expiry) для публічного перегляду.
 
-## Action items
-[x] Add `app.edrsr-ai-server.fun` DNS A record -> VPS IP and wait for propagation.
-[x] Add Nginx vhost for `app.*` with SPA fallback + `/api` + `/ws` proxy, then reload.
-[x] Extend TLS cert to include `app.*` (certbot) and verify HTTPS + HSTS.
-[x] Create `web/` (Vite+React+TS) with routing, auth guard, and API client (base `/api`).
-[x] Add WS primary + polling fallback for job progress, align with existing collect flow.
-[x] Implement MVP pages: Analyses list, Job page, Prompts, Create analysis (URLs/CSV).
-[x] Backend tweaks: allow `clientId` optional in `/api/collect`, add `GET /api/me`,
-    add jobs pagination/filtering for portal list.
-[x] Update deploy workflow to build `web/` and rsync to `/var/www/edrsr-ai-app`.
-[x] Run lint + smoke checks; update this plan with completed items.
+### V1 (те, що реально купують фірми)
+- [x] Matters: структура Matter → Jobs → links → висновки.
+- [x] Evidence snippets у звіті (фрагменти тексту рішення + посилання).
+- [x] Командна робота: workspace + ролі (owner/admin/member).
+- [x] Бібліотека кейсів (список links з метаданими) — як частина сторінки matter.
 
-## Open questions
-- None for Phase 0; proceed with VPS + Nginx + `/var/www/edrsr-ai-app`.
+### V2 (диференціатор)
+- [ ] Моніторинг/алерти (watchlists → нові рішення → авто‑аналіз).
+- [ ] Аналітика практики (тренди по статтях/судах/суддях).
+- [ ] Повний експорт у DOCX (окремий сервіс/воркер).
+
+## Реалізовано (backend)
+- [x] Нові таблиці: workspaces, workspace_members, matters, share_links.
+- [x] Нові колонки/індекси: jobs.workspace_id, jobs.matter_id,
+      job_links.evidence_snippet, job_links.evidence_extracted_at.
+- [x] Middleware для workspace‑ролей + перевірок доступу.
+- [x] API для workspaces/members/matters/share‑links.
+- [x] Публічний endpoint `/api/share/:token`.
+- [x] Додано evidence‑snippets через `evidenceService`.
+
+## Реалізовано (web)
+- [x] i18n контекст + перемикач мови.
+- [x] Auth контекст (magic link, reset password).
+- [x] Сторінки: Matters list, Matter detail, Share page, Reset password.
+- [x] Job detail: evidence, share, експорти.
+- [x] Settings: керування командою workspace.
+
+## Перевірки
+- [x] `npm run lint`
+- [x] `npm run web:lint`
+- [x] `npm run format:check`
+
+## Наступні кроки (перед деплоєм)
+- [ ] Прогнати міграції БД на проді (створення таблиць/колонок).
+- [ ] Перевірити `APP_BASE_URL` і `PUBLIC_SHARE_BASE_URL` у `server/.env`.
+- [ ] Додати redirect URLs в Supabase:
+      - `https://app.edrsr-ai-server.fun/reset`
+      - `https://app.edrsr-ai-server.fun`
+- [ ] Перевірити доступи до workspace після деплою (smoke test).

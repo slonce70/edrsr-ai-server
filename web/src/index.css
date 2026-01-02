@@ -598,6 +598,11 @@ select {
   font-size: 12px;
 }
 
+.form__notice {
+  color: var(--accent-strong);
+  font-size: 12px;
+}
+
 .login {
   min-height: 100vh;
   display: grid;
@@ -613,6 +618,33 @@ select {
   box-shadow: var(--shadow);
   display: grid;
   gap: 16px;
+}
+
+.login__locale {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.login__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tab {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.tab--active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
 }
 
 .login__brand {
@@ -638,6 +670,52 @@ select {
 .login__footer {
   font-size: 12px;
   color: var(--muted);
+}
+
+.workspace-switch {
+  display: grid;
+  gap: 6px;
+  padding: 0 18px 16px;
+}
+
+.workspace-switch__label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.locale-switch {
+  border-radius: 999px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  font-size: 12px;
+}
+
+.share-link {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.share-link input {
+  flex: 1;
+}
+
+.list__row--stack {
+  display: grid;
+  gap: 8px;
+}
+
+.snippet {
+  font-size: 13px;
+  color: var(--muted);
+  white-space: pre-wrap;
+}
+
+.share-view {
+  display: grid;
+  gap: 20px;
+  padding: 24px;
 }
 
 .chat {

@@ -1,23 +1,17 @@
-export const STATUS_LABELS: Record<string, string> = {
-  queued: 'Queued',
-  downloading: 'Downloading',
-  analyzing: 'Analyzing',
-  completed: 'Completed',
-  failed: 'Failed',
-  cancelled: 'Cancelled',
-  pending: 'Pending',
-};
-
-export function formatStatus(status?: string | null) {
-  if (!status) return 'Unknown';
-  return STATUS_LABELS[status] || status;
+export function formatStatus(
+  status?: string | null,
+  labels: Record<string, string> = {},
+  fallback = '—'
+) {
+  if (!status) return labels.unknown || fallback;
+  return labels[status] || status;
 }
 
-export function formatDate(value?: string | number | null) {
+export function formatDate(value?: string | number | null, locale = 'uk-UA') {
   if (!value) return '—';
   const date = typeof value === 'string' ? new Date(value) : new Date(value);
   if (Number.isNaN(date.getTime())) return '—';
-  return new Intl.DateTimeFormat('en-US', {
+  return new Intl.DateTimeFormat(locale, {
     year: 'numeric',
     month: 'short',
     day: '2-digit',
@@ -26,11 +20,11 @@ export function formatDate(value?: string | number | null) {
   }).format(date);
 }
 
-export function formatDateShort(value?: string | number | null) {
+export function formatDateShort(value?: string | number | null, locale = 'uk-UA') {
   if (!value) return '—';
   const date = typeof value === 'string' ? new Date(value) : new Date(value);
   if (Number.isNaN(date.getTime())) return '—';
-  return new Intl.DateTimeFormat('en-US', {
+  return new Intl.DateTimeFormat(locale, {
     year: 'numeric',
     month: 'short',
     day: '2-digit',

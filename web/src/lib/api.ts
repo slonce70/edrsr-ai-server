@@ -7,6 +7,7 @@ type RequestOptions = {
   token?: string | null;
   body?: unknown;
   query?: Record<string, QueryValue>;
+  workspaceId?: string | null;
   signal?: AbortSignal;
 };
 
@@ -45,12 +46,16 @@ async function parseJsonSafe(res: Response) {
 }
 
 export async function apiRequest<T = unknown>(path: string, options: RequestOptions = {}) {
-  const { method = 'GET', token, body, query, signal } = options;
+  const { method = 'GET', token, body, query, signal, workspaceId } = options;
   const headers: Record<string, string> = {};
   if (token) headers.Authorization = `Bearer ${token}`;
   if (body !== undefined) headers['Content-Type'] = 'application/json';
 
-  const qs = buildQuery(query);
+  const finalQuery = { ...(query || {}) } as Record<string, QueryValue>;
+  if (workspaceId && typeof finalQuery.workspaceId === 'undefined') {
+    finalQuery.workspaceId = workspaceId;
+  }
+  const qs = buildQuery(finalQuery);
   const res = await fetch(`${API_BASE}${path}${qs}`, {
     method,
     headers,

@@ -46,6 +46,9 @@ Rate limit: 5 попыток/15 минут.
 ## **📦 Задания (пользовательские)**
 
 Все требуют `Authorization: Bearer <jwt>`.
+Для портала/команд доступен параметр `workspaceId` (query) на большинстве endpoints
+(`GET /api/jobs`, `GET /api/status/:id`, `GET /api/jobs/:jobId/analysis`, `GET /api/jobs/:jobId/links-content`,
+`POST /api/chat/:jobId`, `GET /api/chat/:jobId`).
 
 #### POST `/api/collect`
 Создать новое задание.
@@ -58,7 +61,9 @@ Rate limit: 5 попыток/15 минут.
   "prompt": "optional",
   "prompt_label": "optional",
   "auto_title_enabled": true,
-  "clientId": "optional"
+  "clientId": "optional",
+  "workspaceId": "optional",
+  "matterId": "optional"
 }
 ```
 
@@ -117,6 +122,63 @@ Rate limit: 5 попыток/15 минут.
 Вернуть только итоговый анализ задания.
 
 Ответ: `{ "success": true, "jobId": "...", "analysis": "...markdown..." }`
+
+## **🏢 Workspaces / Команды**
+
+#### GET `/api/workspaces`
+Список рабочих пространств пользователя. Возвращает `active_workspace_id`.
+
+#### POST `/api/workspaces`
+Создать новое пространство: `{ "name": "..." }`.
+
+#### GET `/api/workspaces/:workspaceId/members`
+Список участников пространства.
+
+#### POST `/api/workspaces/:workspaceId/members`
+Добавить участника (только owner/admin): `{ "email": "...", "role": "member|admin" }`.
+
+#### PATCH `/api/workspaces/:workspaceId/members/:memberId`
+Изменить роль участника (owner/admin): `{ "role": "member|admin|owner" }`.
+
+#### DELETE `/api/workspaces/:workspaceId/members/:memberId`
+Удалить участника (owner/admin).
+
+## **📁 Matters (Справы/проекты)**
+
+#### GET `/api/matters`
+Список дел в активном пространстве (`workspaceId`).
+
+#### POST `/api/matters`
+Создать дело: `{ "title", "description", "clientName", "tags": [] }`.
+
+#### GET `/api/matters/:matterId`
+Детали дела + список связанных заданий.
+
+#### PATCH `/api/matters/:matterId`
+Обновить дело (title/description/clientName/tags).
+
+#### DELETE `/api/matters/:matterId`
+Удалить дело.
+
+#### POST `/api/matters/:matterId/jobs`
+Привязать задание: `{ "jobId": "..." }`.
+
+#### DELETE `/api/matters/:matterId/jobs/:jobId`
+Отвязать задание от дела.
+
+## **🔗 Share Links**
+
+#### POST `/api/share-links`
+Создать публичную ссылку для отчёта: `{ "jobId": "...", "expiresInDays": 14 }`.
+
+#### GET `/api/share-links`
+Список share‑ссылок по workspace.
+
+#### POST `/api/share-links/:id/revoke`
+Отозвать share‑ссылку.
+
+#### GET `/api/share/:token` (public)
+Публичный просмотр отчёта (без авторизации). 
 
 #### GET `/api/jobs/:jobId/links-content`
 Вернуть контент обработанных ссылок для задания (используется для экспорта TXT).

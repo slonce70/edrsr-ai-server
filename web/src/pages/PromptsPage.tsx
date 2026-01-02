@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { apiRequest } from '../lib/api';
 import { useAuth } from '../state/AuthContext';
+import { useLocale } from '../state/LocaleContext';
 import { EmptyState } from '../components/EmptyState';
 
 type Prompt = {
@@ -22,6 +23,7 @@ const emptyForm = { id: '', name: '', content: '' };
 
 export function PromptsPage() {
   const { accessToken } = useAuth();
+  const { t, dateLocale } = useLocale();
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [form, setForm] = useState(emptyForm);
   const [loading, setLoading] = useState(true);
@@ -44,11 +46,11 @@ export function PromptsPage() {
       setPrompts(data.prompts || []);
       setLastUpdated(data.lastUpdated || null);
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : 'Failed to load prompts');
+      setLoadError(err instanceof Error ? err.message : t('errors.generic'));
     } finally {
       setLoading(false);
     }
-  }, [accessToken]);
+  }, [accessToken, t]);
 
   useEffect(() => {
     loadPrompts();
@@ -67,7 +69,7 @@ export function PromptsPage() {
   const handleSave = async () => {
     if (!accessToken) return;
     if (!form.name.trim() || !form.content.trim()) {
-      setFormError('Name and content are required.');
+      setFormError(t('prompts.errorRequired'));
       return;
     }
     setSaving(true);
@@ -89,7 +91,7 @@ export function PromptsPage() {
       await loadPrompts();
       setForm(emptyForm);
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Failed to save prompt');
+      setFormError(err instanceof Error ? err.message : t('errors.generic'));
     } finally {
       setSaving(false);
     }
@@ -97,7 +99,7 @@ export function PromptsPage() {
 
   const handleDelete = async () => {
     if (!accessToken || !form.id) return;
-    if (!window.confirm('Delete this prompt?')) return;
+    if (!window.confirm(t('prompts.confirmDelete'))) return;
     setSaving(true);
     setFormError(null);
     try {
@@ -105,7 +107,7 @@ export function PromptsPage() {
       await loadPrompts();
       setForm(emptyForm);
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Failed to delete prompt');
+      setFormError(err instanceof Error ? err.message : t('errors.generic'));
     } finally {
       setSaving(false);
     }
@@ -137,7 +139,7 @@ export function PromptsPage() {
         .filter((item: Prompt) => item && item.name && item.content)
         .map((item: Prompt) => ({ name: item.name, content: item.content }));
       if (!promptsPayload.length) {
-        throw new Error('No prompts found in file');
+        throw new Error(t('prompts.errorImportEmpty'));
       }
       await apiRequest('/prompts/import', {
         token: accessToken,
@@ -146,7 +148,7 @@ export function PromptsPage() {
       });
       await loadPrompts();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Failed to import prompts');
+      setFormError(err instanceof Error ? err.message : t('errors.generic'));
     } finally {
       setSaving(false);
       event.target.value = '';
@@ -162,37 +164,34 @@ export function PromptsPage() {
     <div className="stack">
       <div className="page-header">
         <div>
-          <h1>Prompts</h1>
-          <p>Manage prompt templates shared with the extension and the web portal.</p>
+          <h1>{t('prompts.title')}</h1>
+          <p>{t('prompts.subtitle')}</p>
         </div>
         <div className="actions">
           <label className="file">
             <input type="file" accept="application/json" onChange={handleImport} />
-            Import JSON
+            {t('prompts.import')}
           </label>
           <button className="btn btn-ghost" onClick={handleExport} disabled={!prompts.length}>
-            Export
+            {t('prompts.export')}
           </button>
         </div>
       </div>
       {loadError ? <div className="card card--error">{loadError}</div> : null}
 
       {loading ? (
-        <div className="card">Loading prompts...</div>
+        <div className="card">{t('prompts.loading')}</div>
       ) : prompts.length === 0 ? (
-        <EmptyState
-          title="No prompts yet"
-          message="Create your first prompt to reuse it across analyses."
-        />
+        <EmptyState title={t('prompts.emptyTitle')} message={t('prompts.emptyMessage')} />
       ) : (
         <div className="grid grid--two">
           <div className="card">
             <div className="card__header">
               <div>
-                <div className="card__title">Library</div>
+                <div className="card__title">{t('prompts.library')}</div>
                 <div className="card__meta">
-                  {prompts.length} prompts
-                  {lastUpdated ? ` • Updated ${new Date(lastUpdated).toLocaleString()}` : ''}
+                  {prompts.length} {t('prompts.countLabel')}
+                  {lastUpdated ? ` • ${new Date(lastUpdated).toLocaleString(dateLocale)}` : ''}
                 </div>
               </div>
             </div>
@@ -208,10 +207,12 @@ export function PromptsPage() {
                   <div>
                     <div className="card__title">{prompt.name}</div>
                     <div className="card__meta">
-                      {prompt.updated_at ? new Date(prompt.updated_at).toLocaleString() : ''}
+                      {prompt.updated_at
+                        ? new Date(prompt.updated_at).toLocaleString(dateLocale)
+                        : ''}
                     </div>
                   </div>
-                  <span className="pill">Edit</span>
+                  <span className="pill">{t('prompts.edit')}</span>
                 </button>
               ))}
             </div>
@@ -219,20 +220,22 @@ export function PromptsPage() {
           <div className="card">
             <div className="card__header">
               <div>
-                <div className="card__title">{hasSelection ? 'Edit prompt' : 'New prompt'}</div>
-                <div className="card__meta">{preview || 'Fill details to preview'}</div>
+                <div className="card__title">
+                  {hasSelection ? t('prompts.editPrompt') : t('prompts.newPrompt')}
+                </div>
+                <div className="card__meta">{preview || t('prompts.previewEmpty')}</div>
               </div>
             </div>
             <div className="card__body stack">
               <label className="field">
-                <span>Name</span>
+                <span>{t('prompts.name')}</span>
                 <input
                   value={form.name}
                   onChange={(event) => setForm({ ...form, name: event.target.value })}
                 />
               </label>
               <label className="field">
-                <span>Content</span>
+                <span>{t('prompts.content')}</span>
                 <textarea
                   rows={8}
                   value={form.content}
@@ -242,15 +245,15 @@ export function PromptsPage() {
               {formError ? <div className="form__error">{formError}</div> : null}
               <div className="actions">
                 <button className="btn btn-ghost" onClick={handleReset} disabled={saving}>
-                  Reset
+                  {t('prompts.reset')}
                 </button>
                 {hasSelection ? (
                   <button className="btn btn-ghost" onClick={handleDelete} disabled={saving}>
-                    Delete
+                    {t('prompts.delete')}
                   </button>
                 ) : null}
                 <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-                  {saving ? 'Saving...' : 'Save'}
+                  {saving ? t('prompts.saving') : t('prompts.save')}
                 </button>
               </div>
             </div>

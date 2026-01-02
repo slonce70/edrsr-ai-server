@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { apiRequest } from '../lib/api';
-import { formatCount, formatDateShort, formatStatus } from '../lib/format';
+import { formatDateShort, formatStatus } from '../lib/format';
 import { useAuth } from '../state/AuthContext';
+import { useLocale } from '../state/LocaleContext';
 import { useWebSocket } from '../state/WebSocketContext';
+import { useWorkspace } from '../state/WorkspaceContext';
 import { EmptyState } from '../components/EmptyState';
 import { ProgressBar } from '../components/ProgressBar';
 import { StatusBadge } from '../components/StatusBadge';
@@ -35,6 +37,8 @@ type JobsResponse = {
 export function AnalysesPage() {
   const { accessToken } = useAuth();
   const { onJobUpdate, subscribe } = useWebSocket();
+  const { t, dateLocale } = useLocale();
+  const { activeWorkspaceId } = useWorkspace();
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [statusFilter, setStatusFilter] = useState('');
   const [searchInput, setSearchInput] = useState('');
@@ -55,6 +59,7 @@ export function AnalysesPage() {
     try {
       const data = await apiRequest<JobsResponse>('/jobs', {
         token: accessToken,
+        workspaceId: activeWorkspaceId || undefined,
         query: {
           limit: PAGE_SIZE,
           page,
@@ -65,12 +70,12 @@ export function AnalysesPage() {
       setJobs(data.jobs || []);
       setTotal(data.pagination?.total || 0);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to load jobs';
+      const message = err instanceof Error ? err.message : t('errors.generic');
       setError(message);
     } finally {
       setLoading(false);
     }
-  }, [accessToken, page, search, statusFilter]);
+  }, [accessToken, activeWorkspaceId, page, search, statusFilter, t]);
 
   useEffect(() => {
     fetchJobs();
@@ -114,17 +119,17 @@ export function AnalysesPage() {
     <div className="stack">
       <div className="page-header">
         <div>
-          <h1>Analyses</h1>
-          <p>Track your recent research runs and open the full report.</p>
+          <h1>{t('analyses.title')}</h1>
+          <p>{t('analyses.subtitle')}</p>
         </div>
         <Link className="btn btn-primary" to="/create">
-          New analysis
+          {t('analyses.new')}
         </Link>
       </div>
 
       <div className="filters">
         <div className="field">
-          <span>Search</span>
+          <span>{t('common.search')}</span>
           <div className="field__row">
             <input
               value={searchInput}
@@ -132,15 +137,15 @@ export function AnalysesPage() {
               onKeyDown={(event) => {
                 if (event.key === 'Enter') handleSearch();
               }}
-              placeholder="Title or prompt"
+              placeholder={t('analyses.searchPlaceholder')}
             />
             <button className="btn btn-ghost" onClick={handleSearch}>
-              Search
+              {t('common.search')}
             </button>
           </div>
         </div>
         <label className="field">
-          <span>Status</span>
+          <span>{t('common.status')}</span>
           <select
             value={statusFilter}
             onChange={(event) => {
@@ -148,30 +153,32 @@ export function AnalysesPage() {
               setPage(1);
             }}
           >
-            <option value="">All</option>
-            <option value="queued">Queued</option>
-            <option value="downloading">Downloading</option>
-            <option value="analyzing">Analyzing</option>
-            <option value="completed">Completed</option>
-            <option value="failed">Failed</option>
+            <option value="">{t('common.all')}</option>
+            <option value="queued">{t('status.queued')}</option>
+            <option value="downloading">{t('status.downloading')}</option>
+            <option value="analyzing">{t('status.analyzing')}</option>
+            <option value="completed">{t('status.completed')}</option>
+            <option value="failed">{t('status.failed')}</option>
+            <option value="cancelled">{t('status.cancelled')}</option>
+            <option value="pending">{t('status.pending')}</option>
           </select>
         </label>
         <button className="btn btn-ghost" onClick={resetFilters}>
-          Reset
+          {t('common.reset')}
         </button>
       </div>
 
       {loading ? (
-        <div className="card">Loading analyses...</div>
+        <div className="card">{t('analyses.loading')}</div>
       ) : error ? (
         <div className="card card--error">{error}</div>
       ) : jobs.length === 0 ? (
         <EmptyState
-          title="No analyses yet"
-          message="Start a new analysis by pasting links from EDRSR."
+          title={t('analyses.emptyTitle')}
+          message={t('analyses.emptyMessage')}
           action={
             <Link className="btn btn-primary" to="/create">
-              Create analysis
+              {t('analyses.create')}
             </Link>
           }
         />
@@ -181,9 +188,19 @@ export function AnalysesPage() {
             <Link key={job.id} to={`/analyses/${job.id}`} className="card card--link">
               <div className="card__header">
                 <div>
-                  <div className="card__title">{job.title || 'Untitled analysis'}</div>
+                  <div className="card__title">{job.title || t('analyses.untitled')}</div>
                   <div className="card__meta">
-                    {formatDateShort(job.created_at)} • {formatStatus(job.status)}
+                    {formatDateShort(job.created_at, dateLocale)} •{' '}
+                    {formatStatus(job.status, {
+                      queued: t('status.queued'),
+                      downloading: t('status.downloading'),
+                      analyzing: t('status.analyzing'),
+                      completed: t('status.completed'),
+                      failed: t('status.failed'),
+                      cancelled: t('status.cancelled'),
+                      pending: t('status.pending'),
+                      unknown: t('status.unknown'),
+                    })}
                   </div>
                 </div>
                 <StatusBadge status={job.status} />
@@ -191,7 +208,10 @@ export function AnalysesPage() {
               <div className="card__body">
                 <ProgressBar value={job.progress} />
                 <div className="card__meta">
-                  {formatCount(job.processed_links, job.total_links)} links processed
+                  {t('analyses.linksProcessed', {
+                    processed: typeof job.processed_links === 'number' ? job.processed_links : 0,
+                    total: typeof job.total_links === 'number' ? job.total_links : 0,
+                  })}
                 </div>
               </div>
             </Link>
@@ -206,17 +226,17 @@ export function AnalysesPage() {
             disabled={page <= 1}
             onClick={() => setPage((prev) => Math.max(1, prev - 1))}
           >
-            Previous
+            {t('pagination.prev')}
           </button>
           <div className="pagination__info">
-            Page {page} of {totalPages}
+            {t('pagination.pageOf', { page, total: totalPages })}
           </div>
           <button
             className="btn btn-ghost"
             disabled={page >= totalPages}
             onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
           >
-            Next
+            {t('pagination.next')}
           </button>
         </div>
       ) : null}

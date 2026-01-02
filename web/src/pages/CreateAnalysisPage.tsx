@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ChangeEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { apiRequest } from '../lib/api';
 import { useAuth } from '../state/AuthContext';
+import { useLocale } from '../state/LocaleContext';
 import { useWebSocket } from '../state/WebSocketContext';
+import { useWorkspace } from '../state/WorkspaceContext';
 
 type Prompt = {
   id: string;
@@ -14,6 +16,16 @@ type Prompt = {
 type PromptResponse = {
   success: boolean;
   prompts: Prompt[];
+};
+
+type MatterSummary = {
+  id: string;
+  title: string;
+};
+
+type MattersResponse = {
+  success: boolean;
+  matters: MatterSummary[];
 };
 
 const MAX_LINKS = 300;
@@ -29,11 +41,16 @@ function extractLinks(text: string) {
 export function CreateAnalysisPage() {
   const { accessToken } = useAuth();
   const { clientId, status } = useWebSocket();
+  const { t } = useLocale();
+  const { activeWorkspaceId } = useWorkspace();
   const navigate = useNavigate();
+  const location = useLocation();
   const [rawInput, setRawInput] = useState('');
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [promptId, setPromptId] = useState('');
   const [promptContent, setPromptContent] = useState('');
+  const [matters, setMatters] = useState<MatterSummary[]>([]);
+  const [matterId, setMatterId] = useState('');
   const [autoTitle, setAutoTitle] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,11 +58,27 @@ export function CreateAnalysisPage() {
   const detectedLinks = useMemo(() => extractLinks(rawInput), [rawInput]);
 
   useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const matterParam = params.get('matterId');
+    if (matterParam) setMatterId(matterParam);
+  }, [location.search]);
+
+  useEffect(() => {
     if (!accessToken) return;
     apiRequest<PromptResponse>('/prompts', { token: accessToken })
       .then((data) => setPrompts(data.prompts || []))
       .catch(() => setPrompts([]));
   }, [accessToken]);
+
+  useEffect(() => {
+    if (!accessToken || !activeWorkspaceId) return;
+    apiRequest<MattersResponse>('/matters', {
+      token: accessToken,
+      workspaceId: activeWorkspaceId,
+    })
+      .then((data) => setMatters(data.matters || []))
+      .catch(() => setMatters([]));
+  }, [accessToken, activeWorkspaceId]);
 
   useEffect(() => {
     if (!promptId) {
@@ -68,11 +101,11 @@ export function CreateAnalysisPage() {
     if (!accessToken) return;
     setError(null);
     if (detectedLinks.length === 0) {
-      setError('Paste at least one EDRSR link (reyestr.court.gov.ua/Review/...).');
+      setError(t('create.errorNoLinks'));
       return;
     }
     if (detectedLinks.length > MAX_LINKS) {
-      setError(`Too many links (${detectedLinks.length}). Maximum is ${MAX_LINKS}.`);
+      setError(t('create.errorTooMany', { count: detectedLinks.length, max: MAX_LINKS }));
       return;
     }
 
@@ -85,6 +118,8 @@ export function CreateAnalysisPage() {
         prompt_label: selectedPrompt?.name || null,
         auto_title_enabled: autoTitle,
         clientId: clientId || undefined,
+        matterId: matterId || undefined,
+        workspaceId: activeWorkspaceId || undefined,
       };
       const data = await apiRequest<{ success: boolean; jobId: string }>('/collect', {
         token: accessToken,
@@ -93,7 +128,7 @@ export function CreateAnalysisPage() {
       });
       navigate(`/analyses/${data.jobId}`);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to create analysis';
+      const message = err instanceof Error ? err.message : t('errors.generic');
       setError(message);
     } finally {
       setLoading(false);
@@ -104,12 +139,18 @@ export function CreateAnalysisPage() {
     <div className="stack">
       <div className="page-header">
         <div>
-          <h1>Create analysis</h1>
-          <p>Paste links from EDRSR and launch a new research job.</p>
+          <h1>{t('create.title')}</h1>
+          <p>{t('create.subtitle')}</p>
         </div>
         <div className="pill-group">
-          <span className="pill">Detected: {detectedLinks.length}</span>
-          <span className={`pill pill-${status}`}>{status}</span>
+          <span className="pill">{t('create.detected', { count: detectedLinks.length })}</span>
+          <span className={`pill pill-${status}`}>
+            {status === 'connected'
+              ? t('status.connected')
+              : status === 'connecting'
+                ? t('status.connecting')
+                : t('status.offline')}
+          </span>
         </div>
       </div>
 
@@ -117,10 +158,8 @@ export function CreateAnalysisPage() {
         <div className="card">
           <div className="card__header">
             <div>
-              <div className="card__title">Input links</div>
-              <div className="card__meta">
-                One link per line. Only reyestr.court.gov.ua/Review URLs are used.
-              </div>
+              <div className="card__title">{t('create.inputTitle')}</div>
+              <div className="card__meta">{t('create.inputMeta')}</div>
             </div>
           </div>
           <div className="card__body stack">
@@ -128,15 +167,15 @@ export function CreateAnalysisPage() {
               rows={10}
               value={rawInput}
               onChange={(event) => setRawInput(event.target.value)}
-              placeholder="https://reyestr.court.gov.ua/Review/12345678"
+              placeholder={t('create.inputPlaceholder')}
             />
             <div className="row">
               <label className="file">
                 <input type="file" accept=".csv,.txt" onChange={handleFile} />
-                Import CSV/TXT
+                {t('create.import')}
               </label>
               <div className="muted">
-                {detectedLinks.length} unique links detected (max {MAX_LINKS}).
+                {t('create.detectedMeta', { count: detectedLinks.length, max: MAX_LINKS })}
               </div>
             </div>
           </div>
@@ -145,15 +184,15 @@ export function CreateAnalysisPage() {
         <div className="card">
           <div className="card__header">
             <div>
-              <div className="card__title">Prompt</div>
-              <div className="card__meta">Choose a saved prompt or write your own.</div>
+              <div className="card__title">{t('create.promptTitle')}</div>
+              <div className="card__meta">{t('create.promptMeta')}</div>
             </div>
           </div>
           <div className="card__body stack">
             <label className="field">
-              <span>Prompt template</span>
+              <span>{t('create.promptTemplate')}</span>
               <select value={promptId} onChange={(event) => setPromptId(event.target.value)}>
-                <option value="">Default prompt</option>
+                <option value="">{t('create.promptDefault')}</option>
                 {prompts.map((prompt) => (
                   <option key={prompt.id} value={prompt.id}>
                     {prompt.name}
@@ -162,12 +201,23 @@ export function CreateAnalysisPage() {
               </select>
             </label>
             <label className="field">
-              <span>Prompt text</span>
+              <span>{t('create.matterLabel')}</span>
+              <select value={matterId} onChange={(event) => setMatterId(event.target.value)}>
+                <option value="">{t('create.matterPlaceholder')}</option>
+                {matters.map((matter) => (
+                  <option key={matter.id} value={matter.id}>
+                    {matter.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>{t('create.promptText')}</span>
               <textarea
                 rows={6}
                 value={promptContent}
                 onChange={(event) => setPromptContent(event.target.value)}
-                placeholder="Optional custom prompt for this run"
+                placeholder={t('create.promptPlaceholder')}
               />
             </label>
             <label className="toggle">
@@ -176,7 +226,7 @@ export function CreateAnalysisPage() {
                 checked={autoTitle}
                 onChange={(event) => setAutoTitle(event.target.checked)}
               />
-              <span>Auto-generate analysis title</span>
+              <span>{t('create.autoTitle')}</span>
             </label>
           </div>
         </div>
@@ -186,10 +236,10 @@ export function CreateAnalysisPage() {
 
       <div className="actions">
         <button className="btn btn-ghost" onClick={() => setRawInput('')} disabled={loading}>
-          Clear
+          {t('create.clear')}
         </button>
         <button className="btn btn-primary" onClick={handleSubmit} disabled={loading}>
-          {loading ? 'Starting...' : 'Start analysis'}
+          {loading ? t('create.starting') : t('create.start')}
         </button>
       </div>
     </div>

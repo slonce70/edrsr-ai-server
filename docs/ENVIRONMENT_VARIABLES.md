@@ -156,6 +156,15 @@ CORS_ALLOWED_ORIGINS=https://edrsr-ai-server.fun,https://www.edrsr-ai-server.fun
 WS_ALLOWED_ORIGINS=https://edrsr-ai-server.fun,https://www.edrsr-ai-server.fun,https://app.edrsr-ai-server.fun
 ```
 
+## **🔗 Public URLs (share links)**
+
+```env
+# Base URL for the web portal (used to build share links)
+APP_BASE_URL=https://app.edrsr-ai-server.fun
+# Optional override for share links
+PUBLIC_SHARE_BASE_URL=
+```
+
 ## **🧰 Process / GC**
 
 ```env

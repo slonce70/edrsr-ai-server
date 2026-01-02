@@ -22,6 +22,10 @@ const ALLOWED_TABLES = new Set([
   'user_prompts',
   'user_roles',
   'admin_audit_log',
+  'workspaces',
+  'workspace_members',
+  'matters',
+  'share_links',
 ]);
 
 /**
@@ -293,6 +297,55 @@ class Database {
             )
         `;
 
+    const workspacesTable = `
+            CREATE TABLE IF NOT EXISTS workspaces (
+              id UUID PRIMARY KEY,
+              name TEXT NOT NULL,
+              owner_user_id UUID NOT NULL,
+              created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+            )
+        `;
+
+    const workspaceMembersTable = `
+            CREATE TABLE IF NOT EXISTS workspace_members (
+              id SERIAL PRIMARY KEY,
+              workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
+              user_id UUID NOT NULL,
+              role VARCHAR(20) NOT NULL DEFAULT 'member',
+              invited_by UUID,
+              created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+              UNIQUE(workspace_id, user_id)
+            )
+        `;
+
+    const mattersTable = `
+            CREATE TABLE IF NOT EXISTS matters (
+              id UUID PRIMARY KEY,
+              workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
+              title VARCHAR(255) NOT NULL,
+              description TEXT,
+              client_name TEXT,
+              tags JSONB DEFAULT '[]'::JSONB,
+              created_by UUID,
+              created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+            )
+        `;
+
+    const shareLinksTable = `
+            CREATE TABLE IF NOT EXISTS share_links (
+              id UUID PRIMARY KEY,
+              job_id VARCHAR(36) REFERENCES jobs(id) ON DELETE CASCADE,
+              token_hash TEXT NOT NULL,
+              expires_at TIMESTAMPTZ NOT NULL,
+              created_by UUID,
+              created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+              revoked_at TIMESTAMPTZ
+            )
+        `;
+
     await this.query(jobsTable);
     await this.query(linksTable);
     await this.query(resultsTable);
@@ -301,6 +354,10 @@ class Database {
     await this.query(parsedCasesTable);
     await this.query(userPromptsTable);
     await this.query(appUsersTable);
+    await this.query(workspacesTable);
+    await this.query(workspaceMembersTable);
+    await this.query(mattersTable);
+    await this.query(shareLinksTable);
 
     // --- Schema Migrations ---
     // This is a simple way to alter tables without a full migration system.
@@ -310,6 +367,8 @@ class Database {
     await this.runMigration_addJobTitleMeta();
     await this.runMigration_addAdminTables();
     await this.runMigration_addQueueColumns();
+    await this.runMigration_addWorkspaceColumns();
+    await this.runMigration_addEvidenceColumns();
 
     // Create performance indexes
     await this.createIndexes();
@@ -398,6 +457,8 @@ class Database {
       'CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at DESC)',
       'CREATE INDEX IF NOT EXISTS idx_jobs_status_updated ON jobs(status, updated_at DESC)',
       'CREATE INDEX IF NOT EXISTS idx_jobs_user_id ON jobs(user_id)',
+      'CREATE INDEX IF NOT EXISTS idx_jobs_workspace_id ON jobs(workspace_id)',
+      'CREATE INDEX IF NOT EXISTS idx_jobs_matter_id ON jobs(matter_id)',
 
       // Job_links table indexes
       'CREATE INDEX IF NOT EXISTS idx_job_links_job_id ON job_links(job_id)',
@@ -434,6 +495,22 @@ class Database {
       'CREATE INDEX IF NOT EXISTS idx_app_users_first_seen_at ON app_users(first_seen_at DESC)',
       'CREATE INDEX IF NOT EXISTS idx_app_users_last_seen_at ON app_users(last_seen_at DESC)',
 
+      // Workspace indexes
+      'CREATE INDEX IF NOT EXISTS idx_workspaces_owner ON workspaces(owner_user_id)',
+      'CREATE INDEX IF NOT EXISTS idx_workspace_members_workspace ON workspace_members(workspace_id)',
+      'CREATE INDEX IF NOT EXISTS idx_workspace_members_user ON workspace_members(user_id)',
+      'CREATE INDEX IF NOT EXISTS idx_workspace_members_role ON workspace_members(role)',
+
+      // Matters indexes
+      'CREATE INDEX IF NOT EXISTS idx_matters_workspace ON matters(workspace_id)',
+      'CREATE INDEX IF NOT EXISTS idx_matters_created_by ON matters(created_by)',
+      'CREATE INDEX IF NOT EXISTS idx_matters_updated_at ON matters(updated_at DESC)',
+
+      // Share links indexes
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_share_links_token_hash ON share_links(token_hash)',
+      'CREATE INDEX IF NOT EXISTS idx_share_links_job_id ON share_links(job_id)',
+      'CREATE INDEX IF NOT EXISTS idx_share_links_expires ON share_links(expires_at)',
+
       // Text search index
       "CREATE INDEX IF NOT EXISTS idx_edrsr_name_search ON edrsr USING GIN(to_tsvector('simple', name))",
 
@@ -441,6 +518,9 @@ class Database {
       'CREATE INDEX IF NOT EXISTS idx_jobs_status_created ON jobs(status, created_at)',
       'CREATE INDEX IF NOT EXISTS idx_jobs_lease_until ON jobs(lease_until)',
       'CREATE INDEX IF NOT EXISTS idx_jobs_locked_by ON jobs(locked_by)',
+
+      // Job evidence columns
+      'CREATE INDEX IF NOT EXISTS idx_job_links_evidence_extracted ON job_links(evidence_extracted_at)',
     ];
 
     for (const indexSql of indexes) {
@@ -603,6 +683,50 @@ class Database {
     await addColumnIfMissing('jobs', 'attempt', 'INTEGER DEFAULT 0');
     await addColumnIfMissing('jobs', 'max_attempts', 'INTEGER DEFAULT 3');
     await addColumnIfMissing('jobs', 'priority', 'INTEGER DEFAULT 0');
+  }
+
+  async runMigration_addWorkspaceColumns() {
+    const addColumnIfMissing = async (table, column, typeSql) => {
+      try {
+        const safeTable = validateSqlIdentifier(table, 'table');
+        const safeColumn = validateSqlIdentifier(column, 'column');
+        const exists = await this.get(
+          `SELECT column_name FROM information_schema.columns WHERE table_name=$1 AND column_name=$2`,
+          [safeTable, safeColumn]
+        );
+        if (!exists) {
+          await this.query(`ALTER TABLE "${safeTable}" ADD COLUMN "${safeColumn}" ${typeSql}`);
+          console.log(`✅ Added column ${safeColumn} to ${safeTable}`);
+        }
+      } catch (e) {
+        console.error(`Migration error (addWorkspaceColumn ${table}.${column}):`, e.message);
+      }
+    };
+
+    await addColumnIfMissing('jobs', 'workspace_id', 'UUID NULL');
+    await addColumnIfMissing('jobs', 'matter_id', 'UUID NULL');
+  }
+
+  async runMigration_addEvidenceColumns() {
+    const addColumnIfMissing = async (table, column, typeSql) => {
+      try {
+        const safeTable = validateSqlIdentifier(table, 'table');
+        const safeColumn = validateSqlIdentifier(column, 'column');
+        const exists = await this.get(
+          `SELECT column_name FROM information_schema.columns WHERE table_name=$1 AND column_name=$2`,
+          [safeTable, safeColumn]
+        );
+        if (!exists) {
+          await this.query(`ALTER TABLE "${safeTable}" ADD COLUMN "${safeColumn}" ${typeSql}`);
+          console.log(`✅ Added column ${safeColumn} to ${safeTable}`);
+        }
+      } catch (e) {
+        console.error(`Migration error (addEvidenceColumn ${table}.${column}):`, e.message);
+      }
+    };
+
+    await addColumnIfMissing('job_links', 'evidence_snippet', 'TEXT NULL');
+    await addColumnIfMissing('job_links', 'evidence_extracted_at', 'TIMESTAMPTZ NULL');
   }
 }
 

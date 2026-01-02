@@ -1,9 +1,12 @@
+import crypto from 'crypto';
 import database from '../database/connection.js';
 import { v4 as uuid } from 'uuid';
 import { logger } from '../utils.js';
+import { extractEvidenceSnippet } from './evidenceService.js';
 
 const escapeRegExp = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const escapeLike = (value) => String(value || '').replace(/[\\%_]/g, '\\$&');
+const hashToken = (token) => crypto.createHash('sha256').update(String(token)).digest('hex');
 
 /*
   SQL to create the cache table:
@@ -23,13 +26,13 @@ const escapeLike = (value) => String(value || '').replace(/[\\%_]/g, '\\$&');
 
 class DatabaseService {
   // ---- JOB CREATION/READ ----
-  async createJob(jobData, userId = null) {
+  async createJob(jobData, userId = null, workspaceId = null, matterId = null) {
     const { id, status, totalLinks, prompt, title, titleSource = 'heuristic' } = jobData;
     const autoTitleEnabled =
       typeof jobData.autoTitleEnabled === 'boolean' ? jobData.autoTitleEnabled : true;
     const sql = `
-            INSERT INTO jobs (id, title, status, total_links, prompt, progress, processed_links, user_id, title_source, user_edited, auto_title_enabled)
-            VALUES ($1, $2, $3, $4, $5, 0, 0, $6, $7, false, $8)
+            INSERT INTO jobs (id, title, status, total_links, prompt, progress, processed_links, user_id, workspace_id, matter_id, title_source, user_edited, auto_title_enabled)
+            VALUES ($1, $2, $3, $4, $5, 0, 0, $6, $7, $8, $9, false, $10)
         `;
     await database.run(sql, [
       id,
@@ -38,6 +41,8 @@ class DatabaseService {
       totalLinks,
       prompt,
       userId,
+      workspaceId,
+      matterId,
       titleSource,
       autoTitleEnabled,
     ]);
@@ -207,14 +212,34 @@ class DatabaseService {
     return await database.all(`${base} ORDER BY created_at DESC LIMIT $1`, [limit]);
   }
 
-  async getJobsPage({ page = 1, limit = 20, status = '', search = '', userId = null } = {}) {
+  async getRecentJobsForWorkspace(workspaceId, limit = null) {
+    const base =
+      'SELECT id, status, progress, total_links, created_at, updated_at, title FROM jobs WHERE workspace_id = $1';
+    if (limit === null || limit === 'all') {
+      return await database.all(`${base} ORDER BY created_at DESC`, [workspaceId]);
+    }
+    return await database.all(`${base} ORDER BY created_at DESC LIMIT $2`, [workspaceId, limit]);
+  }
+
+  async getJobsPage({
+    page = 1,
+    limit = 20,
+    status = '',
+    search = '',
+    userId = null,
+    workspaceId = null,
+  } = {}) {
     const safePage = Math.max(1, parseInt(page, 10) || 1);
     const safeLimit = Math.max(1, parseInt(limit, 10) || 20);
     const where = [];
     const params = [];
     let idx = 1;
 
-    if (userId) {
+    if (workspaceId) {
+      where.push(`workspace_id = $${idx}`);
+      params.push(workspaceId);
+      idx++;
+    } else if (userId) {
       where.push(`user_id = $${idx}`);
       params.push(userId);
       idx++;
@@ -258,10 +283,19 @@ class DatabaseService {
 
   async getJobLight(jobId, userId = null) {
     const sql = userId
-      ? `SELECT id, title, status, progress, processed_links, total_links, prompt, created_at, updated_at, duration FROM jobs WHERE id = $1 AND user_id = $2`
-      : `SELECT id, title, status, progress, processed_links, total_links, prompt, created_at, updated_at, duration FROM jobs WHERE id = $1`;
+      ? `SELECT id, title, status, progress, processed_links, total_links, prompt, created_at, updated_at, duration, workspace_id, matter_id FROM jobs WHERE id = $1 AND user_id = $2`
+      : `SELECT id, title, status, progress, processed_links, total_links, prompt, created_at, updated_at, duration, workspace_id, matter_id FROM jobs WHERE id = $1`;
     const params = userId ? [jobId, userId] : [jobId];
     return await database.get(sql, params);
+  }
+
+  async getJobLightForWorkspace(jobId, workspaceId) {
+    return await database.get(
+      `SELECT id, title, status, progress, processed_links, total_links, prompt, created_at, updated_at, duration, workspace_id, matter_id, user_id
+       FROM jobs
+       WHERE id = $1 AND workspace_id = $2`,
+      [jobId, workspaceId]
+    );
   }
 
   async updateJobTitle(jobId, title, userId = null) {
@@ -270,6 +304,17 @@ class DatabaseService {
       : `UPDATE jobs SET title = $1, user_edited = true, title_source = 'user', updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING id, title, status, progress, processed_links, total_links, prompt, created_at, updated_at`;
     const params = userId ? [title, jobId, userId] : [title, jobId];
     const updated = await database.get(sql, params);
+    return updated;
+  }
+
+  async updateJobTitleForWorkspace(jobId, title, workspaceId) {
+    const updated = await database.get(
+      `UPDATE jobs
+       SET title = $1, user_edited = true, title_source = 'user', updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2 AND workspace_id = $3
+       RETURNING id, title, status, progress, processed_links, total_links, prompt, created_at, updated_at`,
+      [title, jobId, workspaceId]
+    );
     return updated;
   }
 
@@ -407,22 +452,35 @@ class DatabaseService {
 
   async getJobLinks(jobId, userId = null) {
     const sql = userId
-      ? `SELECT url, status, content, decision_date FROM job_links WHERE job_id = $1 AND user_id = $2 ORDER BY id`
-      : `SELECT url, status, content, decision_date FROM job_links WHERE job_id = $1 ORDER BY id`;
+      ? `SELECT url, status, content, decision_date, evidence_snippet FROM job_links WHERE job_id = $1 AND user_id = $2 ORDER BY id`
+      : `SELECT url, status, content, decision_date, evidence_snippet FROM job_links WHERE job_id = $1 ORDER BY id`;
     const params = userId ? [jobId, userId] : [jobId];
     return await database.all(sql, params);
   }
 
   async getJobLinksLight(jobId, userId = null) {
     const sql = userId
-      ? `SELECT url, status, decision_date FROM job_links WHERE job_id = $1 AND user_id = $2 ORDER BY id`
-      : `SELECT url, status, decision_date FROM job_links WHERE job_id = $1 ORDER BY id`;
+      ? `SELECT url, status, decision_date, evidence_snippet FROM job_links WHERE job_id = $1 AND user_id = $2 ORDER BY id`
+      : `SELECT url, status, decision_date, evidence_snippet FROM job_links WHERE job_id = $1 ORDER BY id`;
     const params = userId ? [jobId, userId] : [jobId];
     return await database.all(sql, params);
   }
 
+  async getJobLinksLightForWorkspace(jobId, workspaceId) {
+    return await database.all(
+      `SELECT jl.url, jl.status, jl.decision_date, jl.evidence_snippet
+       FROM job_links jl
+       JOIN jobs j ON j.id = jl.job_id
+       WHERE jl.job_id = $1 AND j.workspace_id = $2
+       ORDER BY jl.id`,
+      [jobId, workspaceId]
+    );
+  }
+
   async updateLinkStatus(jobId, url, status, content = null, errorMessage = null, metadata = null) {
     let sql, params;
+    const evidenceSnippet = status === 'processed' ? extractEvidenceSnippet(content) : null;
+    const shouldUpdateEvidence = Boolean(evidenceSnippet);
 
     if (metadata) {
       // Include legal metadata in the update
@@ -451,6 +509,15 @@ class DatabaseService {
             WHERE job_id = $4 AND url = $5
         `;
       params = [status, content, errorMessage, jobId, url];
+    }
+
+    if (shouldUpdateEvidence) {
+      const idx = params.length + 1;
+      sql = sql.replace(
+        'WHERE job_id',
+        `, evidence_snippet = $${idx}, evidence_extracted_at = CURRENT_TIMESTAMP WHERE job_id`
+      );
+      params.push(evidenceSnippet);
     }
 
     await database.run(sql, params);
@@ -494,12 +561,35 @@ class DatabaseService {
     return result ? result.analysis_text : null;
   }
 
+  async getJobResultForWorkspace(jobId, workspaceId) {
+    const row = await database.get(
+      `SELECT jr.analysis_text
+       FROM job_results jr
+       JOIN jobs j ON j.id = jr.job_id
+       WHERE jr.job_id = $1 AND j.workspace_id = $2
+       LIMIT 1`,
+      [jobId, workspaceId]
+    );
+    return row ? row.analysis_text : null;
+  }
+
   async getLinksContent(jobId, userId = null) {
     const sql = userId
       ? `SELECT url, content FROM job_links WHERE job_id = $1 AND user_id = $2 AND status = 'processed' ORDER BY id`
       : `SELECT url, content FROM job_links WHERE job_id = $1 AND status = 'processed' ORDER BY id`;
     const params = userId ? [jobId, userId] : [jobId];
     return await database.all(sql, params);
+  }
+
+  async getLinksContentForWorkspace(jobId, workspaceId) {
+    return await database.all(
+      `SELECT jl.url, jl.content
+       FROM job_links jl
+       JOIN jobs j ON j.id = jl.job_id
+       WHERE jl.job_id = $1 AND j.workspace_id = $2 AND jl.status = 'processed'
+       ORDER BY jl.id`,
+      [jobId, workspaceId]
+    );
   }
 
   async addChatMessage(jobId, role, content, userId = null) {
@@ -514,6 +604,18 @@ class DatabaseService {
       : `SELECT role, content FROM chat_messages WHERE job_id = $1 ORDER BY created_at ASC LIMIT $2`;
     const params = userId ? [jobId, userId, limit] : [jobId, limit];
     return await database.all(sql, params);
+  }
+
+  async getChatHistoryForWorkspace(jobId, workspaceId, limit = 50) {
+    return await database.all(
+      `SELECT cm.role, cm.content
+       FROM chat_messages cm
+       JOIN jobs j ON j.id = cm.job_id
+       WHERE cm.job_id = $1 AND j.workspace_id = $2
+       ORDER BY cm.created_at ASC
+       LIMIT $3`,
+      [jobId, workspaceId, limit]
+    );
   }
 
   // --- Caching Methods ---
@@ -721,6 +823,51 @@ class DatabaseService {
 
       await client.query('COMMIT');
       logger.info(`[DB] Successfully deleted job ${jobId} and committed transaction.`);
+      return { success: true, message: `Job ${jobId} deleted successfully.` };
+    } catch (error) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackErr) {
+        logger.error('[DB] ROLLBACK failed:', rollbackErr);
+      }
+      logger.error(`[DB] Error deleting job ${jobId}:`, error);
+      throw new Error(`Failed to delete job ${jobId}. The transaction was rolled back.`);
+    } finally {
+      try {
+        client.removeListener('error', onClientError);
+      } catch {
+        // noop
+      }
+      client.release();
+    }
+  }
+
+  async deleteJobForWorkspace(jobId, workspaceId) {
+    logger.info(`[DB] Attempting to delete job ${jobId} for workspace ${workspaceId}.`);
+    const client = await database.pool.connect();
+    const onClientError = (err) => {
+      logger.error('[DB] Client error during deleteJobForWorkspace transaction:', err);
+    };
+    client.on('error', onClientError);
+    const tablesToDeleteFrom = ['chat_messages', 'job_results', 'job_links', 'jobs'];
+
+    try {
+      await client.query('BEGIN');
+      const job = await client.query('SELECT id FROM jobs WHERE id = $1 AND workspace_id = $2', [
+        jobId,
+        workspaceId,
+      ]);
+      if (!job.rows[0]) throw new Error('Not found or access denied');
+
+      for (const table of tablesToDeleteFrom) {
+        const idColumn = table === 'jobs' ? 'id' : 'job_id';
+        const sql = `DELETE FROM ${table} WHERE ${idColumn} = $1`;
+        const result = await client.query(sql, [jobId]);
+        logger.info(`[DB] Deleted ${result.rowCount} rows from ${table} for job ${jobId}`);
+      }
+
+      await client.query('COMMIT');
+      logger.info(`[DB] Successfully deleted job ${jobId} for workspace ${workspaceId}.`);
       return { success: true, message: `Job ${jobId} deleted successfully.` };
     } catch (error) {
       try {
@@ -987,6 +1134,326 @@ class DatabaseService {
     } catch (e) {
       logger.error('[DB] clearJobLock error:', e.message);
     }
+  }
+
+  // ---- WORKSPACES & MEMBERS ----
+  async ensureWorkspaceForUser(userId, email = null) {
+    const existing = await database.get(
+      `SELECT w.id, w.name, wm.role
+       FROM workspaces w
+       JOIN workspace_members wm ON w.id = wm.workspace_id
+       WHERE wm.user_id = $1
+       ORDER BY w.created_at ASC
+       LIMIT 1`,
+      [userId]
+    );
+    if (existing) return existing;
+
+    const workspaceId = uuid();
+    const label = email ? email.split('@')[0] : 'workspace';
+    const name = `${label}'s workspace`;
+
+    await database.run(
+      `INSERT INTO workspaces (id, name, owner_user_id, created_at, updated_at)
+       VALUES ($1, $2, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      [workspaceId, name, userId]
+    );
+    await database.run(
+      `INSERT INTO workspace_members (workspace_id, user_id, role, invited_by, created_at, updated_at)
+       VALUES ($1, $2, 'owner', $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      [workspaceId, userId, userId]
+    );
+
+    await database.run(
+      `UPDATE jobs
+       SET workspace_id = $1
+       WHERE user_id = $2 AND workspace_id IS NULL`,
+      [workspaceId, userId]
+    );
+
+    return { id: workspaceId, name, role: 'owner' };
+  }
+
+  async listWorkspaces(userId) {
+    return await database.all(
+      `SELECT w.id, w.name, w.owner_user_id, w.created_at, w.updated_at, wm.role,
+        (SELECT COUNT(*)::int FROM workspace_members WHERE workspace_id = w.id) AS member_count
+       FROM workspaces w
+       JOIN workspace_members wm ON w.id = wm.workspace_id
+       WHERE wm.user_id = $1
+       ORDER BY w.created_at DESC`,
+      [userId]
+    );
+  }
+
+  async createWorkspace(userId, name) {
+    const workspaceId = uuid();
+    const trimmed = String(name || '').trim() || 'New workspace';
+    const row = await database.get(
+      `INSERT INTO workspaces (id, name, owner_user_id, created_at, updated_at)
+       VALUES ($1, $2, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+       RETURNING id, name, owner_user_id, created_at, updated_at`,
+      [workspaceId, trimmed, userId]
+    );
+    await database.run(
+      `INSERT INTO workspace_members (workspace_id, user_id, role, invited_by, created_at, updated_at)
+       VALUES ($1, $2, 'owner', $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      [workspaceId, userId, userId]
+    );
+    return row;
+  }
+
+  async getWorkspaceRole(userId, workspaceId) {
+    const row = await database.get(
+      `SELECT role FROM workspace_members WHERE workspace_id = $1 AND user_id = $2`,
+      [workspaceId, userId]
+    );
+    return row?.role || null;
+  }
+
+  async listWorkspaceMembers(workspaceId) {
+    return await database.all(
+      `SELECT wm.user_id, wm.role, wm.created_at, wm.updated_at, au.email
+       FROM workspace_members wm
+       LEFT JOIN app_users au ON au.user_id = wm.user_id
+       WHERE wm.workspace_id = $1
+       ORDER BY wm.role DESC, wm.created_at ASC`,
+      [workspaceId]
+    );
+  }
+
+  async addWorkspaceMember(workspaceId, email, role = 'member', invitedBy = null) {
+    const emailLower = String(email || '')
+      .trim()
+      .toLowerCase();
+    const userRow = await database.get(
+      `SELECT user_id, email FROM app_users WHERE email_lower = $1`,
+      [emailLower]
+    );
+    if (!userRow?.user_id) {
+      return { error: 'user_not_found' };
+    }
+
+    const row = await database.get(
+      `INSERT INTO workspace_members (workspace_id, user_id, role, invited_by, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+       ON CONFLICT (workspace_id, user_id)
+       DO UPDATE SET role = EXCLUDED.role, updated_at = CURRENT_TIMESTAMP
+       RETURNING workspace_id, user_id, role`,
+      [workspaceId, userRow.user_id, role, invitedBy]
+    );
+    return { member: row, email: userRow.email };
+  }
+
+  async updateWorkspaceMemberRole(workspaceId, userId, role) {
+    const row = await database.get(
+      `UPDATE workspace_members
+       SET role = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE workspace_id = $2 AND user_id = $3
+       RETURNING workspace_id, user_id, role`,
+      [role, workspaceId, userId]
+    );
+    return row || null;
+  }
+
+  async removeWorkspaceMember(workspaceId, userId) {
+    const row = await database.get(
+      `DELETE FROM workspace_members WHERE workspace_id = $1 AND user_id = $2 RETURNING user_id`,
+      [workspaceId, userId]
+    );
+    return !!row?.user_id;
+  }
+
+  // ---- MATTERS ----
+  async listMatters(workspaceId) {
+    return await database.all(
+      `SELECT m.id, m.title, m.client_name, m.tags, m.created_at, m.updated_at,
+        (SELECT COUNT(*)::int FROM jobs WHERE matter_id = m.id) AS jobs_count
+       FROM matters m
+       WHERE m.workspace_id = $1
+       ORDER BY m.updated_at DESC`,
+      [workspaceId]
+    );
+  }
+
+  async createMatter(
+    { workspaceId, title, description = null, clientName = null, tags = [] },
+    userId
+  ) {
+    const id = uuid();
+    const row = await database.get(
+      `INSERT INTO matters (id, workspace_id, title, description, client_name, tags, created_by, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+       RETURNING id, workspace_id, title, description, client_name, tags, created_by, created_at, updated_at`,
+      [id, workspaceId, title, description, clientName, JSON.stringify(tags || []), userId]
+    );
+    return row;
+  }
+
+  async getMatter(matterId, workspaceId) {
+    return await database.get(
+      `SELECT id, workspace_id, title, description, client_name, tags, created_by, created_at, updated_at
+       FROM matters
+       WHERE id = $1 AND workspace_id = $2`,
+      [matterId, workspaceId]
+    );
+  }
+
+  async updateMatter(matterId, workspaceId, updates = {}) {
+    const fields = [];
+    const params = [];
+    let idx = 1;
+    if (typeof updates.title === 'string' && updates.title.trim()) {
+      fields.push(`title = $${idx++}`);
+      params.push(updates.title.trim());
+    }
+    if (typeof updates.description === 'string') {
+      fields.push(`description = $${idx++}`);
+      params.push(updates.description);
+    }
+    const clientName =
+      typeof updates.clientName === 'string' ? updates.clientName : updates.client_name;
+    if (typeof clientName === 'string') {
+      fields.push(`client_name = $${idx++}`);
+      params.push(clientName);
+    }
+    if (Array.isArray(updates.tags)) {
+      fields.push(`tags = $${idx++}`);
+      params.push(JSON.stringify(updates.tags));
+    }
+    if (fields.length === 0) return null;
+
+    fields.push('updated_at = CURRENT_TIMESTAMP');
+    params.push(matterId, workspaceId);
+    const idIndex = idx++;
+    const workspaceIndex = idx;
+    const sql = `UPDATE matters SET ${fields.join(', ')} WHERE id = $${idIndex} AND workspace_id = $${workspaceIndex} RETURNING id, title, description, client_name, tags, updated_at`;
+    return await database.get(sql, params);
+  }
+
+  async deleteMatter(matterId, workspaceId) {
+    const row = await database.get(
+      `DELETE FROM matters WHERE id = $1 AND workspace_id = $2 RETURNING id`,
+      [matterId, workspaceId]
+    );
+    return !!row?.id;
+  }
+
+  async listMatterJobs(matterId, workspaceId) {
+    return await database.all(
+      `SELECT id, title, status, progress, processed_links, total_links, created_at, updated_at
+       FROM jobs
+       WHERE matter_id = $1 AND workspace_id = $2
+       ORDER BY created_at DESC`,
+      [matterId, workspaceId]
+    );
+  }
+
+  async assignJobToMatter(jobId, matterId, workspaceId) {
+    const row = await database.get(
+      `UPDATE jobs
+       SET matter_id = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2 AND workspace_id = $3
+       RETURNING id, matter_id`,
+      [matterId, jobId, workspaceId]
+    );
+    return row || null;
+  }
+
+  async removeJobFromMatter(jobId, matterId, workspaceId) {
+    const row = await database.get(
+      `UPDATE jobs
+       SET matter_id = NULL, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1 AND workspace_id = $2 AND matter_id = $3
+       RETURNING id`,
+      [jobId, workspaceId, matterId]
+    );
+    return !!row?.id;
+  }
+
+  // ---- SHARE LINKS ----
+  async createShareLink(jobId, createdBy, expiresAt) {
+    const token = crypto.randomBytes(24).toString('hex');
+    const tokenHash = hashToken(token);
+    const id = uuid();
+    const row = await database.get(
+      `INSERT INTO share_links (id, job_id, token_hash, expires_at, created_by, created_at)
+       VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+       RETURNING id, job_id, expires_at, created_by, created_at`,
+      [id, jobId, tokenHash, expiresAt, createdBy]
+    );
+    return { token, link: row };
+  }
+
+  async listShareLinksForWorkspace(workspaceId) {
+    return await database.all(
+      `SELECT s.id, s.job_id, s.expires_at, s.created_by, s.created_at, s.revoked_at,
+        j.title
+       FROM share_links s
+       JOIN jobs j ON j.id = s.job_id
+       WHERE j.workspace_id = $1
+       ORDER BY s.created_at DESC`,
+      [workspaceId]
+    );
+  }
+
+  async revokeShareLink(id) {
+    const row = await database.get(
+      `UPDATE share_links
+       SET revoked_at = CURRENT_TIMESTAMP
+       WHERE id = $1 AND revoked_at IS NULL
+       RETURNING id`,
+      [id]
+    );
+    return !!row?.id;
+  }
+
+  async getShareLinkByToken(token) {
+    const tokenHash = hashToken(token);
+    return await database.get(
+      `SELECT id, job_id, expires_at, revoked_at, created_at
+       FROM share_links
+       WHERE token_hash = $1`,
+      [tokenHash]
+    );
+  }
+
+  async getSharePayloadByToken(token) {
+    const tokenHash = hashToken(token);
+    const link = await database.get(
+      `SELECT id, job_id, expires_at, revoked_at, created_at
+       FROM share_links
+       WHERE token_hash = $1`,
+      [tokenHash]
+    );
+    if (!link) return null;
+
+    const job = await database.get(
+      `SELECT id, title, status, progress, processed_links, total_links, created_at, updated_at
+       FROM jobs
+       WHERE id = $1`,
+      [link.job_id]
+    );
+    if (!job) return null;
+
+    const analysis = await database.get(
+      `SELECT analysis_text FROM job_results WHERE job_id = $1 LIMIT 1`,
+      [link.job_id]
+    );
+    const links = await database.all(
+      `SELECT url, status, decision_date, evidence_snippet
+       FROM job_links
+       WHERE job_id = $1
+       ORDER BY id`,
+      [link.job_id]
+    );
+
+    return {
+      link,
+      job,
+      analysis: analysis?.analysis_text || null,
+      links,
+    };
   }
 
   async requeueJob(jobId, { resetLinks = false } = {}) {

@@ -1,9 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { createClient, type Session, type User } from '@supabase/supabase-js';
-import { SUPABASE_ANON_KEY, SUPABASE_URL } from '../lib/config';
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+import type { Session, User } from '@supabase/supabase-js';
+import { supabase } from '../lib/supabaseClient';
 
 type AuthContextValue = {
   session: Session | null;
@@ -11,6 +9,10 @@ type AuthContextValue = {
   accessToken: string | null;
   isLoading: boolean;
   signIn: (email: string, password: string) => Promise<{ error?: string } | null>;
+  signUp: (email: string) => Promise<{ error?: string } | null>;
+  sendMagicLink: (email: string) => Promise<{ error?: string } | null>;
+  resetPassword: (email: string) => Promise<{ error?: string } | null>;
+  updatePassword: (password: string) => Promise<{ error?: string } | null>;
   signOut: () => Promise<void>;
 };
 
@@ -57,6 +59,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isLoading,
       signIn: async (email, password) => {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) return { error: error.message };
+        return null;
+      },
+      signUp: async (email) => {
+        const { error } = await supabase.auth.signInWithOtp({
+          email,
+          options: { shouldCreateUser: true, emailRedirectTo: window.location.origin },
+        });
+        if (error) return { error: error.message };
+        return null;
+      },
+      sendMagicLink: async (email) => {
+        const { error } = await supabase.auth.signInWithOtp({
+          email,
+          options: { emailRedirectTo: window.location.origin },
+        });
+        if (error) return { error: error.message };
+        return null;
+      },
+      resetPassword: async (email) => {
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: `${window.location.origin}/reset`,
+        });
+        if (error) return { error: error.message };
+        return null;
+      },
+      updatePassword: async (password) => {
+        const { error } = await supabase.auth.updateUser({ password });
         if (error) return { error: error.message };
         return null;
       },
