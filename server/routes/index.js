@@ -104,7 +104,8 @@ router.post(
 // Attach user (if any) and require auth for all routes except auth and health endpoints
 router.use(attachUser);
 // Убираем /health/full из публичных маршрутов, оставляем только /health/light и /auth/signin
-router.use(requireAuthExcept(['/health/light', '/auth/signin']));
+// Также пропускаем /share, чтобы публічні шари з portalRoutes не блокувались тут.
+router.use(requireAuthExcept(['/health/light', '/auth/signin', '/share']));
 
 // Lightweight session/user info for web portal
 router.get('/me', (req, res) => {
