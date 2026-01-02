@@ -1,37 +1,64 @@
-# Repository Guidelines
+# Repository Guidance (Root)
 
-## Project Structure & Module Organization
-- `server/`: Node.js/Express backend (API, scraping, AI analysis, jobs, WebSocket). Key areas: `server/routes/`, `server/services/`, `server/database/`, `server/sql/`, `server/public/` (admin UI assets).
-- `extension/`: Chrome extension (popup, content scripts, UI, auth config in `extension/config.js`).
-- `scripts/`: repo-level utilities (build extension, apply RLS, self-checks).
-- `docs/`: reference docs and ADRs.
-- Generated outputs: `extension-build/` and `edrsr-ai-extension-v*.zip` (do not edit by hand).
+## Project Snapshot
+- Repo type: small monorepo (backend + Chrome extension + web portal).
+- Backend: Node.js (ESM) + Express + WebSocket (`ws`) + workers; Postgres (`pg`); Supabase auth.
+- Extension: Chrome MV3, vanilla JS/HTML, ES modules.
+- Web: React + TypeScript + Vite; Supabase auth; backend API + WebSocket.
+- More detailed, scoped guidance lives in subfolder AGENTS files (nearest-wins).
 
-## Build, Test, and Development Commands
-- `npm install` and `npm --prefix server install`: install root + server deps.
-- `npm run dev`: run backend in dev mode (uses `server/index.js`).
-- `npm run start:gc`: production-like start with GC and heap cap.
-- `npm run build:extension`: build the Chrome extension into `extension-build/`.
-- `npm run lint` / `npm run format` / `npm run quality:check`: lint and format checks.
-- `npm run test:memory` or `node server/scripts/test-scraper-parsing.js`: run ad-hoc validation scripts.
+## Root Setup Commands
+- Install deps: `npm install`
+- Install backend deps: `npm --prefix server install`
+- Install web deps: `npm --prefix web install`
+- Run dev backend: `npm run dev`
+- Run dev web: `npm run web:dev`
+- Prod-like start: `npm run start:gc`
+- Build extension: `npm run build:extension`
+- Build web: `npm run web:build`
+- Quality checks: `npm run quality:check` (or `npm run quality:fix`)
+- Ad-hoc validation: `npm run test:selfcheck`, `npm run test:memory`
 
-## Coding Style & Naming Conventions
-- ESM modules (`"type": "module"`). Prefer `import`/`export`.
-- Prettier is the source of truth: 2-space indent, single quotes, semicolons, 100-char line width.
+## Universal Conventions
+- ESM modules (`"type": "module"`): prefer `import`/`export`.
+- Prettier is the source of truth: 2-space indent, single quotes, semicolons, ~100-char line width.
 - ESLint + Prettier enforce baseline rules; keep `console` minimal in shared code.
-- File names are typically kebab-case (`start-optimized.js`); functions camelCase; classes PascalCase.
+- Naming: files are typically kebab-case; functions camelCase; classes PascalCase.
+- Commits: Conventional Commits (e.g., `feat: ...`, `fix(admin): ...`).
 
-## Testing Guidelines
-- No formal test framework yet; tests are lightweight scripts under `server/scripts/` (e.g., `test-scraper-parsing.js`, `memory-load-test.js`).
-- Name new checks with `test-*.js` and keep them runnable via `node`.
-- For changes that affect scraping or parsing, add a focused script and document how to run it.
+## Security & Secrets
+- Secrets live in `server/.env`; template: `server/env.example`.
+- Never commit tokens/keys; `extension/config.js` should not contain private credentials.
+- Web/Vite env: only expose `VITE_*` public values (never Supabase service role keys).
 
-## Commit & Pull Request Guidelines
-- Commit messages follow Conventional Commits (e.g., `feat: ...`, `fix(admin): ...`, `perf(cli-proxy): ...`, `docs(env): ...`).
-- PRs should include a short summary, testing notes (commands run), and screenshots for UI/extension changes.
-- Link related issues and call out any config or migration steps.
+## JIT Index (what to open, not what to paste)
 
-## Configuration & Security Tips
-- Use `server/.env` (see `server/env.example`) for secrets and environment config.
-- Keep API keys out of git; avoid committing `extension/config.js` with real credentials.
-- If enabling strict data isolation, apply RLS via `npm run apply:rls` (uses `server/sql/`).
+### Package Map
+- Backend server: `server/` → `server/AGENTS.md`
+  - API routes: `server/routes/` → `server/routes/AGENTS.md`
+  - Middleware: `server/middleware/` → `server/middleware/AGENTS.md`
+  - DB connection/schema: `server/database/` → `server/database/AGENTS.md`
+  - Services (DB/business logic): `server/services/` → `server/services/AGENTS.md`
+  - Dev/ops scripts: `server/scripts/` → `server/scripts/AGENTS.md`
+  - SQL / RLS: `server/sql/` → `server/sql/AGENTS.md`
+  - Admin UI (static): `server/public/admin/` → `server/public/admin/AGENTS.md`
+- Chrome extension: `extension/` → `extension/AGENTS.md`
+- Web portal: `web/` → `web/AGENTS.md`
+- Repo scripts: `scripts/` → `scripts/AGENTS.md`
+- Docs: `docs/` → `docs/AGENTS.md`
+- Generated outputs (do not hand-edit): `extension-build/`, `edrsr-ai-extension-v*.zip`
+
+### Quick Find Commands
+- Find an API endpoint: `rg -n "router\\.(get|post|patch|put|delete)\\(" server/routes`
+- Find a middleware: `rg -n "export (async )?function" server/middleware`
+- Find a DB query: `rg -n "database\\.(get|run|all)\\(" server`
+- Find WebSocket usage: `rg -n "initWebSocket|sendUpdateToJobOwner|WEBSOCKET" server extension`
+- Find extension message flow: `rg -n "chrome\\.runtime\\.(connect|onMessage|sendMessage)" extension`
+- Find web routes: `rg -n "<Route|path=\\\"" web/src/App.tsx`
+- Find web API calls: `rg -n "apiRequest\\(" web/src`
+
+## Definition of Done
+- `npm run quality:check` passes
+- If extension changed: `npm run build:extension` and test by loading `extension-build/` in Chrome
+- If web changed: `npm run web:lint && npm run web:build`
+- If scraping/parsing changed: run `node server/scripts/test-scraper-parsing.js`

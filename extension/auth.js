@@ -4,8 +4,10 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_REDIRECT_TO } from './config.
 const SESSION_KEY = 'sb_session';
 
 export async function isAuthenticated() {
-  const { [SESSION_KEY]: session } = await chrome.storage.local.get(SESSION_KEY);
-  return !!(session && session.access_token);
+  // "Authenticated" should mean we can actually make authenticated API calls.
+  // This avoids UI loops where an expired/invalid session still has an access_token string.
+  const token = await getAccessToken();
+  return !!token;
 }
 
 export async function getSession() {
