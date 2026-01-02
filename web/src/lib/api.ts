@@ -1,0 +1,73 @@
+import { API_BASE } from './config';
+
+type QueryValue = string | number | boolean | null | undefined | Array<string | number | boolean>;
+
+type RequestOptions = {
+  method?: string;
+  token?: string | null;
+  body?: unknown;
+  query?: Record<string, QueryValue>;
+  signal?: AbortSignal;
+};
+
+export class ApiError extends Error {
+  status: number;
+  info?: unknown;
+
+  constructor(message: string, status: number, info?: unknown) {
+    super(message);
+    this.status = status;
+    this.info = info;
+  }
+}
+
+function buildQuery(query?: Record<string, QueryValue>) {
+  if (!query) return '';
+  const params = new URLSearchParams();
+  Object.entries(query).forEach(([key, value]) => {
+    if (value === null || typeof value === 'undefined') return;
+    if (Array.isArray(value)) {
+      value.forEach((item) => params.append(key, String(item)));
+      return;
+    }
+    params.set(key, String(value));
+  });
+  const qs = params.toString();
+  return qs ? `?${qs}` : '';
+}
+
+async function parseJsonSafe(res: Response) {
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function apiRequest<T = unknown>(path: string, options: RequestOptions = {}) {
+  const { method = 'GET', token, body, query, signal } = options;
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+
+  const qs = buildQuery(query);
+  const res = await fetch(`${API_BASE}${path}${qs}`, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal,
+  });
+
+  if (!res.ok) {
+    const info = await parseJsonSafe(res);
+    const message =
+      (info && typeof info === 'object' && 'error' in info && info.error) ||
+      res.statusText ||
+      'Request failed';
+    throw new ApiError(String(message), res.status, info);
+  }
+
+  if (res.status === 204) return null as T;
+  const data = await parseJsonSafe(res);
+  return data as T;
+}
