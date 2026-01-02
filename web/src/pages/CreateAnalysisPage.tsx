@@ -18,6 +18,24 @@ type PromptResponse = {
   prompts: Prompt[];
 };
 
+type PromptDefinitionsLocale = {
+  groups?: Record<string, Record<string, string>>;
+  descriptions?: Record<string, string>;
+};
+
+type PromptDefinitionsPayload = {
+  version?: number;
+  defaultLocale?: string;
+  locales?: Record<string, PromptDefinitionsLocale>;
+  groups?: Record<string, Record<string, string>>;
+  descriptions?: Record<string, string>;
+};
+
+type PromptDefinitionsResponse = {
+  success: boolean;
+  definitions: PromptDefinitionsPayload | null;
+};
+
 type MatterSummary = {
   id: string;
   title: string;
@@ -29,6 +47,33 @@ type MattersResponse = {
 };
 
 const MAX_LINKS = 300;
+const BUILTIN_PROMPT_PREFIX = 'builtin:';
+
+function pickDefinitionsForLocale(definitions: PromptDefinitionsPayload | null, locale: string) {
+  if (!definitions) return null;
+  if (definitions.groups && definitions.descriptions) {
+    return {
+      groups: definitions.groups || {},
+      descriptions: definitions.descriptions || {},
+    };
+  }
+  const locales = definitions.locales || {};
+  const preferred =
+    locales[locale] || locales[definitions.defaultLocale || 'uk'] || locales.uk || null;
+  if (!preferred) return null;
+  return {
+    groups: preferred.groups || {},
+    descriptions: preferred.descriptions || {},
+  };
+}
+
+function findPromptLabel(groups: Record<string, Record<string, string>> | undefined, key: string) {
+  if (!groups || !key) return null;
+  for (const group of Object.values(groups)) {
+    if (group && typeof group === 'object' && key in group) return group[key] || null;
+  }
+  return null;
+}
 
 function extractLinks(text: string) {
   const matches = text.match(/https?:\/\/[^\s,;]+/gi) || [];
@@ -41,15 +86,18 @@ function extractLinks(text: string) {
 export function CreateAnalysisPage() {
   const { accessToken } = useAuth();
   const { clientId, status } = useWebSocket();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const { activeWorkspaceId } = useWorkspace();
   const navigate = useNavigate();
   const location = useLocation();
   const [rawInput, setRawInput] = useState('');
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [sharedPrompts, setSharedPrompts] = useState<Prompt[]>([]);
-  const [promptId, setPromptId] = useState('');
+  const [promptSelection, setPromptSelection] = useState('');
   const [promptContent, setPromptContent] = useState('');
+  const [promptDefinitionsRaw, setPromptDefinitionsRaw] = useState<PromptDefinitionsPayload | null>(
+    null
+  );
   const [matters, setMatters] = useState<MatterSummary[]>([]);
   const [matterId, setMatterId] = useState('');
   const [autoTitle, setAutoTitle] = useState(true);
@@ -57,12 +105,31 @@ export function CreateAnalysisPage() {
   const [error, setError] = useState<string | null>(null);
 
   const detectedLinks = useMemo(() => extractLinks(rawInput), [rawInput]);
+  const promptDefinitions = useMemo(
+    () => pickDefinitionsForLocale(promptDefinitionsRaw, locale),
+    [promptDefinitionsRaw, locale]
+  );
+  const selectedBuiltinKey = useMemo(() => {
+    if (!promptSelection.startsWith(BUILTIN_PROMPT_PREFIX)) return '';
+    return promptSelection.slice(BUILTIN_PROMPT_PREFIX.length);
+  }, [promptSelection]);
+  const selectedBuiltinDescription = selectedBuiltinKey
+    ? (promptDefinitions?.descriptions || {})[selectedBuiltinKey] || ''
+    : '';
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const matterParam = params.get('matterId');
     if (matterParam) setMatterId(matterParam);
   }, [location.search]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    apiRequest<PromptDefinitionsResponse>('/prompts/definitions', { signal: controller.signal })
+      .then((data) => setPromptDefinitionsRaw(data.definitions || null))
+      .catch(() => setPromptDefinitionsRaw(null));
+    return () => controller.abort();
+  }, []);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -97,13 +164,17 @@ export function CreateAnalysisPage() {
   const allPrompts = useMemo(() => [...prompts, ...sharedPrompts], [prompts, sharedPrompts]);
 
   useEffect(() => {
-    if (!promptId) {
+    if (!promptSelection) {
       setPromptContent('');
       return;
     }
-    const found = allPrompts.find((prompt) => prompt.id === promptId);
+    if (promptSelection.startsWith(BUILTIN_PROMPT_PREFIX)) {
+      setPromptContent('');
+      return;
+    }
+    const found = allPrompts.find((prompt) => prompt.id === promptSelection);
     setPromptContent(found?.content || '');
-  }, [promptId, allPrompts]);
+  }, [promptSelection, allPrompts]);
 
   const handleFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -127,11 +198,19 @@ export function CreateAnalysisPage() {
 
     setLoading(true);
     try {
-      const selectedPrompt = allPrompts.find((prompt) => prompt.id === promptId);
+      const selectedPrompt = allPrompts.find((prompt) => prompt.id === promptSelection);
+      const isBuiltinPrompt = promptSelection.startsWith(BUILTIN_PROMPT_PREFIX);
+      const builtinKey = isBuiltinPrompt ? promptSelection.slice(BUILTIN_PROMPT_PREFIX.length) : '';
+      const builtinLabel = isBuiltinPrompt
+        ? findPromptLabel(promptDefinitions?.groups, builtinKey)
+        : null;
+
       const payload = {
         links: detectedLinks.map((url) => ({ url })),
-        prompt: promptContent.trim() || null,
-        prompt_label: selectedPrompt?.name || null,
+        prompt: isBuiltinPrompt ? builtinKey || null : promptContent.trim() || null,
+        prompt_label: isBuiltinPrompt
+          ? builtinLabel || builtinKey || null
+          : selectedPrompt?.name || null,
         auto_title_enabled: autoTitle,
         clientId: clientId || undefined,
         matterId: matterId || undefined,
@@ -207,8 +286,30 @@ export function CreateAnalysisPage() {
           <div className="card__body stack">
             <label className="field">
               <span>{t('create.promptTemplate')}</span>
-              <select value={promptId} onChange={(event) => setPromptId(event.target.value)}>
+              <select
+                value={promptSelection}
+                onChange={(event) => setPromptSelection(event.target.value)}
+              >
                 <option value="">{t('create.promptDefault')}</option>
+                {promptDefinitions?.groups
+                  ? Object.entries(promptDefinitions.groups)
+                      .map(([groupLabel, groupPrompts]) => {
+                        const entries = Object.entries(groupPrompts || {}).filter(
+                          ([key]) => key !== 'custom'
+                        );
+                        if (entries.length === 0) return null;
+                        return (
+                          <optgroup key={groupLabel} label={groupLabel}>
+                            {entries.map(([key, label]) => (
+                              <option key={key} value={`${BUILTIN_PROMPT_PREFIX}${key}`}>
+                                {label}
+                              </option>
+                            ))}
+                          </optgroup>
+                        );
+                      })
+                      .filter(Boolean)
+                  : null}
                 {prompts.length > 0 ? (
                   <optgroup label={t('create.promptMyGroup')}>
                     {prompts.map((prompt) => (
@@ -229,6 +330,9 @@ export function CreateAnalysisPage() {
                 ) : null}
               </select>
             </label>
+            {selectedBuiltinDescription ? (
+              <div className="muted">{selectedBuiltinDescription}</div>
+            ) : null}
             <label className="field">
               <span>{t('create.matterLabel')}</span>
               <select value={matterId} onChange={(event) => setMatterId(event.target.value)}>
@@ -247,6 +351,7 @@ export function CreateAnalysisPage() {
                 value={promptContent}
                 onChange={(event) => setPromptContent(event.target.value)}
                 placeholder={t('create.promptPlaceholder')}
+                disabled={!!selectedBuiltinKey}
               />
             </label>
             <label className="toggle">
