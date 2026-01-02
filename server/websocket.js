@@ -21,17 +21,24 @@ function getSupabase() {
  * Configure via WS_ALLOWED_ORIGINS env var (comma-separated list).
  */
 const getAllowedWsOrigins = () => {
+  const baseOrigins = [
+    'https://edrsr-ai-server.fun',
+    'https://www.edrsr-ai-server.fun',
+    'https://app.edrsr-ai-server.fun',
+  ];
   if (process.env.WS_ALLOWED_ORIGINS) {
-    return process.env.WS_ALLOWED_ORIGINS.split(',').map((origin) => origin.trim());
+    const configured = process.env.WS_ALLOWED_ORIGINS.split(',').map((origin) => origin.trim());
+    return [...new Set([...configured, ...baseOrigins])];
   }
 
   // Production/staging: use restrictive defaults
   if (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging') {
-    return ['https://reyestr.court.gov.ua'];
+    return [...baseOrigins, 'https://reyestr.court.gov.ua'];
   }
 
   // Development: allow localhost
   return [
+    ...baseOrigins,
     'http://localhost:3000',
     'http://localhost:4000',
     'http://127.0.0.1:3000',

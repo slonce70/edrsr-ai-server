@@ -58,7 +58,7 @@ Rate limit: 5 попыток/15 минут.
   "prompt": "optional",
   "prompt_label": "optional",
   "auto_title_enabled": true,
-  "clientId": "required"
+  "clientId": "optional"
 }
 ```
 
@@ -68,10 +68,23 @@ Rate limit: 5 попыток/15 минут.
 #### POST `/api/retry/:jobId`
 Создать копию существующего задания и поставить в очередь.
 
-#### GET `/api/jobs?limit=<n>`
-Последние задания пользователя (короткая карточка).
+#### GET `/api/me`
+Вернуть базовый профиль пользователя (id + email).
 
-Примечание: лимит принудительно ограничен `JOBS_MAX_LIMIT` (по умолчанию 100), даже если передать `all`.
+Ответ: `{ "success": true, "user": { "id": "...", "email": "..." } }`.
+
+#### GET `/api/jobs?limit=<n>&page=<n>&status=<value>&search=<query>`
+Последние задания пользователя (короткая карточка) + постраничная выдача.
+
+Параметры:
+- `limit` — размер страницы (по умолчанию 100, ограничен `JOBS_MAX_LIMIT`).
+- `page` — номер страницы (1..n).
+- `status` — фильтр по статусу (`queued`, `downloading`, `analyzing`, `completed`, `failed`).
+- `search` — поиск по `title` или `prompt`.
+
+Ответ: `{ success: true, jobs: [...], pagination: { page, limit, total } }`.
+
+Примечание: `limit=all` поддерживается только без фильтров (совместимость с расширением).
 
 #### GET `/api/status/:id`
 Статус конкретного задания (по умолчанию — лёгкий ответ без больших полей).
