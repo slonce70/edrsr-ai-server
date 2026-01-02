@@ -1168,7 +1168,7 @@ async function editJobTitle(jobId, currentTitle) {
 
 async function viewJobReport(jobId) {
   const reportUrl = `/admin/report.html?jobId=${jobId}`;
-  window.location.href = reportUrl;
+  window.open(reportUrl, '_blank', 'noopener');
 }
 
 async function performCleanup(type) {
