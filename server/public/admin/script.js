@@ -87,18 +87,21 @@ function setupLoginListener() {
 }
 
 function getStoredToken() {
-  const token =
-    sessionStorage.getItem(TOKEN_STORAGE_KEY) || localStorage.getItem(TOKEN_STORAGE_KEY);
-  if (token && !sessionStorage.getItem(TOKEN_STORAGE_KEY)) {
-    sessionStorage.setItem(TOKEN_STORAGE_KEY, token);
-    localStorage.removeItem(TOKEN_STORAGE_KEY);
+  const sessionToken = sessionStorage.getItem(TOKEN_STORAGE_KEY);
+  const localToken = localStorage.getItem(TOKEN_STORAGE_KEY);
+  const token = sessionToken || localToken;
+
+  if (token) {
+    if (!sessionToken) sessionStorage.setItem(TOKEN_STORAGE_KEY, token);
+    if (!localToken) localStorage.setItem(TOKEN_STORAGE_KEY, token);
   }
+
   return token;
 }
 
 function setStoredToken(token) {
   sessionStorage.setItem(TOKEN_STORAGE_KEY, token);
-  localStorage.removeItem(TOKEN_STORAGE_KEY);
+  localStorage.setItem(TOKEN_STORAGE_KEY, token);
 }
 
 function clearStoredToken() {

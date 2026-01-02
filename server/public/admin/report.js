@@ -17,12 +17,13 @@ document.addEventListener('DOMContentLoaded', async function () {
     return;
   }
 
-  // Get auth token from sessionStorage (migrate from localStorage if needed)
-  const authToken =
-    sessionStorage.getItem(TOKEN_STORAGE_KEY) || localStorage.getItem(TOKEN_STORAGE_KEY);
-  if (authToken && !sessionStorage.getItem(TOKEN_STORAGE_KEY)) {
-    sessionStorage.setItem(TOKEN_STORAGE_KEY, authToken);
-    localStorage.removeItem(TOKEN_STORAGE_KEY);
+  const sessionToken = sessionStorage.getItem(TOKEN_STORAGE_KEY);
+  const localToken = localStorage.getItem(TOKEN_STORAGE_KEY);
+  const authToken = sessionToken || localToken;
+
+  if (authToken) {
+    if (!sessionToken) sessionStorage.setItem(TOKEN_STORAGE_KEY, authToken);
+    if (!localToken) localStorage.setItem(TOKEN_STORAGE_KEY, authToken);
   }
   if (!authToken) {
     window.location.href = '/admin';
@@ -70,7 +71,8 @@ document.addEventListener('DOMContentLoaded', async function () {
 
     if (!response.ok) {
       if (response.status === 401 || response.status === 403) {
-        localStorage.removeItem('admin_token');
+        sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+        localStorage.removeItem(TOKEN_STORAGE_KEY);
         window.location.href = '/admin';
         return;
       }
