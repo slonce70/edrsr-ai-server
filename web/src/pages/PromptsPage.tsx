@@ -3,6 +3,7 @@ import type { ChangeEvent } from 'react';
 import { apiRequest } from '../lib/api';
 import { useAuth } from '../state/AuthContext';
 import { useLocale } from '../state/LocaleContext';
+import { useWorkspace } from '../state/WorkspaceContext';
 import { EmptyState } from '../components/EmptyState';
 
 type Prompt = {
@@ -24,15 +25,26 @@ const emptyForm = { id: '', name: '', content: '' };
 export function PromptsPage() {
   const { accessToken } = useAuth();
   const { t, dateLocale } = useLocale();
+  const { activeWorkspaceId, workspaces } = useWorkspace();
   const [prompts, setPrompts] = useState<Prompt[]>([]);
+  const [sharedPrompts, setSharedPrompts] = useState<Prompt[]>([]);
   const [form, setForm] = useState(emptyForm);
   const [loading, setLoading] = useState(true);
+  const [sharedLoading, setSharedLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [sharedError, setSharedError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [formNotice, setFormNotice] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'user' | 'shared'>('user');
 
   const hasSelection = Boolean(form.id);
+  const activeWorkspace = useMemo(
+    () => workspaces.find((workspace) => workspace.id === activeWorkspaceId) || null,
+    [workspaces, activeWorkspaceId]
+  );
+  const canManageShared = ['owner', 'admin'].includes(activeWorkspace?.role || '');
 
   const loadPrompts = useCallback(async () => {
     if (!accessToken) {
@@ -52,18 +64,51 @@ export function PromptsPage() {
     }
   }, [accessToken, t]);
 
+  const loadSharedPrompts = useCallback(async () => {
+    if (!accessToken || !activeWorkspaceId) {
+      setSharedPrompts([]);
+      setSharedLoading(false);
+      return;
+    }
+    setSharedLoading(true);
+    setSharedError(null);
+    try {
+      const data = await apiRequest<{ success: boolean; prompts: Prompt[] }>('/prompts/shared', {
+        token: accessToken,
+        workspaceId: activeWorkspaceId,
+      });
+      setSharedPrompts(data.prompts || []);
+    } catch (err) {
+      setSharedError(err instanceof Error ? err.message : t('errors.generic'));
+    } finally {
+      setSharedLoading(false);
+    }
+  }, [accessToken, activeWorkspaceId, t]);
+
   useEffect(() => {
     loadPrompts();
   }, [loadPrompts]);
 
+  useEffect(() => {
+    loadSharedPrompts();
+  }, [loadSharedPrompts]);
+
+  useEffect(() => {
+    setForm(emptyForm);
+    setFormError(null);
+    setFormNotice(null);
+  }, [activeTab]);
+
   const handleSelect = (prompt: Prompt) => {
     setForm({ id: prompt.id, name: prompt.name, content: prompt.content });
     setFormError(null);
+    setFormNotice(null);
   };
 
   const handleReset = () => {
     setForm(emptyForm);
     setFormError(null);
+    setFormNotice(null);
   };
 
   const handleSave = async () => {
@@ -74,21 +119,49 @@ export function PromptsPage() {
     }
     setSaving(true);
     setFormError(null);
+    setFormNotice(null);
     try {
-      if (hasSelection) {
-        await apiRequest(`/prompts/${form.id}`, {
-          token: accessToken,
-          method: 'PATCH',
-          body: { name: form.name.trim(), content: form.content.trim() },
-        });
+      if (activeTab === 'shared') {
+        if (!activeWorkspaceId) {
+          setFormError(t('prompts.sharedNoWorkspace'));
+          return;
+        }
+        if (!canManageShared) {
+          setFormError(t('prompts.sharedReadOnly'));
+          return;
+        }
+        if (hasSelection) {
+          await apiRequest(`/prompts/shared/${form.id}`, {
+            token: accessToken,
+            method: 'PATCH',
+            body: { name: form.name.trim(), content: form.content.trim() },
+            workspaceId: activeWorkspaceId,
+          });
+        } else {
+          await apiRequest(`/prompts/shared`, {
+            token: accessToken,
+            method: 'POST',
+            body: { name: form.name.trim(), content: form.content.trim() },
+            workspaceId: activeWorkspaceId,
+          });
+        }
+        await loadSharedPrompts();
       } else {
-        await apiRequest(`/prompts`, {
-          token: accessToken,
-          method: 'POST',
-          body: { name: form.name.trim(), content: form.content.trim() },
-        });
+        if (hasSelection) {
+          await apiRequest(`/prompts/${form.id}`, {
+            token: accessToken,
+            method: 'PATCH',
+            body: { name: form.name.trim(), content: form.content.trim() },
+          });
+        } else {
+          await apiRequest(`/prompts`, {
+            token: accessToken,
+            method: 'POST',
+            body: { name: form.name.trim(), content: form.content.trim() },
+          });
+        }
+        await loadPrompts();
       }
-      await loadPrompts();
       setForm(emptyForm);
     } catch (err) {
       setFormError(err instanceof Error ? err.message : t('errors.generic'));
@@ -102,10 +175,61 @@ export function PromptsPage() {
     if (!window.confirm(t('prompts.confirmDelete'))) return;
     setSaving(true);
     setFormError(null);
+    setFormNotice(null);
     try {
-      await apiRequest(`/prompts/${form.id}`, { token: accessToken, method: 'DELETE' });
-      await loadPrompts();
+      if (activeTab === 'shared') {
+        if (!activeWorkspaceId) {
+          setFormError(t('prompts.sharedNoWorkspace'));
+          return;
+        }
+        if (!canManageShared) {
+          setFormError(t('prompts.sharedReadOnly'));
+          return;
+        }
+        await apiRequest(`/prompts/shared/${form.id}`, {
+          token: accessToken,
+          method: 'DELETE',
+          workspaceId: activeWorkspaceId,
+        });
+        await loadSharedPrompts();
+      } else {
+        await apiRequest(`/prompts/${form.id}`, { token: accessToken, method: 'DELETE' });
+        await loadPrompts();
+      }
       setForm(emptyForm);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : t('errors.generic'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleShareToWorkspace = async () => {
+    if (!accessToken || !form.id) return;
+    if (!activeWorkspaceId) {
+      setFormError(t('prompts.sharedNoWorkspace'));
+      return;
+    }
+    if (!canManageShared) {
+      setFormError(t('prompts.sharedReadOnly'));
+      return;
+    }
+    setSaving(true);
+    setFormError(null);
+    setFormNotice(null);
+    try {
+      const result = await apiRequest<{ success: boolean; renamed?: boolean }>(
+        '/prompts/shared/from-user',
+        {
+          token: accessToken,
+          method: 'POST',
+          body: { promptId: form.id },
+          workspaceId: activeWorkspaceId,
+        }
+      );
+      await loadSharedPrompts();
+      setFormNotice(result?.renamed ? t('prompts.shareRenamed') : t('prompts.shareSuccess'));
+      setActiveTab('shared');
     } catch (err) {
       setFormError(err instanceof Error ? err.message : t('errors.generic'));
     } finally {
@@ -160,43 +284,74 @@ export function PromptsPage() {
     return form.content.length > 160 ? `${form.content.slice(0, 160)}...` : form.content;
   }, [form.content]);
 
+  const isSharedView = activeTab === 'shared';
+  const visiblePrompts = isSharedView ? sharedPrompts : prompts;
+  const isLoadingList = isSharedView ? sharedLoading : loading;
+  const listError = isSharedView ? sharedError : loadError;
+  const isReadOnlyShared = isSharedView && !canManageShared;
+
   return (
     <div className="stack">
       <div className="page-header">
         <div>
           <h1>{t('prompts.title')}</h1>
           <p>{t('prompts.subtitle')}</p>
+          <div className="pill-group">
+            <button
+              className={`pill pill--button${!isSharedView ? ' pill--active' : ''}`}
+              type="button"
+              onClick={() => setActiveTab('user')}
+            >
+              {t('prompts.tabMy')}
+            </button>
+            <button
+              className={`pill pill--button${isSharedView ? ' pill--active' : ''}`}
+              type="button"
+              onClick={() => setActiveTab('shared')}
+            >
+              {t('prompts.tabShared')}
+            </button>
+          </div>
         </div>
-        <div className="actions">
-          <label className="file">
-            <input type="file" accept="application/json" onChange={handleImport} />
-            {t('prompts.import')}
-          </label>
-          <button className="btn btn-ghost" onClick={handleExport} disabled={!prompts.length}>
-            {t('prompts.export')}
-          </button>
-        </div>
+        {!isSharedView ? (
+          <div className="actions">
+            <label className="file">
+              <input type="file" accept="application/json" onChange={handleImport} />
+              {t('prompts.import')}
+            </label>
+            <button className="btn btn-ghost" onClick={handleExport} disabled={!prompts.length}>
+              {t('prompts.export')}
+            </button>
+          </div>
+        ) : null}
       </div>
-      {loadError ? <div className="card card--error">{loadError}</div> : null}
+      {listError ? <div className="card card--error">{listError}</div> : null}
 
-      {loading ? (
+      {isLoadingList ? (
         <div className="card">{t('prompts.loading')}</div>
-      ) : prompts.length === 0 ? (
-        <EmptyState title={t('prompts.emptyTitle')} message={t('prompts.emptyMessage')} />
+      ) : visiblePrompts.length === 0 ? (
+        <EmptyState
+          title={isSharedView ? t('prompts.sharedEmptyTitle') : t('prompts.emptyTitle')}
+          message={isSharedView ? t('prompts.sharedEmptyMessage') : t('prompts.emptyMessage')}
+        />
       ) : (
         <div className="grid grid--two">
           <div className="card">
             <div className="card__header">
               <div>
-                <div className="card__title">{t('prompts.library')}</div>
+                <div className="card__title">
+                  {isSharedView ? t('prompts.sharedLibrary') : t('prompts.library')}
+                </div>
                 <div className="card__meta">
-                  {prompts.length} {t('prompts.countLabel')}
-                  {lastUpdated ? ` • ${new Date(lastUpdated).toLocaleString(dateLocale)}` : ''}
+                  {visiblePrompts.length} {t('prompts.countLabel')}
+                  {!isSharedView && lastUpdated
+                    ? ` • ${new Date(lastUpdated).toLocaleString(dateLocale)}`
+                    : ''}
                 </div>
               </div>
             </div>
             <div className="card__body list">
-              {prompts.map((prompt) => (
+              {visiblePrompts.map((prompt) => (
                 <button
                   key={prompt.id}
                   className={`list__row list__row--button${
@@ -212,7 +367,9 @@ export function PromptsPage() {
                         : ''}
                     </div>
                   </div>
-                  <span className="pill">{t('prompts.edit')}</span>
+                  <span className="pill">
+                    {isSharedView ? t('prompts.sharedLabel') : t('prompts.edit')}
+                  </span>
                 </button>
               ))}
             </div>
@@ -221,7 +378,13 @@ export function PromptsPage() {
             <div className="card__header">
               <div>
                 <div className="card__title">
-                  {hasSelection ? t('prompts.editPrompt') : t('prompts.newPrompt')}
+                  {hasSelection
+                    ? isSharedView
+                      ? t('prompts.sharedEditPrompt')
+                      : t('prompts.editPrompt')
+                    : isSharedView
+                      ? t('prompts.sharedNewPrompt')
+                      : t('prompts.newPrompt')}
                 </div>
                 <div className="card__meta">{preview || t('prompts.previewEmpty')}</div>
               </div>
@@ -232,6 +395,7 @@ export function PromptsPage() {
                 <input
                   value={form.name}
                   onChange={(event) => setForm({ ...form, name: event.target.value })}
+                  disabled={saving || isReadOnlyShared}
                 />
               </label>
               <label className="field">
@@ -240,19 +404,42 @@ export function PromptsPage() {
                   rows={8}
                   value={form.content}
                   onChange={(event) => setForm({ ...form, content: event.target.value })}
+                  disabled={saving || isReadOnlyShared}
                 />
               </label>
+              {formNotice ? <div className="form__notice">{formNotice}</div> : null}
               {formError ? <div className="form__error">{formError}</div> : null}
+              {isReadOnlyShared ? (
+                <div className="form__note">{t('prompts.sharedReadOnly')}</div>
+              ) : null}
               <div className="actions">
                 <button className="btn btn-ghost" onClick={handleReset} disabled={saving}>
                   {t('prompts.reset')}
                 </button>
+                {!isSharedView && hasSelection ? (
+                  <button
+                    className="btn btn-ghost"
+                    onClick={handleShareToWorkspace}
+                    disabled={saving || !canManageShared}
+                    title={canManageShared ? '' : t('prompts.sharedReadOnly')}
+                  >
+                    {t('prompts.shareToWorkspace')}
+                  </button>
+                ) : null}
                 {hasSelection ? (
-                  <button className="btn btn-ghost" onClick={handleDelete} disabled={saving}>
+                  <button
+                    className="btn btn-ghost"
+                    onClick={handleDelete}
+                    disabled={saving || isReadOnlyShared}
+                  >
                     {t('prompts.delete')}
                   </button>
                 ) : null}
-                <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleSave}
+                  disabled={saving || isReadOnlyShared}
+                >
                   {saving ? t('prompts.saving') : t('prompts.save')}
                 </button>
               </div>

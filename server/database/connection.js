@@ -26,6 +26,9 @@ const ALLOWED_TABLES = new Set([
   'workspace_members',
   'matters',
   'share_links',
+  'prompt_definitions',
+  'workspace_prompts',
+  'prompt_audit_log',
 ]);
 
 /**
@@ -287,6 +290,43 @@ class Database {
             )
         `;
 
+    const promptDefinitionsTable = `
+            CREATE TABLE IF NOT EXISTS prompt_definitions (
+              id SERIAL PRIMARY KEY,
+              version INTEGER NOT NULL DEFAULT 1,
+              payload JSONB NOT NULL,
+              created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+            )
+        `;
+
+    const workspacePromptsTable = `
+            CREATE TABLE IF NOT EXISTS workspace_prompts (
+              id UUID PRIMARY KEY,
+              workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
+              name VARCHAR(120) NOT NULL,
+              content TEXT NOT NULL,
+              created_by UUID NOT NULL,
+              updated_by UUID,
+              created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+              UNIQUE(workspace_id, name)
+            )
+        `;
+
+    const promptAuditLogTable = `
+            CREATE TABLE IF NOT EXISTS prompt_audit_log (
+              id SERIAL PRIMARY KEY,
+              user_id UUID,
+              workspace_id UUID,
+              prompt_id UUID,
+              prompt_scope VARCHAR(20) NOT NULL,
+              action VARCHAR(50) NOT NULL,
+              details JSONB DEFAULT '{}'::JSONB,
+              created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+            )
+        `;
+
     const appUsersTable = `
             CREATE TABLE IF NOT EXISTS app_users (
               user_id UUID PRIMARY KEY,
@@ -353,8 +393,11 @@ class Database {
     await this.query(edrsrTable);
     await this.query(parsedCasesTable);
     await this.query(userPromptsTable);
+    await this.query(promptDefinitionsTable);
+    await this.query(promptAuditLogTable);
     await this.query(appUsersTable);
     await this.query(workspacesTable);
+    await this.query(workspacePromptsTable);
     await this.query(workspaceMembersTable);
     await this.query(mattersTable);
     await this.query(shareLinksTable);
@@ -489,6 +532,20 @@ class Database {
       'CREATE INDEX IF NOT EXISTS idx_user_prompts_user_id ON user_prompts(user_id)',
       'CREATE UNIQUE INDEX IF NOT EXISTS idx_user_prompts_user_name ON user_prompts(user_id, name)',
       'CREATE INDEX IF NOT EXISTS idx_user_prompts_updated_at ON user_prompts(updated_at DESC)',
+
+      // Prompt definitions indexes
+      'CREATE INDEX IF NOT EXISTS idx_prompt_definitions_updated_at ON prompt_definitions(updated_at DESC)',
+
+      // Workspace prompts indexes
+      'CREATE INDEX IF NOT EXISTS idx_workspace_prompts_workspace ON workspace_prompts(workspace_id)',
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_prompts_name ON workspace_prompts(workspace_id, name)',
+      'CREATE INDEX IF NOT EXISTS idx_workspace_prompts_updated_at ON workspace_prompts(updated_at DESC)',
+
+      // Prompt audit log indexes
+      'CREATE INDEX IF NOT EXISTS idx_prompt_audit_workspace ON prompt_audit_log(workspace_id)',
+      'CREATE INDEX IF NOT EXISTS idx_prompt_audit_user ON prompt_audit_log(user_id)',
+      'CREATE INDEX IF NOT EXISTS idx_prompt_audit_prompt ON prompt_audit_log(prompt_id)',
+      'CREATE INDEX IF NOT EXISTS idx_prompt_audit_created_at ON prompt_audit_log(created_at DESC)',
 
       // App users indexes (admin filtering/metrics)
       'CREATE INDEX IF NOT EXISTS idx_app_users_email_lower ON app_users(email_lower)',

@@ -2,6 +2,7 @@ import dbService from './dbService.js';
 import { logger } from '../utils.js';
 
 let cleanupTimer = null;
+let promptAuditLastRun = 0;
 
 export function startCacheCleanupService() {
   if (cleanupTimer) return; // already started
@@ -23,6 +24,24 @@ export function startCacheCleanupService() {
       logger.debug(`[MAINTENANCE] Cache cleanup run completed. Deleted: ${deleted}`);
     } catch (e) {
       logger.warn('[MAINTENANCE] Cache cleanup error:', e.message);
+    }
+
+    try {
+      const retentionDays = parseInt(process.env.PROMPT_AUDIT_RETENTION_DAYS || '90', 10);
+      const intervalMs = parseInt(
+        process.env.PROMPT_AUDIT_CLEANUP_INTERVAL_MS || String(6 * 60 * 60 * 1000),
+        10
+      );
+      const now = Date.now();
+      if (intervalMs > 0 && now - promptAuditLastRun >= intervalMs) {
+        const removed = await dbService.cleanupPromptAuditLogs(retentionDays);
+        promptAuditLastRun = now;
+        if (removed > 0) {
+          logger.debug(`[MAINTENANCE] Prompt audit cleanup deleted: ${removed}`);
+        }
+      }
+    } catch (e) {
+      logger.warn('[MAINTENANCE] Prompt audit cleanup error:', e.message);
     }
   };
 

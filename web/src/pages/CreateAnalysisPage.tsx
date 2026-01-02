@@ -47,6 +47,7 @@ export function CreateAnalysisPage() {
   const location = useLocation();
   const [rawInput, setRawInput] = useState('');
   const [prompts, setPrompts] = useState<Prompt[]>([]);
+  const [sharedPrompts, setSharedPrompts] = useState<Prompt[]>([]);
   const [promptId, setPromptId] = useState('');
   const [promptContent, setPromptContent] = useState('');
   const [matters, setMatters] = useState<MatterSummary[]>([]);
@@ -71,6 +72,19 @@ export function CreateAnalysisPage() {
   }, [accessToken]);
 
   useEffect(() => {
+    if (!accessToken || !activeWorkspaceId) {
+      setSharedPrompts([]);
+      return;
+    }
+    apiRequest<PromptResponse>('/prompts/shared', {
+      token: accessToken,
+      workspaceId: activeWorkspaceId,
+    })
+      .then((data) => setSharedPrompts(data.prompts || []))
+      .catch(() => setSharedPrompts([]));
+  }, [accessToken, activeWorkspaceId]);
+
+  useEffect(() => {
     if (!accessToken || !activeWorkspaceId) return;
     apiRequest<MattersResponse>('/matters', {
       token: accessToken,
@@ -80,14 +94,16 @@ export function CreateAnalysisPage() {
       .catch(() => setMatters([]));
   }, [accessToken, activeWorkspaceId]);
 
+  const allPrompts = useMemo(() => [...prompts, ...sharedPrompts], [prompts, sharedPrompts]);
+
   useEffect(() => {
     if (!promptId) {
       setPromptContent('');
       return;
     }
-    const found = prompts.find((prompt) => prompt.id === promptId);
+    const found = allPrompts.find((prompt) => prompt.id === promptId);
     setPromptContent(found?.content || '');
-  }, [promptId, prompts]);
+  }, [promptId, allPrompts]);
 
   const handleFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -111,7 +127,7 @@ export function CreateAnalysisPage() {
 
     setLoading(true);
     try {
-      const selectedPrompt = prompts.find((prompt) => prompt.id === promptId);
+      const selectedPrompt = allPrompts.find((prompt) => prompt.id === promptId);
       const payload = {
         links: detectedLinks.map((url) => ({ url })),
         prompt: promptContent.trim() || null,
@@ -193,11 +209,24 @@ export function CreateAnalysisPage() {
               <span>{t('create.promptTemplate')}</span>
               <select value={promptId} onChange={(event) => setPromptId(event.target.value)}>
                 <option value="">{t('create.promptDefault')}</option>
-                {prompts.map((prompt) => (
-                  <option key={prompt.id} value={prompt.id}>
-                    {prompt.name}
-                  </option>
-                ))}
+                {prompts.length > 0 ? (
+                  <optgroup label={t('create.promptMyGroup')}>
+                    {prompts.map((prompt) => (
+                      <option key={prompt.id} value={prompt.id}>
+                        {prompt.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : null}
+                {sharedPrompts.length > 0 ? (
+                  <optgroup label={t('create.promptSharedGroup')}>
+                    {sharedPrompts.map((prompt) => (
+                      <option key={prompt.id} value={prompt.id}>
+                        {prompt.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : null}
               </select>
             </label>
             <label className="field">

@@ -133,7 +133,8 @@ const STRINGS = {
         authRecoverSent: 'Письмо для восстановления пароля отправлено. Проверьте почту.',
         authRecoverFailed: 'Не удалось отправить письмо для восстановления.',
         authError: ({ message }) => `Ошибка: ${message}`,
-        authStatusAuthed: ({ email }) => `Вы вошли как ${email || 'пользователь'}`,
+        authStatusAuthed: ({ email, id }) =>
+          `Вы вошли как ${email || 'пользователь'}${id ? ` (ID: ${id})` : ''}`,
         authStatusGuest: 'Вы не вошли.',
         authBadgeAuthed: ({ email }) => `🔐 ${email || 'Вошли'}`,
         authBadgeGuest: 'Гость',
@@ -397,7 +398,8 @@ const STRINGS = {
         authRecoverSent: 'Лист для відновлення пароля надіслано. Перевірте пошту.',
         authRecoverFailed: 'Не вдалося надіслати лист для відновлення.',
         authError: ({ message }) => `Помилка: ${message}`,
-        authStatusAuthed: ({ email }) => `Ви увійшли як ${email || 'користувач'}`,
+        authStatusAuthed: ({ email, id }) =>
+          `Ви увійшли як ${email || 'користувач'}${id ? ` (ID: ${id})` : ''}`,
         authStatusGuest: 'Ви не увійшли.',
         authBadgeAuthed: ({ email }) => `🔐 ${email || 'Увійшли'}`,
         authBadgeGuest: 'Гість',

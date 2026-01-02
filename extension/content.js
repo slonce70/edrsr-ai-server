@@ -286,14 +286,28 @@ async function createModal() {
   });
 
   // --- Populate prompts and handle descriptions ---
-  // Use the shared module for consistency
-  Promise.all([import(chrome.runtime.getURL('prompt-definitions.js'))])
-    .then(([promptModule]) => {
-      const { getPromptGroupLabels, getPromptDescriptions } = promptModule;
-      const locale = getLocale();
-      const promptGroups = getPromptGroupLabels(locale);
-      const promptDescriptions = getPromptDescriptions(locale);
+  const loadPromptDefinitions = async () => {
+    const locale = getLocale();
+    try {
+      const res = await chrome.runtime.sendMessage({
+        type: 'PROMPT_DEFINITIONS_GET',
+        payload: { locale },
+      });
+      if (res?.definitions) {
+        return res.definitions;
+      }
+    } catch {
+      // ignore and fallback below
+    }
+    const promptModule = await import(chrome.runtime.getURL('prompt-definitions.js'));
+    return {
+      groups: promptModule.getPromptGroupLabels(locale),
+      descriptions: promptModule.getPromptDescriptions(locale),
+    };
+  };
 
+  loadPromptDefinitions()
+    .then(({ groups: promptGroups, descriptions: promptDescriptions }) => {
       for (const groupLabel in promptGroups) {
         const optgroup = document.createElement('optgroup');
         optgroup.label = groupLabel;
