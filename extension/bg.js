@@ -5,7 +5,11 @@
 import { API_BASE_URL, WS_URL } from './config.js';
 import { getAccessToken, isAuthenticated, forceRefresh } from './auth.js';
 import { initI18n, setLocale, t } from './i18n.js';
-import { PROMPT_GROUPS_I18N, PROMPT_DESCRIPTIONS_I18N } from './prompt-definitions.js';
+import {
+  PROMPT_GROUPS_I18N,
+  PROMPT_DESCRIPTIONS_I18N,
+  orderPromptGroups,
+} from './prompt-definitions.js';
 
 void initI18n();
 
@@ -118,7 +122,7 @@ function pickDefinitionsForLocale(definitions, locale) {
   if (!definitions) return null;
   if (definitions.groups && definitions.descriptions) {
     return {
-      groups: definitions.groups || {},
+      groups: orderPromptGroups(definitions.groups || {}),
       descriptions: definitions.descriptions || {},
     };
   }
@@ -126,14 +130,14 @@ function pickDefinitionsForLocale(definitions, locale) {
   const selected = locales[locale] || locales.uk || null;
   if (!selected) return null;
   return {
-    groups: selected.groups || {},
+    groups: orderPromptGroups(selected.groups || {}),
     descriptions: selected.descriptions || {},
   };
 }
 
 function getFallbackDefinitions(locale) {
   return {
-    groups: PROMPT_GROUPS_I18N[locale] || PROMPT_GROUPS_I18N.uk,
+    groups: orderPromptGroups(PROMPT_GROUPS_I18N[locale] || PROMPT_GROUPS_I18N.uk),
     descriptions: PROMPT_DESCRIPTIONS_I18N[locale] || PROMPT_DESCRIPTIONS_I18N.uk,
   };
 }

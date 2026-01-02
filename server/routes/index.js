@@ -21,6 +21,7 @@ import { answerChatQuestion, testGeminiConnection } from '../gemini.js';
 import jobQueue from '../queue.js';
 import { sendUpdateToJobOwner } from '../websocket.js';
 import { logger, isValidEDRSRUrl } from '../utils.js';
+import { orderPromptDefinitions } from '../prompt-definitions.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -952,7 +953,7 @@ export default function (clients) {
       res.set('ETag', etag);
       return res.json({
         success: true,
-        definitions: defs?.payload || null,
+        definitions: orderPromptDefinitions(defs?.payload || null),
         version: defs?.version ?? version,
         lastUpdated: defs?.updatedAt || lastUpdated,
       });

@@ -86,11 +86,11 @@ export const DEFAULT_PROMPT_DEFINITIONS = {
   defaultLocale: 'uk',
   locales: {
     uk: {
-      groups: PROMPT_GROUPS_I18N.uk,
+      groups: orderPromptGroups(PROMPT_GROUPS_I18N.uk),
       descriptions: PROMPT_DESCRIPTIONS_I18N.uk,
     },
     ru: {
-      groups: PROMPT_GROUPS_I18N.ru,
+      groups: orderPromptGroups(PROMPT_GROUPS_I18N.ru),
       descriptions: PROMPT_DESCRIPTIONS_I18N.ru,
     },
   },
@@ -99,8 +99,69 @@ export const DEFAULT_PROMPT_DEFINITIONS = {
 export const PROMPT_GROUPS = PROMPT_GROUPS_I18N.uk;
 export const PROMPT_DESCRIPTIONS = PROMPT_DESCRIPTIONS_I18N.uk;
 
+const isCustomGroup = (label, prompts) => {
+  if (prompts && Object.prototype.hasOwnProperty.call(prompts, 'custom')) {
+    return true;
+  }
+  const normalized = String(label || '').toLowerCase();
+  return (
+    normalized.includes('індивіду') ||
+    normalized.includes('индивиду') ||
+    normalized.includes('custom')
+  );
+};
+
+export function orderPromptGroups(groups) {
+  if (!groups || typeof groups !== 'object') return groups;
+  const entries = Object.entries(groups);
+  if (entries.length <= 1) return groups;
+
+  const normal = [];
+  const custom = [];
+  for (const [label, prompts] of entries) {
+    if (isCustomGroup(label, prompts)) {
+      custom.push([label, prompts]);
+    } else {
+      normal.push([label, prompts]);
+    }
+  }
+
+  return Object.fromEntries([...normal, ...custom]);
+}
+
+export function orderPromptDefinitions(definitions) {
+  if (!definitions || typeof definitions !== 'object') return definitions;
+
+  if (definitions.groups || definitions.descriptions) {
+    return {
+      ...definitions,
+      groups: orderPromptGroups(definitions.groups || {}),
+      descriptions: definitions.descriptions || {},
+    };
+  }
+
+  const locales = definitions.locales;
+  if (!locales || typeof locales !== 'object') return definitions;
+
+  const orderedLocales = {};
+  for (const [locale, value] of Object.entries(locales)) {
+    if (!value || typeof value !== 'object') {
+      orderedLocales[locale] = value;
+      continue;
+    }
+    orderedLocales[locale] = {
+      ...value,
+      groups: orderPromptGroups(value.groups || {}),
+      descriptions: value.descriptions || {},
+    };
+  }
+
+  return { ...definitions, locales: orderedLocales };
+}
+
 export function getPromptGroupLabels(locale = 'uk') {
-  return PROMPT_GROUPS_I18N[locale] || PROMPT_GROUPS_I18N.uk;
+  const groups = PROMPT_GROUPS_I18N[locale] || PROMPT_GROUPS_I18N.uk;
+  return orderPromptGroups(groups);
 }
 
 export function getPromptDescriptions(locale = 'uk') {
