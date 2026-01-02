@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { isDeepStrictEqual } from 'node:util';
 import database from '../database/connection.js';
 import { v4 as uuid } from 'uuid';
 import { logger } from '../utils.js';
@@ -222,22 +223,34 @@ class DatabaseService {
   }
 
   async ensurePromptDefinitionsSeeded() {
-    const exists = await database.get('SELECT id FROM prompt_definitions LIMIT 1');
-    if (exists) return false;
     const defaults = getDefaultPromptDefinitions();
-    const version = Number.isFinite(defaults?.version) ? defaults.version : 1;
+    const defaultVersion = Number.isFinite(defaults?.version) ? defaults.version : 1;
+
+    const latest = await database.get(
+      'SELECT id, version, payload FROM prompt_definitions ORDER BY updated_at DESC LIMIT 1'
+    );
+
+    if (latest?.payload && isDeepStrictEqual(latest.payload, defaults)) {
+      return false;
+    }
+
+    const currentVersion = Number.isFinite(latest?.version) ? latest.version : 0;
+    const nextVersion = latest ? Math.max(currentVersion + 1, defaultVersion) : defaultVersion;
+
     await database.run(
       `INSERT INTO prompt_definitions (version, payload, created_at, updated_at)
        VALUES ($1, $2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-      [version, defaults]
+      [nextVersion, defaults]
     );
     this.logPromptAudit({
       userId: null,
       workspaceId: null,
       promptId: null,
       scope: 'definitions',
-      action: 'seed',
-      details: { version },
+      action: latest ? 'update' : 'seed',
+      details: latest
+        ? { fromVersion: currentVersion, toVersion: nextVersion }
+        : { version: nextVersion },
     });
     return true;
   }
