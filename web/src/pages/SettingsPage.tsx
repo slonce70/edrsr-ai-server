@@ -5,11 +5,6 @@ import { useAuth } from '../state/AuthContext';
 import { useLocale } from '../state/LocaleContext';
 import { useWorkspace } from '../state/WorkspaceContext';
 
-type MeResponse = {
-  success: boolean;
-  user: { id: string; email: string };
-};
-
 type HealthResponse = {
   status: string;
 };
@@ -24,20 +19,12 @@ export function SettingsPage() {
   const { accessToken, user } = useAuth();
   const { t } = useLocale();
   const { workspaces, activeWorkspaceId, setActiveWorkspaceId } = useWorkspace();
-  const [serverUser, setServerUser] = useState<MeResponse['user'] | null>(null);
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [memberEmail, setMemberEmail] = useState('');
   const [memberRole, setMemberRole] = useState('member');
   const [membersLoading, setMembersLoading] = useState(false);
   const [membersError, setMembersError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!accessToken) return;
-    apiRequest<MeResponse>('/me', { token: accessToken })
-      .then((data) => setServerUser(data.user))
-      .catch(() => setServerUser(null));
-  }, [accessToken]);
 
   useEffect(() => {
     apiRequest<HealthResponse>('/health/light')
@@ -139,10 +126,6 @@ export function SettingsPage() {
             <div>
               <span>{t('settings.userId')}</span>
               <strong className="mono">{user?.id || '—'}</strong>
-            </div>
-            <div>
-              <span>{t('settings.serverProfile')}</span>
-              <strong>{serverUser?.email || t('status.unknown')}</strong>
             </div>
           </div>
         </div>

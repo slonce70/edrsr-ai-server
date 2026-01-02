@@ -379,6 +379,7 @@ class Database {
               id UUID PRIMARY KEY,
               job_id VARCHAR(36) REFERENCES jobs(id) ON DELETE CASCADE,
               token_hash TEXT NOT NULL,
+              share_url TEXT,
               expires_at TIMESTAMPTZ NOT NULL,
               created_by UUID,
               created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -412,6 +413,7 @@ class Database {
     await this.runMigration_addQueueColumns();
     await this.runMigration_addWorkspaceColumns();
     await this.runMigration_addEvidenceColumns();
+    await this.runMigration_addShareLinkUrl();
 
     // Create performance indexes
     await this.createIndexes();
@@ -784,6 +786,27 @@ class Database {
 
     await addColumnIfMissing('job_links', 'evidence_snippet', 'TEXT NULL');
     await addColumnIfMissing('job_links', 'evidence_extracted_at', 'TIMESTAMPTZ NULL');
+  }
+
+  async runMigration_addShareLinkUrl() {
+    const addColumnIfMissing = async (table, column, typeSql) => {
+      try {
+        const safeTable = validateSqlIdentifier(table, 'table');
+        const safeColumn = validateSqlIdentifier(column, 'column');
+        const exists = await this.get(
+          `SELECT column_name FROM information_schema.columns WHERE table_name=$1 AND column_name=$2`,
+          [safeTable, safeColumn]
+        );
+        if (!exists) {
+          await this.query(`ALTER TABLE "${safeTable}" ADD COLUMN "${safeColumn}" ${typeSql}`);
+          console.log(`✅ Added column ${safeColumn} to ${safeTable}`);
+        }
+      } catch (e) {
+        console.error(`Migration error (addShareLinkUrl ${table}.${column}):`, e.message);
+      }
+    };
+
+    await addColumnIfMissing('share_links', 'share_url', 'TEXT NULL');
   }
 }
 

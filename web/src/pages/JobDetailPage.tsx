@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { apiRequest } from '../lib/api';
 import { formatDate, formatDateShort, formatDurationSeconds, formatStatus } from '../lib/format';
 import { renderMarkdown } from '../lib/markdown';
@@ -65,6 +65,7 @@ export function JobDetailPage() {
   const { subscribe, onJobUpdate } = useWebSocket();
   const { t, dateLocale } = useLocale();
   const { activeWorkspaceId } = useWorkspace();
+  const navigate = useNavigate();
   const [job, setJob] = useState<JobDetail | null>(null);
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [links, setLinks] = useState<LinkInfo[]>([]);
@@ -78,6 +79,7 @@ export function JobDetailPage() {
   const [shareDays, setShareDays] = useState(14);
   const [shareLoading, setShareLoading] = useState(false);
   const [shareNotice, setShareNotice] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const fetchAnalysis = useCallback(async () => {
     if (!accessToken || !jobId) return;
@@ -294,6 +296,25 @@ export function JobDetailPage() {
   }, [job, t]);
 
   const evidenceLinks = useMemo(() => links.filter((link) => link.evidence_snippet), [links]);
+
+  const handleDeleteJob = async () => {
+    if (!accessToken || !jobId) return;
+    if (!window.confirm(t('job.deleteConfirm'))) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      await apiRequest(`/jobs/${jobId}`, {
+        token: accessToken,
+        method: 'DELETE',
+        workspaceId: activeWorkspaceId || undefined,
+      });
+      navigate('/analyses');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('errors.generic'));
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   if (loading && !job) {
     return <div className="card">{t('common.loading')}</div>;
@@ -525,6 +546,18 @@ export function JobDetailPage() {
               {sending ? t('common.loading') : t('job.chatSend')}
             </button>
           </div>
+        </div>
+      </div>
+
+      <div className="card card--danger">
+        <div className="card__header">
+          <div>
+            <div className="card__title">{t('job.deleteTitle')}</div>
+            <div className="card__meta">{t('job.deleteMeta')}</div>
+          </div>
+          <button className="btn btn-danger" onClick={handleDeleteJob} disabled={deleting}>
+            {deleting ? t('common.loading') : t('job.delete')}
+          </button>
         </div>
       </div>
 

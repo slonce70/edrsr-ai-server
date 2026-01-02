@@ -24,6 +24,25 @@ type MatterJob = {
   updated_at: string;
 };
 
+type AvailableJob = {
+  id: string;
+  title?: string | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  matter_id?: string | null;
+};
+
+type JobsResponse = {
+  success: boolean;
+  jobs: AvailableJob[];
+};
+
+type MattersListResponse = {
+  success: boolean;
+  matters: { id: string; title: string }[];
+};
+
 type MatterResponse = {
   success: boolean;
   matter: Matter;
@@ -40,6 +59,14 @@ export function MatterDetailPage() {
   const [jobs, setJobs] = useState<MatterJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showAttach, setShowAttach] = useState(false);
+  const [attachSearchInput, setAttachSearchInput] = useState('');
+  const [attachSearch, setAttachSearch] = useState('');
+  const [attachStatus, setAttachStatus] = useState('completed');
+  const [availableJobs, setAvailableJobs] = useState<AvailableJob[]>([]);
+  const [attachLoading, setAttachLoading] = useState(false);
+  const [attachError, setAttachError] = useState<string | null>(null);
+  const [mattersIndex, setMattersIndex] = useState<Record<string, string>>({});
 
   const loadMatter = useCallback(async () => {
     if (!accessToken || !activeWorkspaceId || !matterId) return;
@@ -59,6 +86,47 @@ export function MatterDetailPage() {
     }
   }, [accessToken, activeWorkspaceId, matterId, t]);
 
+  const loadMattersIndex = useCallback(async () => {
+    if (!accessToken || !activeWorkspaceId) return;
+    try {
+      const data = await apiRequest<MattersListResponse>('/matters', {
+        token: accessToken,
+        workspaceId: activeWorkspaceId,
+      });
+      const nextIndex: Record<string, string> = {};
+      (data.matters || []).forEach((item) => {
+        nextIndex[item.id] = item.title;
+      });
+      setMattersIndex(nextIndex);
+    } catch {
+      setMattersIndex({});
+    }
+  }, [accessToken, activeWorkspaceId]);
+
+  const loadAvailableJobs = useCallback(async () => {
+    if (!accessToken || !activeWorkspaceId) return;
+    setAttachLoading(true);
+    setAttachError(null);
+    try {
+      const data = await apiRequest<JobsResponse>('/jobs', {
+        token: accessToken,
+        workspaceId: activeWorkspaceId,
+        query: {
+          limit: 50,
+          page: 1,
+          status: attachStatus || undefined,
+          search: attachSearch || undefined,
+        },
+      });
+      setAvailableJobs(data.jobs || []);
+    } catch (err) {
+      setAttachError(err instanceof Error ? err.message : t('errors.generic'));
+      setAvailableJobs([]);
+    } finally {
+      setAttachLoading(false);
+    }
+  }, [accessToken, activeWorkspaceId, attachSearch, attachStatus, t]);
+
   useEffect(() => {
     if (!accessToken || !activeWorkspaceId || !matterId) {
       setLoading(false);
@@ -66,6 +134,26 @@ export function MatterDetailPage() {
     }
     loadMatter();
   }, [accessToken, activeWorkspaceId, matterId, loadMatter]);
+
+  useEffect(() => {
+    if (!showAttach) return;
+    loadMattersIndex();
+  }, [loadMattersIndex, showAttach]);
+
+  useEffect(() => {
+    if (!showAttach) return;
+    loadAvailableJobs();
+  }, [attachSearch, attachStatus, loadAvailableJobs, showAttach]);
+
+  const handleAttachSearch = () => {
+    setAttachSearch(attachSearchInput.trim());
+  };
+
+  const resetAttachFilters = () => {
+    setAttachSearchInput('');
+    setAttachSearch('');
+    setAttachStatus('completed');
+  };
 
   const handleRemoveJob = async (jobId: string) => {
     if (!accessToken || !activeWorkspaceId || !matterId) return;
@@ -76,8 +164,31 @@ export function MatterDetailPage() {
         workspaceId: activeWorkspaceId,
       });
       await loadMatter();
+      if (showAttach) {
+        await loadAvailableJobs();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : t('errors.generic'));
+    }
+  };
+
+  const handleAttachJob = async (job: AvailableJob) => {
+    if (!accessToken || !activeWorkspaceId || !matterId) return;
+    if (job.matter_id && job.matter_id !== matterId) {
+      const otherName = mattersIndex[job.matter_id] || job.matter_id;
+      if (!window.confirm(t('matters.moveConfirm', { matter: otherName }))) return;
+    }
+    try {
+      await apiRequest(`/matters/${matterId}/jobs`, {
+        token: accessToken,
+        method: 'POST',
+        workspaceId: activeWorkspaceId,
+        body: { jobId: job.id },
+      });
+      await loadMatter();
+      await loadAvailableJobs();
+    } catch (err) {
+      setAttachError(err instanceof Error ? err.message : t('errors.generic'));
     }
   };
 
@@ -95,9 +206,14 @@ export function MatterDetailPage() {
           <h1>{matter.title}</h1>
           <p>{matter.client_name ? `${t('common.client')}: ${matter.client_name}` : ''}</p>
         </div>
-        <Link className="btn btn-primary" to={`/create?matterId=${matter.id}`}>
-          {t('matters.addJob')}
-        </Link>
+        <div className="page-header__actions">
+          <button className="btn btn-ghost" onClick={() => setShowAttach((prev) => !prev)}>
+            {showAttach ? t('common.close') : t('matters.addExisting')}
+          </button>
+          <Link className="btn btn-primary" to={`/create?matterId=${matter.id}`}>
+            {t('matters.addJob')}
+          </Link>
+        </div>
       </div>
 
       <div className="card">
@@ -119,6 +235,120 @@ export function MatterDetailPage() {
         </div>
       </div>
 
+      {showAttach ? (
+        <div className="card">
+          <div className="card__header">
+            <div>
+              <div className="card__title">{t('matters.attachExistingTitle')}</div>
+              <div className="card__meta">{t('matters.attachExistingMeta')}</div>
+            </div>
+          </div>
+          <div className="card__body stack">
+            <div className="filters">
+              <div className="field">
+                <span>{t('common.search')}</span>
+                <div className="field__row">
+                  <input
+                    value={attachSearchInput}
+                    onChange={(event) => setAttachSearchInput(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') handleAttachSearch();
+                    }}
+                    placeholder={t('matters.searchPlaceholder')}
+                  />
+                  <button className="btn btn-ghost" onClick={handleAttachSearch}>
+                    {t('common.search')}
+                  </button>
+                </div>
+              </div>
+              <label className="field">
+                <span>{t('common.status')}</span>
+                <select
+                  value={attachStatus}
+                  onChange={(event) => setAttachStatus(event.target.value)}
+                >
+                  <option value="">{t('common.all')}</option>
+                  <option value="completed">{t('status.completed')}</option>
+                  <option value="queued">{t('status.queued')}</option>
+                  <option value="downloading">{t('status.downloading')}</option>
+                  <option value="analyzing">{t('status.analyzing')}</option>
+                  <option value="failed">{t('status.failed')}</option>
+                  <option value="cancelled">{t('status.cancelled')}</option>
+                  <option value="pending">{t('status.pending')}</option>
+                </select>
+              </label>
+              <button className="btn btn-ghost" onClick={resetAttachFilters}>
+                {t('common.reset')}
+              </button>
+            </div>
+
+            {attachError ? <div className="form__error">{attachError}</div> : null}
+            {attachLoading ? (
+              <div className="muted">{t('common.loading')}</div>
+            ) : availableJobs.length === 0 ? (
+              <EmptyState
+                title={t('matters.attachEmptyTitle')}
+                message={t('matters.attachEmptyMessage')}
+              />
+            ) : (
+              <div className="list">
+                {availableJobs.map((job) => {
+                  const isCurrentMatter = job.matter_id === matterId;
+                  const isOtherMatter = !!job.matter_id && job.matter_id !== matterId;
+                  const otherMatterName = isOtherMatter
+                    ? mattersIndex[job.matter_id || ''] || job.matter_id
+                    : null;
+                  const locationLabel = isCurrentMatter
+                    ? t('matters.inThisMatter')
+                    : isOtherMatter
+                      ? t('matters.inOtherMatter', { matter: otherMatterName || '' })
+                      : t('matters.unassigned');
+                  const actionLabel = isCurrentMatter
+                    ? t('matters.alreadyAdded')
+                    : isOtherMatter
+                      ? t('matters.moveToMatter')
+                      : t('matters.addExistingAction');
+
+                  return (
+                    <div
+                      key={job.id}
+                      className={`list__row${isCurrentMatter ? ' list__row--active' : ''}`}
+                    >
+                      <div>
+                        <Link to={`/analyses/${job.id}`} className="link">
+                          {job.title || t('analyses.untitled')}
+                        </Link>
+                        <div className="meta">
+                          {formatDateShort(job.created_at, dateLocale)} •{' '}
+                          {formatStatus(job.status, {
+                            queued: t('status.queued'),
+                            downloading: t('status.downloading'),
+                            analyzing: t('status.analyzing'),
+                            completed: t('status.completed'),
+                            failed: t('status.failed'),
+                            cancelled: t('status.cancelled'),
+                            pending: t('status.pending'),
+                            unknown: t('status.unknown'),
+                          })}
+                        </div>
+                        <div className="meta">{locationLabel}</div>
+                      </div>
+                      <button
+                        className="btn btn-ghost"
+                        onClick={() => handleAttachJob(job)}
+                        disabled={isCurrentMatter}
+                      >
+                        {actionLabel}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
+
       <div className="card">
         <div className="card__header">
           <div>
@@ -135,7 +365,7 @@ export function MatterDetailPage() {
                 <div key={job.id} className="list__row">
                   <div>
                     <Link to={`/analyses/${job.id}`} className="link">
-                      {job.title}
+                      {job.title || t('analyses.untitled')}
                     </Link>
                     <div className="meta">
                       {formatDateShort(job.created_at, dateLocale)} •{' '}

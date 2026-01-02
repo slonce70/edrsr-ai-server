@@ -13,6 +13,7 @@ import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { MattersPage } from './pages/MattersPage';
 import { MatterDetailPage } from './pages/MatterDetailPage';
 import { SharePage } from './pages/SharePage';
+import { ShareLinksPage } from './pages/ShareLinksPage';
 
 function ProtectedLayout() {
   const { user, isLoading } = useAuth();
@@ -46,6 +47,7 @@ export default function App() {
         <Route path="/matters" element={<MattersPage />} />
         <Route path="/matters/:matterId" element={<MatterDetailPage />} />
         <Route path="/prompts" element={<PromptsPage />} />
+        <Route path="/share-links" element={<ShareLinksPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>
       <Route path="*" element={<NotFoundPage />} />
