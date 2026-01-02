@@ -1,6 +1,6 @@
 import { WebSocketServer } from 'ws';
 import { v4 as uuid } from 'uuid';
-import { logger } from './utils.js';
+import { logger, getClientIp } from './utils.js';
 import dbService from './services/dbService.js';
 import { createClient } from '@supabase/supabase-js';
 
@@ -15,6 +15,75 @@ function getSupabase() {
 }
 
 // --- WebSocket Security Configuration ---
+
+const WS_AUTH_TIMEOUT_MS = Number.parseInt(process.env.WS_AUTH_TIMEOUT_MS || '10000', 10);
+// Disabled by default to avoid breaking existing clients that keep a WS open before auth.
+// Enable explicitly in prod if you want to aggressively drop unauthenticated connections.
+const ENABLE_WS_AUTH_TIMEOUT = process.env.ENABLE_WS_AUTH_TIMEOUT === 'true';
+const ENABLE_WS_CONN_RATE_LIMIT = process.env.ENABLE_WS_CONN_RATE_LIMIT !== 'false';
+const WS_CONN_RATE_WINDOW_MS = Number.parseInt(
+  process.env.WS_CONN_RATE_WINDOW_MS || String(60 * 1000),
+  10
+);
+const WS_CONN_RATE_LIMIT = Number.parseInt(process.env.WS_CONN_RATE_LIMIT || '60', 10);
+
+const wsConnAttempts = new Map(); // ip -> { count: number, windowStart: number }
+
+function isLikelyProxyIp(ip) {
+  if (!ip) return true;
+  if (ip === '::1') return true;
+  if (ip.startsWith('127.')) return true;
+  return false;
+}
+
+function allowWsConnectionByRateLimit(req) {
+  if (!ENABLE_WS_CONN_RATE_LIMIT) return true;
+  const ip = getClientIp(req);
+  if (!ip || isLikelyProxyIp(ip)) return true;
+
+  const now = Date.now();
+  const existing = wsConnAttempts.get(ip);
+  if (!existing || now - existing.windowStart > WS_CONN_RATE_WINDOW_MS) {
+    wsConnAttempts.set(ip, { count: 1, windowStart: now });
+    return true;
+  }
+  existing.count += 1;
+  if (existing.count > WS_CONN_RATE_LIMIT) {
+    logger.warn(
+      `[WS-SECURITY] Rate limit exceeded for IP ${ip}: ${existing.count}/${WS_CONN_RATE_LIMIT} per ${Math.round(WS_CONN_RATE_WINDOW_MS / 1000)}s`
+    );
+    return false;
+  }
+  return true;
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, data] of wsConnAttempts.entries()) {
+    if (now - data.windowStart > WS_CONN_RATE_WINDOW_MS) {
+      wsConnAttempts.delete(ip);
+    }
+  }
+}, WS_CONN_RATE_WINDOW_MS).unref?.();
+
+function getAllowedChromeExtensionIds() {
+  const raw = process.env.CHROME_EXTENSION_IDS || process.env.CHROME_EXTENSION_ID || '';
+  return raw
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean);
+}
+
+function isAllowedChromeExtensionOrigin(origin) {
+  if (typeof origin !== 'string') return false;
+  if (!origin.startsWith('chrome-extension://')) return false;
+
+  // If no IDs configured, keep backward compatibility (allow any extension origin)
+  const allowedIds = getAllowedChromeExtensionIds();
+  if (allowedIds.length === 0) return true;
+
+  return allowedIds.some((id) => origin === `chrome-extension://${id}`);
+}
 
 /**
  * Get allowed WebSocket origins.
@@ -55,13 +124,18 @@ const getAllowedWsOrigins = () => {
 const verifyClient = (info) => {
   const origin = info.origin || info.req?.headers?.origin;
 
+  // Basic connection rate limiting (best-effort; depends on X-Forwarded-For)
+  if (!allowWsConnectionByRateLimit(info.req)) {
+    return false;
+  }
+
   // Allow connections without origin (server-to-server, some clients)
   if (!origin) {
     return true;
   }
 
   // Allow chrome extensions
-  if (origin.startsWith('chrome-extension://')) {
+  if (isAllowedChromeExtensionOrigin(origin)) {
     return true;
   }
 
@@ -101,6 +175,24 @@ function initWebSocket(server) {
     logger.debug(`[WS] Client ${clientId} connected`);
     ws.send(JSON.stringify({ type: 'clientId', payload: clientId }));
 
+    // Close unauthenticated connections quickly to reduce abuse surface
+    ws.authTimeout = null;
+    if (ENABLE_WS_AUTH_TIMEOUT && WS_AUTH_TIMEOUT_MS > 0) {
+      ws.authTimeout = setTimeout(() => {
+        const clientData = clients.get(clientId);
+        if (clientData && !clientData.userId) {
+          logger.warn(
+            `[WS-SECURITY] Closing unauthenticated client ${clientId} after ${WS_AUTH_TIMEOUT_MS}ms`
+          );
+          try {
+            ws.close(4001, 'auth_required');
+          } catch {
+            ws.terminate();
+          }
+        }
+      }, WS_AUTH_TIMEOUT_MS);
+    }
+
     ws.on('pong', () => {
       ws.isAlive = true;
     });
@@ -124,6 +216,10 @@ function initWebSocket(server) {
           if (!error && userData?.user) {
             const clientData = clients.get(clientId);
             if (clientData) clientData.userId = userData.user.id;
+            if (ws.authTimeout) {
+              clearTimeout(ws.authTimeout);
+              ws.authTimeout = null;
+            }
             logger.debug(`[WS] Client ${clientId} authenticated as ${userData.user.id}`);
           }
         } else if (data.type === 'subscribe') {
@@ -152,6 +248,10 @@ function initWebSocket(server) {
     });
 
     ws.on('close', () => {
+      if (ws.authTimeout) {
+        clearTimeout(ws.authTimeout);
+        ws.authTimeout = null;
+      }
       clients.delete(clientId);
       logger.debug(`[WS] Client ${clientId} disconnected`);
     });

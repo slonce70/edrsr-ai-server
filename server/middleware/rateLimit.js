@@ -18,6 +18,16 @@ export const limitRetry = rateLimit({
   keyGenerator: (req) => req.user?.id || req.ip,
 });
 
+// Public endpoint limiter (prompt definitions are public and cached, but still worth protecting)
+export const limitPromptDefinitions = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  limit: 60, // per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Занадто багато запитів. Повторіть спробу пізніше.' },
+  keyGenerator: (req) => req.ip,
+});
+
 // Lightweight limiter for public health check
 export const limitHealthLight = rateLimit({
   windowMs: 60 * 1000, // 1 minute

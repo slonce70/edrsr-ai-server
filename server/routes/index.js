@@ -8,7 +8,12 @@ import { createClient } from '@supabase/supabase-js';
 import dbService from '../services/dbService.js';
 import { attachUser, requireAuthExcept } from '../middleware/auth.js';
 import { requireAdmin } from '../middleware/adminAuth.js';
-import { limitCollect, limitRetry, limitHealthLight } from '../middleware/rateLimit.js';
+import {
+  limitCollect,
+  limitRetry,
+  limitHealthLight,
+  limitPromptDefinitions,
+} from '../middleware/rateLimit.js';
 import {
   validateCollectRequest,
   validateChatMessage,
@@ -22,6 +27,7 @@ import jobQueue from '../queue.js';
 import { sendUpdateToJobOwner } from '../websocket.js';
 import { logger, isValidEDRSRUrl } from '../utils.js';
 import { orderPromptDefinitions } from '../prompt-definitions.js';
+import { APP_VERSION } from '../version.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -939,7 +945,7 @@ export default function (clients) {
   });
 
   // --- Prompt Definitions (public) ---
-  router.get('/prompts/definitions', async (req, res, next) => {
+  router.get('/prompts/definitions', limitPromptDefinitions, async (req, res, next) => {
     try {
       const meta = await dbService.getPromptDefinitionsMeta();
       const { etag, lastUpdated, version } = formatPromptDefinitionsMeta(meta);
@@ -1622,7 +1628,7 @@ export default function (clients) {
         status: 'healthy',
         services: { gemini: geminiStatus ? 'online' : 'offline' },
         activeJobs,
-        version: '1.1.0',
+        version: APP_VERSION,
         cachedAt: new Date().toISOString(),
         ttlMs: HEALTH_TTL,
       };
