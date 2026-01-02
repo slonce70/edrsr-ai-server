@@ -176,6 +176,17 @@ function formatPromptsMeta(meta) {
   return { count, lastUpdated, etag };
 }
 
+async function resolveWorkspaceFromQuery(req, res) {
+  const workspaceId = typeof req.query.workspaceId === 'string' ? req.query.workspaceId : null;
+  if (!workspaceId) return null;
+  const role = await dbService.getWorkspaceRole(req.user?.id, workspaceId);
+  if (!role) {
+    res.status(403).json({ error: 'Недостаточно прав доступа' });
+    return null;
+  }
+  return { id: workspaceId, role };
+}
+
 async function refreshHeuristicTitle(jobId) {
   try {
     const userId = await dbService.getJobOwnerId(jobId);
@@ -879,7 +890,25 @@ export default function (clients) {
         logger.warn(`[SEC] ClientId ${clientId} does not match req.user for job ${jobId}`);
       }
 
-      await dbService.createJob(jobData, req.user?.id || null);
+      let workspace = null;
+      const requestedWorkspaceId =
+        typeof req.body.workspaceId === 'string' ? req.body.workspaceId : null;
+      if (req.user?.id) {
+        if (requestedWorkspaceId) {
+          const role = await dbService.getWorkspaceRole(req.user.id, requestedWorkspaceId);
+          if (!role) return res.status(403).json({ error: 'Недостаточно прав доступа' });
+          workspace = { id: requestedWorkspaceId, role };
+        } else {
+          workspace = await dbService.ensureWorkspaceForUser(req.user.id, req.user.email);
+        }
+      }
+      const matterId = typeof req.body.matterId === 'string' ? req.body.matterId : null;
+      if (matterId && workspace) {
+        const matter = await dbService.getMatter(matterId, workspace.id);
+        if (!matter) return res.status(404).json({ error: 'Matter not found' });
+      }
+
+      await dbService.createJob(jobData, req.user?.id || null, workspace?.id || null, matterId);
       const initialJobState = await dbService.getJob(jobId, req.user?.id || null);
 
       await dbService.updateJobStatus(jobId, 'queued', { progress: 0 });
@@ -1044,7 +1073,12 @@ export default function (clients) {
       }
 
       // 4. Save the new job to the database
-      await dbService.createJob(jobData, req.user?.id || null);
+      await dbService.createJob(
+        jobData,
+        req.user?.id || null,
+        originalJob.workspace_id || null,
+        originalJob.matter_id || null
+      );
       const newJobState = await dbService.getJob(newJobId, req.user?.id || null);
 
       // 5. Send initial "queued" status via WebSocket
@@ -1082,7 +1116,20 @@ export default function (clients) {
         return res.status(400).json({ error: 'Неверный или отсутствующий заголовок' });
       }
 
-      const updatedJob = await dbService.updateJobTitle(id, title, req.user?.id || null);
+      const workspace = await resolveWorkspaceFromQuery(req, res);
+      if (req.query.workspaceId && !workspace) return;
+
+      let updatedJob = null;
+      if (workspace) {
+        const job = await dbService.getJobLightForWorkspace(id, workspace.id);
+        if (!job) return res.status(404).json({ error: 'Задание не найдено' });
+        if (workspace.role === 'member' && job.user_id && job.user_id !== req.user.id) {
+          return res.status(403).json({ error: 'Недостаточно прав доступа' });
+        }
+        updatedJob = await dbService.updateJobTitleForWorkspace(id, title, workspace.id);
+      } else {
+        updatedJob = await dbService.updateJobTitle(id, title, req.user?.id || null);
+      }
 
       if (!updatedJob) {
         return res.status(404).json({ error: 'Задание не найдено' });
@@ -1104,13 +1151,17 @@ export default function (clients) {
   router.get('/jobs', async (req, res, next) => {
     try {
       const { limit, page, status = '', search = '' } = req.query;
+      const workspace = await resolveWorkspaceFromQuery(req, res);
+      if (req.query.workspaceId && !workspace) return;
       const maxLimit = parseInt(process.env.JOBS_MAX_LIMIT || '100', 10);
       const numericLimit = Math.min(parseInt(limit, 10) || maxLimit, maxLimit);
       const finalLimit = limit === 'all' ? maxLimit : numericLimit;
 
       const wantPaged = typeof page !== 'undefined' || status || search;
       if (limit === 'all' && !wantPaged) {
-        const jobs = await dbService.getRecentJobs('all', req.user?.id || null);
+        const jobs = workspace
+          ? await dbService.getRecentJobsForWorkspace(workspace.id, 'all')
+          : await dbService.getRecentJobs('all', req.user?.id || null);
         return res.json({ success: true, jobs });
       }
 
@@ -1120,7 +1171,8 @@ export default function (clients) {
         limit: finalLimit,
         status: typeof status === 'string' ? status : '',
         search: typeof search === 'string' ? search : '',
-        userId: req.user?.id || null,
+        userId: workspace ? null : req.user?.id || null,
+        workspaceId: workspace?.id || null,
       });
 
       return res.json({
@@ -1148,7 +1200,19 @@ export default function (clients) {
         forceTerminateWorker(id, 'Задача удалена пользователем');
       }
 
-      await dbService.deleteJob(id, req.user?.id || null);
+      const workspace = await resolveWorkspaceFromQuery(req, res);
+      if (req.query.workspaceId && !workspace) return;
+
+      if (workspace) {
+        const job = await dbService.getJobLightForWorkspace(id, workspace.id);
+        if (!job) return res.status(404).json({ error: 'Задание не найдено' });
+        if (workspace.role === 'member' && job.user_id && job.user_id !== req.user.id) {
+          return res.status(403).json({ error: 'Недостаточно прав доступа' });
+        }
+        await dbService.deleteJobForWorkspace(id, workspace.id);
+      } else {
+        await dbService.deleteJob(id, req.user?.id || null);
+      }
       // Clean up chat session context and metadata for this job
       if (chatSessions.has(id)) chatSessions.delete(id);
       if (chatMeta.has(id)) chatMeta.delete(id);
@@ -1171,15 +1235,24 @@ export default function (clients) {
       const wantAnalysis = include.includes('analysis');
       const wantLinks = include.includes('links');
 
-      const userId = req.user?.id || null;
-      const base = await dbService.getJobLight(req.params.id, userId);
+      const workspace = await resolveWorkspaceFromQuery(req, res);
+      if (req.query.workspaceId && !workspace) return;
+
+      const userId = workspace ? null : req.user?.id || null;
+      const base = workspace
+        ? await dbService.getJobLightForWorkspace(req.params.id, workspace.id)
+        : await dbService.getJobLight(req.params.id, userId);
       if (!base) return res.status(404).json({ error: 'Задание не найдено' });
 
       if (wantAnalysis) {
-        base.analysis = await dbService.getJobResult(req.params.id, userId);
+        base.analysis = workspace
+          ? await dbService.getJobResultForWorkspace(req.params.id, workspace.id)
+          : await dbService.getJobResult(req.params.id, userId);
       }
       if (wantLinks) {
-        base.links = await dbService.getJobLinksLight(req.params.id, userId);
+        base.links = workspace
+          ? await dbService.getJobLinksLightForWorkspace(req.params.id, workspace.id)
+          : await dbService.getJobLinksLight(req.params.id, userId);
       }
 
       res.json(base);
@@ -1192,7 +1265,11 @@ export default function (clients) {
   router.get('/jobs/:jobId/analysis', async (req, res, next) => {
     try {
       const { jobId } = req.params;
-      const analysis = await dbService.getJobResult(jobId, req.user?.id || null);
+      const workspace = await resolveWorkspaceFromQuery(req, res);
+      if (req.query.workspaceId && !workspace) return;
+      const analysis = workspace
+        ? await dbService.getJobResultForWorkspace(jobId, workspace.id)
+        : await dbService.getJobResult(jobId, req.user?.id || null);
       if (!analysis) return res.status(404).json({ error: 'Анализ для этого задания не найден.' });
       res.json({ success: true, jobId, analysis });
     } catch (error) {
@@ -1204,7 +1281,11 @@ export default function (clients) {
   router.get('/jobs/:jobId/links-content', async (req, res, next) => {
     try {
       const { jobId } = req.params;
-      const links = await dbService.getLinksContent(jobId, req.user?.id || null);
+      const workspace = await resolveWorkspaceFromQuery(req, res);
+      if (req.query.workspaceId && !workspace) return;
+      const links = workspace
+        ? await dbService.getLinksContentForWorkspace(jobId, workspace.id)
+        : await dbService.getLinksContent(jobId, req.user?.id || null);
       res.json({ success: true, jobId, links });
     } catch (error) {
       next(error);
@@ -1419,12 +1500,18 @@ export default function (clients) {
       if (!message) return res.status(400).json({ error: 'Сообщение не может быть пустым' });
 
       // 1. Получаем необходимый контекст (только при первом сообщении)
-      const analysis = await dbService.getJobResult(jobId, req.user?.id || null);
+      const workspace = await resolveWorkspaceFromQuery(req, res);
+      if (req.query.workspaceId && !workspace) return;
+      const analysis = workspace
+        ? await dbService.getJobResultForWorkspace(jobId, workspace.id)
+        : await dbService.getJobResult(jobId, req.user?.id || null);
       if (!analysis) return res.status(404).json({ error: 'Анализ для этого задания не найден.' });
 
       // 2. Обновляем историю в БД
       await dbService.addChatMessage(jobId, 'user', message, req.user?.id || null);
-      const history = await dbService.getChatHistory(jobId, req.user?.id || null);
+      const history = workspace
+        ? await dbService.getChatHistoryForWorkspace(jobId, workspace.id)
+        : await dbService.getChatHistory(jobId, req.user?.id || null);
 
       // 3. Получаем ответ от AI с использованием сессии
       const hadSessionBefore = chatSessions.has(jobId);
@@ -1442,7 +1529,9 @@ export default function (clients) {
       await dbService.addChatMessage(jobId, 'ai', answer, req.user?.id || null);
 
       // 5. Отправляем обновленную историю клиенту
-      const newHistory = await dbService.getChatHistory(jobId, req.user?.id || null);
+      const newHistory = workspace
+        ? await dbService.getChatHistoryForWorkspace(jobId, workspace.id)
+        : await dbService.getChatHistory(jobId, req.user?.id || null);
       sendUpdateToJobOwner(jobId, { type: 'CHAT_UPDATE', payload: newHistory });
 
       // 6. Отвечаем на HTTP запрос
@@ -1454,7 +1543,12 @@ export default function (clients) {
 
   router.get('/chat/:jobId', async (req, res, next) => {
     try {
-      res.json(await dbService.getChatHistory(req.params.jobId, req.user?.id || null));
+      const workspace = await resolveWorkspaceFromQuery(req, res);
+      if (req.query.workspaceId && !workspace) return;
+      const history = workspace
+        ? await dbService.getChatHistoryForWorkspace(req.params.jobId, workspace.id)
+        : await dbService.getChatHistory(req.params.jobId, req.user?.id || null);
+      res.json(history);
     } catch (error) {
       next(error);
     }

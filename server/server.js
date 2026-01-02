@@ -9,6 +9,7 @@ import 'dotenv/config';
 import initRoutes from './routes/index.js';
 import adminRoutes from './routes/admin.js';
 import authRoutes from './routes/auth.js';
+import portalRoutes from './routes/portal.js';
 import { initWebSocket } from './websocket.js';
 import errorHandler from './middleware/errorHandler.js';
 import { securityHeaders } from './middleware/security.js';
@@ -120,6 +121,7 @@ export function createServer() {
   // Routes
   app.use('/auth', authRoutes);
   app.use('/api', initRoutes(clients));
+  app.use('/api', portalRoutes);
   app.use('/api/admin', adminRoutes);
 
   // Start background maintenance services (e.g., cache cleanup)

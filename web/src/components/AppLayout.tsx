@@ -1,18 +1,30 @@
 import { NavLink, Outlet } from 'react-router-dom';
 import { APP_NAME } from '../lib/config';
 import { useAuth } from '../state/AuthContext';
+import { useLocale } from '../state/LocaleContext';
 import { useWebSocket } from '../state/WebSocketContext';
-
-const navItems = [
-  { to: '/analyses', label: 'Analyses' },
-  { to: '/create', label: 'Create' },
-  { to: '/prompts', label: 'Prompts' },
-  { to: '/settings', label: 'Settings' },
-];
+import { useWorkspace } from '../state/WorkspaceContext';
 
 export function AppLayout() {
   const { user, signOut } = useAuth();
   const { status } = useWebSocket();
+  const { t, locale, setLocale, labels } = useLocale();
+  const { workspaces, activeWorkspaceId, setActiveWorkspaceId } = useWorkspace();
+
+  const navItems = [
+    { to: '/analyses', label: t('nav.analyses') },
+    { to: '/create', label: t('nav.create') },
+    { to: '/matters', label: t('nav.matters') },
+    { to: '/prompts', label: t('nav.prompts') },
+    { to: '/settings', label: t('nav.settings') },
+  ];
+
+  const statusLabel =
+    status === 'connected'
+      ? t('status.connected')
+      : status === 'connecting'
+        ? t('status.connecting')
+        : t('status.offline');
 
   return (
     <div className="app-shell">
@@ -21,8 +33,26 @@ export function AppLayout() {
           <div className="brand__mark">EA</div>
           <div>
             <div className="brand__name">{APP_NAME}</div>
-            <div className="brand__tag">Legal research workspace</div>
+            <div className="brand__tag">{t('app.sidebarTagline')}</div>
           </div>
+        </div>
+        <div className="workspace-switch">
+          <label className="workspace-switch__label">{t('settings.workspaceLabel')}</label>
+          <select
+            value={activeWorkspaceId || ''}
+            onChange={(event) => setActiveWorkspaceId(event.target.value || null)}
+            disabled={!workspaces.length}
+          >
+            {workspaces.length === 0 ? (
+              <option value="">{t('common.loading')}</option>
+            ) : (
+              workspaces.map((workspace) => (
+                <option key={workspace.id} value={workspace.id}>
+                  {workspace.name}
+                </option>
+              ))
+            )}
+          </select>
         </div>
         <nav className="nav">
           {navItems.map((item) => (
@@ -38,14 +68,12 @@ export function AppLayout() {
         <div className="sidebar__footer">
           <div className="status">
             <span className={`status__dot status__dot--${status}`} />
-            <span className="status__label">
-              {status === 'connected' ? 'Live updates' : 'Offline'}
-            </span>
+            <span className="status__label">{statusLabel}</span>
           </div>
           <div className="user-chip">
-            <div className="user-chip__label">{user?.email || 'Unknown user'}</div>
+            <div className="user-chip__label">{user?.email || t('status.unknown')}</div>
             <button className="btn btn-ghost" onClick={() => signOut()}>
-              Sign out
+              {t('common.signOut')}
             </button>
           </div>
         </div>
@@ -54,7 +82,18 @@ export function AppLayout() {
         <header className="topbar">
           <div className="topbar__title">{APP_NAME}</div>
           <div className="topbar__actions">
-            <span className={`pill pill-${status}`}>{status}</span>
+            <span className={`pill pill-${status}`}>{statusLabel}</span>
+            <select
+              className="locale-switch"
+              value={locale}
+              onChange={(event) => setLocale(event.target.value as 'uk' | 'ru')}
+            >
+              {Object.entries(labels).map(([key, label]) => (
+                <option key={key} value={key}>
+                  {label}
+                </option>
+              ))}
+            </select>
           </div>
         </header>
         <main className="page">
