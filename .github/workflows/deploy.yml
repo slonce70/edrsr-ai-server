@@ -28,3 +28,13 @@ jobs:
             sudo rsync -a --delete /opt/edrsr-ai/web/dist/ /var/www/edrsr-ai-app/
             systemctl restart edrsr-ai
             systemctl reload nginx
+
+            echo "== systemd =="
+            sudo systemctl status edrsr-ai --no-pager || true
+            sudo systemctl status nginx --no-pager || true
+
+            echo "== nginx -T (first 200 lines) =="
+            sudo nginx -T 2>/dev/null | sed -n '1,200p' || true
+
+            echo "== ports (80/443/4000) =="
+            ss -lntp 2>/dev/null | grep -E ':(80|443|4000)' || true
