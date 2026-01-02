@@ -3,6 +3,10 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_REDIRECT_TO } from './config.
 
 const SESSION_KEY = 'sb_session';
 
+export async function clearSession() {
+  await chrome.storage.local.remove(SESSION_KEY);
+}
+
 export async function isAuthenticated() {
   // "Authenticated" should mean we can actually make authenticated API calls.
   // This avoids UI loops where an expired/invalid session still has an access_token string.
@@ -27,6 +31,7 @@ export async function getAccessToken() {
     const refreshed = await refresh(session.refresh_token);
     if (refreshed) return refreshed.access_token;
   }
+  await clearSession();
   return null;
 }
 
@@ -47,7 +52,7 @@ export async function signInWithPassword(email, password) {
 }
 
 export async function signOut() {
-  await chrome.storage.local.remove(SESSION_KEY);
+  await clearSession();
 }
 
 async function refresh(refresh_token) {
@@ -59,8 +64,19 @@ async function refresh(refresh_token) {
     },
     body: JSON.stringify({ refresh_token }),
   });
-  const json = await res.json();
-  if (!res.ok) return null;
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const message = String(json.error_description || json.error || '').toLowerCase();
+    if (
+      message.includes('invalid') ||
+      message.includes('expired') ||
+      message.includes('revoked') ||
+      message.includes('refresh')
+    ) {
+      await clearSession();
+    }
+    return null;
+  }
   const session = normalizeSession(json);
   await chrome.storage.local.set({ [SESSION_KEY]: session });
   return session;

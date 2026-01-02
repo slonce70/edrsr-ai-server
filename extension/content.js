@@ -98,6 +98,9 @@ async function createModal() {
             <button id="edrsr-start-analysis" style="width: 100%; padding: 15px; border: none; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 10px; font-size: 16px; font-weight: bold; cursor: pointer; transition: all 0.3s ease;">${t(
               'content.startAnalysisBtn'
             )}</button>
+            <button id="edrsr-copy-urls" style="width: 100%; padding: 12px; margin-top: 10px; border: 1px solid #ddd; background: #f5f5f5; color: #333; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer;">${t(
+              'content.copyUrlsBtn'
+            )}</button>
         </div>
     </div>
     <style>
@@ -120,6 +123,7 @@ async function createModal() {
   const templateSelect = document.getElementById('edrsr-prompt-template');
   const customContainer = document.getElementById('edrsr-custom-prompt-container');
   const startButton = document.getElementById('edrsr-start-analysis');
+  const copyUrlsBtn = document.getElementById('edrsr-copy-urls');
   const customPromptTextarea = document.getElementById('edrsr-custom-prompt');
   const promptNameInput = document.getElementById('edrsr-prompt-name');
   const savePromptBtn = document.getElementById('edrsr-save-prompt');
@@ -236,6 +240,12 @@ async function createModal() {
     } catch (e) {
       showMessage(e.message || t('content.messages.promptSaveError'), 'error');
     }
+  });
+
+  copyUrlsBtn?.addEventListener('click', async () => {
+    const uniqueOnly = !!document.getElementById('edrsr-unique-only')?.checked;
+    const ignoreSessionVisited = !!document.getElementById('edrsr-ignore-session')?.checked;
+    await copyDecisionUrls({ uniqueOnly, ignoreSessionVisited });
   });
 
   deletePromptBtn.addEventListener('click', async () => {
@@ -653,6 +663,101 @@ async function collectAndSend(options) {
     showMessage(t('common.errorPrefix', { message: error.message }), 'error');
   } finally {
     isProcessing = false;
+  }
+}
+
+async function copyTextToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    try {
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+async function copyDecisionUrls(options) {
+  try {
+    let decisions = collectDecisionLinks();
+    if (decisions.length === 0) {
+      const { t } = await getI18n();
+      showMessage(t('content.messages.noLinksFound'), 'warning');
+      return;
+    }
+
+    if (options?.uniqueOnly) {
+      const res = await chrome.runtime.sendMessage({
+        type: 'API_CHECK_PROCESSED',
+        urls: decisions.map((d) => d.url),
+      });
+      if (res && res.success && Array.isArray(res.urls)) {
+        const processed = new Set(res.urls);
+        const before = decisions.length;
+        decisions = decisions.filter((d) => d && d.url && !processed.has(d.url));
+        const removed = before - decisions.length;
+        if (decisions.length === 0) {
+          const { t } = await getI18n();
+          showMessage(t('content.messages.noUnique'), 'warning');
+          return;
+        }
+        const { t } = await getI18n();
+        showMessage(
+          t('content.messages.filteredHistory', {
+            before,
+            removed,
+            count: decisions.length,
+          }),
+          'info'
+        );
+      }
+    }
+
+    if (options?.ignoreSessionVisited) {
+      const sres = await chrome.runtime.sendMessage({ type: 'API_GET_SESSION_VISITED' });
+      if (sres && sres.success && Array.isArray(sres.urls)) {
+        const sessionSet = new Set(sres.urls);
+        const before = decisions.length;
+        decisions = decisions.filter((d) => d && d.url && !sessionSet.has(d.url));
+        const removed = before - decisions.length;
+        if (decisions.length === 0) {
+          const { t } = await getI18n();
+          showMessage(t('content.messages.noNewSession'), 'warning');
+          return;
+        }
+        const { t } = await getI18n();
+        showMessage(
+          t('content.messages.filteredSession', { removed, count: decisions.length }),
+          'info'
+        );
+      }
+    }
+
+    const urls = decisions.map((d) => d.url).filter(Boolean);
+    if (urls.length === 0) {
+      const { t } = await getI18n();
+      showMessage(t('content.messages.copyUrlsEmpty'), 'warning');
+      return;
+    }
+
+    const ok = await copyTextToClipboard(urls.join('\n'));
+    const { t } = await getI18n();
+    if (!ok) {
+      showMessage(t('content.messages.copyUrlsFailed'), 'error');
+      return;
+    }
+    showMessage(t('content.messages.copyUrlsCopied', { count: urls.length }), 'success');
+  } catch (error) {
+    const { t } = await getI18n();
+    showMessage(t('common.errorPrefix', { message: error.message }), 'error');
   }
 }
 
