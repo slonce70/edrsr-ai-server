@@ -136,6 +136,8 @@ export default [
     ignores: [
       'node_modules/**',
       'server/node_modules/**',
+      'web/dist/**',
+      'web/dist-ssr/**',
       '**/*.min.js',
       'extension/**/*.min.js',
       'extension/marked.min.js',
