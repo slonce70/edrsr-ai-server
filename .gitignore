@@ -76,3 +76,6 @@ temp/
 *credentials*.json
 *secrets*.json
 admin-keys.json
+
+AGENTS.md
+**/AGENTS.md
