@@ -11,9 +11,9 @@ wire auth + jobs flow, and expand deploy to build and sync the portal.
 - Out: Matters/org/sharing/monitoring/evidence/analytics (next phases).
 
 ## Action items
-[ ] Add `app.edrsr-ai-server.fun` DNS A record -> VPS IP and wait for propagation.
-[ ] Add Nginx vhost for `app.*` with SPA fallback + `/api` + `/ws` proxy, then reload.
-[ ] Extend TLS cert to include `app.*` (certbot) and verify HTTPS + HSTS.
+[x] Add `app.edrsr-ai-server.fun` DNS A record -> VPS IP and wait for propagation.
+[x] Add Nginx vhost for `app.*` with SPA fallback + `/api` + `/ws` proxy, then reload.
+[x] Extend TLS cert to include `app.*` (certbot) and verify HTTPS + HSTS.
 [x] Create `web/` (Vite+React+TS) with routing, auth guard, and API client (base `/api`).
 [x] Add WS primary + polling fallback for job progress, align with existing collect flow.
 [x] Implement MVP pages: Analyses list, Job page, Prompts, Create analysis (URLs/CSV).
