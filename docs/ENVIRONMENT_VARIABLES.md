@@ -152,8 +152,8 @@ TEMP_CACHE_TTL_MS=3600000
 ## **🌐 CORS / WebSocket Origins**
 
 ```env
-CORS_ALLOWED_ORIGINS=https://edrsr-ai-server.fun,https://www.edrsr-ai-server.fun
-WS_ALLOWED_ORIGINS=https://edrsr-ai-server.fun,https://www.edrsr-ai-server.fun
+CORS_ALLOWED_ORIGINS=https://edrsr-ai-server.fun,https://www.edrsr-ai-server.fun,https://app.edrsr-ai-server.fun
+WS_ALLOWED_ORIGINS=https://edrsr-ai-server.fun,https://www.edrsr-ai-server.fun,https://app.edrsr-ai-server.fun
 ```
 
 ## **🧰 Process / GC**

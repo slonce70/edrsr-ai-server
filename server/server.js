@@ -24,7 +24,11 @@ import { startCacheCleanupService } from './services/maintenance.js';
  */
 const getAllowedOrigins = () => {
   // Base origins that are always allowed (keep minimal for production)
-  const baseOrigins = ['https://edrsr-ai-server.fun', 'https://www.edrsr-ai-server.fun'];
+  const baseOrigins = [
+    'https://edrsr-ai-server.fun',
+    'https://www.edrsr-ai-server.fun',
+    'https://app.edrsr-ai-server.fun',
+  ];
 
   // Add configured origins if present
   if (process.env.CORS_ALLOWED_ORIGINS) {

@@ -38,6 +38,23 @@ if (SUPABASE_URL && SUPABASE_ANON_KEY) {
   supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 }
 
+function mapAuthErrorCode(error) {
+  const message = String(error?.message || '').toLowerCase();
+  if (
+    message.includes('invalid login credentials') ||
+    message.includes('invalid email or password')
+  )
+    return 'invalid_credentials';
+  if (message.includes('email not confirmed')) return 'email_not_confirmed';
+  if (
+    message.includes('rate limit') ||
+    message.includes('too many requests') ||
+    error?.status === 429
+  )
+    return 'rate_limited';
+  return 'auth_failed';
+}
+
 // Auth endpoints (public)
 router.post(
   '/auth/signin',
@@ -50,11 +67,15 @@ router.post(
       const { email, password } = req.body;
 
       if (!email || !password) {
-        return res.status(400).json({ error: 'Email and password are required' });
+        return res
+          .status(400)
+          .json({ error: 'Email and password are required', error_code: 'missing_credentials' });
       }
 
       if (!supabase) {
-        return res.status(500).json({ error: 'Supabase not configured' });
+        return res
+          .status(500)
+          .json({ error: 'Supabase not configured', error_code: 'supabase_not_configured' });
       }
 
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -63,7 +84,7 @@ router.post(
       });
 
       if (error) {
-        return res.status(401).json({ error: error.message });
+        return res.status(401).json({ error: error.message, error_code: mapAuthErrorCode(error) });
       }
 
       res.json({
@@ -75,7 +96,7 @@ router.post(
       });
     } catch (error) {
       logger.error('Sign in error:', error);
-      res.status(500).json({ error: 'Authentication failed' });
+      res.status(500).json({ error: 'Authentication failed', error_code: 'auth_failed' });
     }
   }
 );
@@ -84,6 +105,12 @@ router.post(
 router.use(attachUser);
 // Убираем /health/full из публичных маршрутов, оставляем только /health/light и /auth/signin
 router.use(requireAuthExcept(['/health/light', '/auth/signin']));
+
+// Lightweight session/user info for web portal
+router.get('/me', (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Необходима авторизация' });
+  return res.json({ success: true, user: { id: req.user.id, email: req.user.email } });
+});
 // Чат‑сессии и их метаданные (LRU + TTL)
 const chatSessions = new Map(); // jobId -> ChatSession
 const chatMeta = new Map(); // jobId -> { createdAt: number, lastUsed: number }
@@ -787,8 +814,13 @@ export default function (clients) {
       if (links.length > MAX_LINKS) {
         return res.status(422).json({ error: `Слишком много ссылок: максимум ${MAX_LINKS}` });
       }
-      if (!clientId || !clients.has(clientId)) {
-        return res.status(400).json({ error: 'Неверный или отсутствующий clientId' });
+      let clientData = null;
+      if (clientId) {
+        if (!clients.has(clientId)) {
+          logger.warn(`[SEC] Unknown clientId provided for collect: ${clientId}`);
+        } else {
+          clientData = clients.get(clientId);
+        }
       }
 
       // Валидация, чтобы предотвратить падение сервера
@@ -841,10 +873,9 @@ export default function (clients) {
       };
 
       // Привязываем job к WebSocket только если он принадлежит тому же пользователю
-      const clientData = clients.get(clientId);
       if (clientData && clientData.userId && req.user?.id && clientData.userId === req.user.id) {
         clientData.jobs.add(jobId);
-      } else {
+      } else if (clientId) {
         logger.warn(`[SEC] ClientId ${clientId} does not match req.user for job ${jobId}`);
       }
 
@@ -1072,12 +1103,35 @@ export default function (clients) {
 
   router.get('/jobs', async (req, res, next) => {
     try {
-      const { limit } = req.query;
+      const { limit, page, status = '', search = '' } = req.query;
       const maxLimit = parseInt(process.env.JOBS_MAX_LIMIT || '100', 10);
-      const finalLimit =
-        limit === 'all' ? maxLimit : Math.min(parseInt(limit, 10) || maxLimit, maxLimit);
-      const jobs = await dbService.getRecentJobs(finalLimit, req.user?.id || null);
-      res.json({ success: true, jobs });
+      const numericLimit = Math.min(parseInt(limit, 10) || maxLimit, maxLimit);
+      const finalLimit = limit === 'all' ? maxLimit : numericLimit;
+
+      const wantPaged = typeof page !== 'undefined' || status || search;
+      if (limit === 'all' && !wantPaged) {
+        const jobs = await dbService.getRecentJobs('all', req.user?.id || null);
+        return res.json({ success: true, jobs });
+      }
+
+      const pageNum = Math.max(1, parseInt(page, 10) || 1);
+      const result = await dbService.getJobsPage({
+        page: pageNum,
+        limit: finalLimit,
+        status: typeof status === 'string' ? status : '',
+        search: typeof search === 'string' ? search : '',
+        userId: req.user?.id || null,
+      });
+
+      return res.json({
+        success: true,
+        jobs: result.jobs,
+        pagination: {
+          page: result.page,
+          limit: result.limit,
+          total: result.total,
+        },
+      });
     } catch (error) {
       next(error);
     }

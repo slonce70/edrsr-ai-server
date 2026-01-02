@@ -1,0 +1,33 @@
+name: VPS Diagnostics
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnostics:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Diagnostics via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: 22
+          script: |
+            set -euo pipefail
+            echo "== uname =="
+            uname -a
+            echo "== uptime =="
+            uptime
+            echo "== systemd =="
+            sudo systemctl status edrsr-ai --no-pager || true
+            sudo systemctl status nginx --no-pager || true
+            echo "== nginx -T (first 200 lines) =="
+            sudo nginx -T 2>/dev/null | sed -n '1,200p'
+            echo "== ports (80/443/4000) =="
+            ss -lntp 2>/dev/null | grep -E ':(80|443|4000)' || true
+            echo "== repo =="
+            ls -la /opt/edrsr-ai || true
+            echo "== web root =="
+            ls -la /var/www/edrsr-ai-app || true
