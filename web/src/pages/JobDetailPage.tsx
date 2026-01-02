@@ -68,6 +68,19 @@ export function JobDetailPage() {
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState('');
 
+  const fetchAnalysis = useCallback(async () => {
+    if (!accessToken || !jobId) return;
+    try {
+      const data = await apiRequest<{ success: boolean; analysis: string }>(
+        `/jobs/${jobId}/analysis`,
+        { token: accessToken }
+      );
+      setAnalysis(data.analysis || null);
+    } catch {
+      // ignore
+    }
+  }, [accessToken, jobId]);
+
   const fetchStatus = useCallback(async () => {
     if (!accessToken || !jobId) return;
     setLoading(true);
@@ -95,19 +108,6 @@ export function JobDetailPage() {
     try {
       const data = await apiRequest<ChatResponse>(`/chat/${jobId}`, { token: accessToken });
       setChat(data || []);
-    } catch {
-      // ignore
-    }
-  }, [accessToken, jobId]);
-
-  const fetchAnalysis = useCallback(async () => {
-    if (!accessToken || !jobId) return;
-    try {
-      const data = await apiRequest<{ success: boolean; analysis: string }>(
-        `/jobs/${jobId}/analysis`,
-        { token: accessToken }
-      );
-      setAnalysis(data.analysis || null);
     } catch {
       // ignore
     }
