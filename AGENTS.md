@@ -1,54 +1,36 @@
-# Global Rules (Must Follow)
-
-You are a world-class software engineer and software architect.
-
-Your motto is:
-
-> **Every mission assigned is delivered with 100% quality and state-of-the-art execution — no hacks, no workarounds, no partial deliverables and no mock-driven confidence. Mocks/stubs may exist in unit tests for I/O boundaries, but final validation must rely on real integration and end-to-end tests.**
-
-You always:
-
-- Deliver end-to-end, production-like solutions with clean, modular, and maintainable architecture.
-- Take full ownership of the task: you do not abandon work because it is complex or tedious; you only pause when requirements are truly contradictory or when critical clarification is needed.
-- Are proactive and efficient: you avoid repeatedly asking for confirmation like “Can I proceed?” and instead move logically to next steps, asking focused questions only when they unblock progress.
-- Follow the full engineering cycle for significant tasks: **understand → design → implement → (conceptually) test → refine → document**, using all relevant tools and environment capabilities appropriately.
-- Respect both functional and non-functional requirements and, when the user’s technical ideas are unclear or suboptimal, you propose better, modern, state-of-the-art alternatives that still satisfy their business goals.
-- Manage context efficiently and avoid abrupt, low-value interruptions; when you must stop due to platform limits, you clearly summarize what was done and what remains.
-
-## Project Snapshot
+# Project Snapshot
 - Repo type: small monorepo (backend + Chrome extension + web portal).
-- Backend: Node.js (ESM) + Express + WebSocket (`ws`) + workers; Postgres (`pg`); Supabase auth.
-- Extension: Chrome MV3, vanilla JS/HTML, ES modules.
-- Web: React + TypeScript + Vite; Supabase auth; backend API + WebSocket.
-- More detailed, scoped guidance lives in subfolder AGENTS files (nearest-wins).
+- Stack: Node.js (ESM) + Express + ws + Postgres; React + TypeScript + Vite; Chrome MV3 (vanilla JS).
+- Supabase is used for auth; app data lives in local Postgres.
+- Each major folder has its own AGENTS.md (nearest-wins).
 
 ## Root Setup Commands
-- Install deps: `npm install`
-- Install backend deps: `npm --prefix server install`
-- Install web deps: `npm --prefix web install`
-- Run dev backend: `npm run dev`
-- Run dev web: `npm run web:dev`
-- Prod-like start: `npm run start:gc`
+- Install deps (root): `npm install`
+- Backend deps: `npm --prefix server install`
+- Web deps: `npm --prefix web install`
+- Dev backend: `npm run dev`
+- Dev web: `npm run web:dev`
+- Prod-like backend: `npm run start:gc`
+- Build web (includes tsc): `npm run web:build`
 - Build extension: `npm run build:extension`
-- Build web: `npm run web:build`
-- Quality checks: `npm run quality:check` (or `npm run quality:fix`)
-- Ad-hoc validation: `npm run test:selfcheck`, `npm run test:memory`
+- Quality checks: `npm run quality:check`
+- Ad-hoc checks: `npm run test:selfcheck`, `npm run test:memory`
 
 ## Universal Conventions
-- ESM modules (`"type": "module"`): prefer `import`/`export`.
-- Prettier is the source of truth: 2-space indent, single quotes, semicolons, ~100-char line width.
+- ESM modules (`type: module`): use `import`/`export`.
+- Prettier is the source of truth (2-space indent, single quotes, semicolons).
 - ESLint + Prettier enforce baseline rules; keep `console` minimal in shared code.
-- Naming: files are typically kebab-case; functions camelCase; classes PascalCase.
-- Commits: Conventional Commits (e.g., `feat: ...`, `fix(admin): ...`).
+- Naming: kebab-case files, camelCase functions, PascalCase classes.
+- Commits: Conventional Commits (e.g., `feat: ...`, `fix(web): ...`).
 
 ## Security & Secrets
-- Secrets live in `server/.env`; template: `server/env.example`.
-- Never commit tokens/keys; `extension/config.js` should not contain private credentials.
-- Web/Vite env: only expose `VITE_*` public values (never Supabase service role keys).
+- Secrets live in `server/.env`; template is `server/env.example`.
+- Never commit tokens/keys; `extension/config.js` must not include private creds.
+- Vite env: only expose `VITE_*` public values (no service role keys).
 
 ## JIT Index (what to open, not what to paste)
 
-### Package Map
+### Package Structure
 - Backend server: `server/` → `server/AGENTS.md`
   - API routes: `server/routes/` → `server/routes/AGENTS.md`
   - Middleware: `server/middleware/` → `server/middleware/AGENTS.md`
@@ -61,19 +43,19 @@ You always:
 - Web portal: `web/` → `web/AGENTS.md`
 - Repo scripts: `scripts/` → `scripts/AGENTS.md`
 - Docs: `docs/` → `docs/AGENTS.md`
-- Generated outputs (do not hand-edit): `extension-build/`, `edrsr-ai-extension-v*.zip`
+- Generated outputs (do not edit): `extension-build/`, `edrsr-ai-extension-v*.zip`
 
 ### Quick Find Commands
 - Find an API endpoint: `rg -n "router\\.(get|post|patch|put|delete)\\(" server/routes`
-- Find a middleware: `rg -n "export (async )?function" server/middleware`
-- Find a DB query: `rg -n "database\\.(get|run|all)\\(" server`
-- Find WebSocket usage: `rg -n "initWebSocket|sendUpdateToJobOwner|WEBSOCKET" server extension`
+- Find middleware: `rg -n "export (async )?function" server/middleware`
+- Find DB queries: `rg -n "database\\.(get|run|all)\\(" server/services`
+- Find WebSocket usage: `rg -n "initWebSocket|sendUpdateToJobOwner|WEBSOCKET" server web extension`
 - Find extension message flow: `rg -n "chrome\\.runtime\\.(connect|onMessage|sendMessage)" extension`
 - Find web routes: `rg -n "<Route|path=\\\"" web/src/App.tsx`
 - Find web API calls: `rg -n "apiRequest\\(" web/src`
 
 ## Definition of Done
-- `npm run quality:check` passes
-- If extension changed: `npm run build:extension` and test by loading `extension-build/` in Chrome
-- If web changed: `npm run web:lint && npm run web:build`
-- If scraping/parsing changed: run `node server/scripts/test-scraper-parsing.js`
+- `npm run quality:check` passes.
+- If web changed: `npm run web:lint && npm run web:build`.
+- If extension changed: `npm run build:extension` and test via `extension-build/`.
+- If scraper/parsing changed: `node server/scripts/test-scraper-parsing.js`.
