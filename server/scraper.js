@@ -80,8 +80,10 @@ const COMPILED_REGEX = {
     /(?:статт[яі]|стать[яі])\s*(\d+(?:\.\d+)?)\s*(?:КПК|Кримінального\s*процесуального\s*кодекса)/gi,
 
   // Financial amounts
-  uahAmounts: () => /(\d+(?:\s*\d+)*(?:[.,]\d+)?)\s*(?:грн|гривен[ьи]?|UAH)/gi,
-  usdAmounts: () => /(\d+(?:\s*\d+)*(?:[.,]\d+)?)\s*(?:USD|доларів?|долларов?)/gi,
+  // NOTE: Use \s+ (not \s*) inside the repeating group to avoid catastrophic backtracking
+  // on long digit-heavy texts when there is no currency marker match.
+  uahAmounts: () => /(\d+(?:\s+\d+)*(?:[.,]\d+)?)\s*(?:грн|гривен[ьи]?|UAH)/gi,
+  usdAmounts: () => /(\d+(?:\s+\d+)*(?:[.,]\d+)?)\s*(?:USD|доларів?|долларов?)/gi,
 
   // Parties
   plaintiffs: () => /позивач[іи]?\s*[:-]?\s*([А-ЯҐЄІЇ][а-яґєіїй\s.'-]+)/gi,
@@ -102,7 +104,7 @@ function extractCaseNumberFromText(rawText) {
   const patterns = [
     /(?:^|\n)\s*Категорія\s+справи\s*№\s*([0-9A-Za-zА-Яа-яІіЇїЄєҐґ/-]+)/i,
     /(?:^|\n)\s*Номер\s+справи\s*№\s*([0-9A-Za-zА-Яа-яІіЇїЄєҐґ/-]+)/i,
-    /(?:^|\n)\s*Справа\s*№\s*([0-9A-Za-zА-Яа-яІіЇїЄєҐґ/-]+)/i,
+    /(?:^|\n)\s*Справ[аи]\s*№\s*([0-9A-Za-zА-Яа-яІіЇїЄєҐґ/-]+)/i,
   ];
   for (const re of patterns) {
     const match = text.match(re);
@@ -1357,23 +1359,28 @@ function extractLawArticles(text) {
  * @returns {Object|null} - объект с суммой и валютой или null
  */
 function extractClaimAmount(text) {
+  // Fast pre-checks to avoid expensive regex scans on digit-heavy texts.
+  const hasUahMarker = /(?:грн|гривен|UAH)/i.test(text);
+  const hasUsdMarker = /(?:USD|долар|доллар)/i.test(text);
+
   // Поиск сумм в гривнах
-  const uahMatches = text.match(COMPILED_REGEX.uahAmounts());
+  const uahMatches = hasUahMarker ? text.match(COMPILED_REGEX.uahAmounts()) : null;
 
   if (uahMatches && uahMatches.length > 0) {
     // Берем самую большую сумму (обычно это основная сумма иска)
-    const amounts = uahMatches
-      .map((match) => {
-        const numStr = match
-          .replace(/[^\d.,]/g, '')
-          .replace(/\s/g, '')
-          .replace(',', '.');
-        return parseFloat(numStr);
-      })
-      .filter((num) => !isNaN(num));
+    let maxAmount = null;
+    for (const match of uahMatches) {
+      const numStr = match
+        .replace(/[^\d.,]/g, '')
+        .replace(/\s/g, '')
+        .replace(',', '.');
+      const num = parseFloat(numStr);
+      if (!Number.isNaN(num)) {
+        maxAmount = maxAmount === null ? num : Math.max(maxAmount, num);
+      }
+    }
 
-    if (amounts.length > 0) {
-      const maxAmount = Math.max(...amounts);
+    if (maxAmount !== null) {
       return {
         amount: maxAmount,
         currency: 'UAH',
@@ -1383,21 +1390,22 @@ function extractClaimAmount(text) {
   }
 
   // Поиск сумм в долларах
-  const usdMatches = text.match(COMPILED_REGEX.usdAmounts());
+  const usdMatches = hasUsdMarker ? text.match(COMPILED_REGEX.usdAmounts()) : null;
 
   if (usdMatches && usdMatches.length > 0) {
-    const amounts = usdMatches
-      .map((match) => {
-        const numStr = match
-          .replace(/[^\d.,]/g, '')
-          .replace(/\s/g, '')
-          .replace(',', '.');
-        return parseFloat(numStr);
-      })
-      .filter((num) => !isNaN(num));
+    let maxAmount = null;
+    for (const match of usdMatches) {
+      const numStr = match
+        .replace(/[^\d.,]/g, '')
+        .replace(/\s/g, '')
+        .replace(',', '.');
+      const num = parseFloat(numStr);
+      if (!Number.isNaN(num)) {
+        maxAmount = maxAmount === null ? num : Math.max(maxAmount, num);
+      }
+    }
 
-    if (amounts.length > 0) {
-      const maxAmount = Math.max(...amounts);
+    if (maxAmount !== null) {
       return {
         amount: maxAmount,
         currency: 'USD',
