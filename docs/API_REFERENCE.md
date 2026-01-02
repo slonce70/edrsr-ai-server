@@ -201,6 +201,9 @@ Rate limit: 5 попыток/15 минут.
 
 Ответ: `{ "success": true, "prompts": [{ "id", "name", "content", "created_at", "updated_at" }], "lastUpdated": "..." }`
 
+#### GET `/api/prompts/definitions` (public)
+Дефолтные описания/группы промптов (публичный endpoint). Поддерживает `ETag`.
+
 #### POST `/api/prompts`
 Создать новый промпт. Тело: `{ name, content }`.
 
@@ -218,6 +221,23 @@ Rate limit: 5 попыток/15 минут.
 Импорт массива промптов (для миграции).
 
 Тело: `{ prompts: [{ name, content }, ...] }`.
+
+## **🤝 Командные промпты (workspace)**
+
+#### GET `/api/prompts/shared`
+Список командных промптов для активного workspace.
+
+#### POST `/api/prompts/shared`
+Создать командный промпт. Тело: `{ name, content }`. Только owner/admin.
+
+#### PATCH `/api/prompts/shared/:id`
+Обновить командный промпт. Тело: `{ name?, content? }`. Только owner/admin.
+
+#### DELETE `/api/prompts/shared/:id`
+Удалить командный промпт. Только owner/admin.
+
+#### POST `/api/prompts/shared/from-user`
+Скопировать user‑промпт в командную библиотеку. Тело: `{ promptId }`. Только owner/admin.
 
 ## **💬 Чат по результатам**
 

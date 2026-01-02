@@ -1,6 +1,7 @@
 import express from 'express';
 import dbService from '../services/dbService.js';
 import { attachUser, requireAuth } from '../middleware/auth.js';
+import { validatePromptCreate, validatePromptUpdate } from '../middleware/validators.js';
 import { attachWorkspace, requireWorkspaceRole } from '../middleware/workspace.js';
 
 const router = express.Router();
@@ -41,6 +42,100 @@ router.get('/share/:token', async (req, res, next) => {
 // Auth required below
 router.use(requireAuth);
 router.use(attachWorkspace);
+
+// Shared prompts (workspace)
+router.get('/prompts/shared', async (req, res, next) => {
+  try {
+    const prompts = await dbService.listWorkspacePrompts(req.workspace.id);
+    res.json({ success: true, workspace_id: req.workspace.id, prompts });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post(
+  '/prompts/shared',
+  requireWorkspaceRole(['owner', 'admin']),
+  validatePromptCreate,
+  async (req, res, next) => {
+    try {
+      const { name, content } = req.body || {};
+      const result = await dbService.createWorkspacePrompt(
+        req.workspace.id,
+        req.user.id,
+        name,
+        content
+      );
+      res.json({ success: true, prompt: result.prompt, renamed: result.renamed });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+router.patch(
+  '/prompts/shared/:id',
+  requireWorkspaceRole(['owner', 'admin']),
+  validatePromptUpdate,
+  async (req, res, next) => {
+    try {
+      const result = await dbService.updateWorkspacePrompt(
+        req.workspace.id,
+        req.params.id,
+        req.body || {},
+        req.user.id
+      );
+      if (!result?.prompt) {
+        return res.status(404).json({ error: 'Промпт не найден' });
+      }
+      res.json({ success: true, prompt: result.prompt, renamed: result.renamed });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+router.delete(
+  '/prompts/shared/:id',
+  requireWorkspaceRole(['owner', 'admin']),
+  async (req, res, next) => {
+    try {
+      const ok = await dbService.deleteWorkspacePrompt(
+        req.workspace.id,
+        req.params.id,
+        req.user.id
+      );
+      if (!ok) {
+        return res.status(404).json({ error: 'Промпт не найден' });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+router.post(
+  '/prompts/shared/from-user',
+  requireWorkspaceRole(['owner', 'admin']),
+  async (req, res, next) => {
+    try {
+      const promptId = typeof req.body?.promptId === 'string' ? req.body.promptId : '';
+      if (!promptId) return res.status(400).json({ error: 'promptId is required' });
+      const result = await dbService.shareUserPromptToWorkspace(
+        req.workspace.id,
+        req.user.id,
+        promptId
+      );
+      if (!result?.shared) {
+        return res.status(404).json({ error: 'Промпт не найден' });
+      }
+      res.json({ success: true, prompt: result.shared, renamed: result.renamed });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
 
 // Workspaces
 router.get('/workspaces', async (req, res, next) => {

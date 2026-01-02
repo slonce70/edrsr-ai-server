@@ -89,6 +89,8 @@ document.addEventListener('DOMContentLoaded', () => {
   let savedPrompts = [];
   let savedPromptsById = new Map();
   let selectedSavedPromptId = null;
+  let promptDefinitionsCache = null;
+  let promptDefinitionsLocale = null;
 
   // --- DOM Elements ---
   const elements = {
@@ -491,6 +493,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const session = await getSession();
       elements.authStatus.textContent = t('popup.messages.authStatusAuthed', {
         email: session?.user?.email || null,
+        id: session?.user?.id || null,
       });
       if (elements.authBadge) {
         elements.authBadge.textContent = t('popup.messages.authBadgeAuthed', {
@@ -521,6 +524,32 @@ document.addEventListener('DOMContentLoaded', () => {
     await updatePromptDescription();
     updateSaveButtonLabel();
   }
+
+  const loadPromptDefinitions = async ({ force = false } = {}) => {
+    const locale = getLocale();
+    if (!force && promptDefinitionsCache && promptDefinitionsLocale === locale) {
+      return promptDefinitionsCache;
+    }
+    try {
+      const res = await chrome.runtime.sendMessage({
+        type: 'PROMPT_DEFINITIONS_GET',
+        payload: { locale, force },
+      });
+      if (res?.definitions) {
+        promptDefinitionsCache = res.definitions;
+        promptDefinitionsLocale = locale;
+        return promptDefinitionsCache;
+      }
+    } catch {
+      // ignore and fallback below
+    }
+    promptDefinitionsCache = {
+      groups: getPromptGroupLabels(locale),
+      descriptions: getPromptDescriptions(locale),
+    };
+    promptDefinitionsLocale = locale;
+    return promptDefinitionsCache;
+  };
 
   const collectLinks = async () => {
     elements.collectBtn.innerHTML = '<div class="loading"></div>';
@@ -794,7 +823,7 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   const populatePromptTemplates = async ({ selectPromptId = null, force = false } = {}) => {
-    const promptGroups = getPromptGroupLabels(getLocale());
+    const { groups: promptGroups } = await loadPromptDefinitions({ force });
     const previousValue = elements.promptTemplate.value;
     const previousSavedId = selectedSavedPromptId;
     await loadSavedPrompts({ force });
@@ -847,7 +876,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const updatePromptDescription = async () => {
     const selectedValue = elements.promptTemplate.value;
     const selectedOption = elements.promptTemplate.options[elements.promptTemplate.selectedIndex];
-    const promptDescriptions = getPromptDescriptions(getLocale());
+    const { descriptions: promptDescriptions } = await loadPromptDefinitions();
 
     // Check if it's a pre-defined prompt
     if (promptDescriptions[selectedValue]) {

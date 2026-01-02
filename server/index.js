@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 import { createServer } from './server.js';
 import database from './database/connection.js';
+import dbService from './services/dbService.js';
 import { logger } from './utils.js';
 import got from 'got';
 
@@ -13,6 +14,7 @@ async function start() {
   try {
     await database.initializeTables();
     logger.log('🗄️ База даних успішно ініціалізована.');
+    await dbService.ensurePromptDefinitionsSeeded();
 
     const server = createServer();
 

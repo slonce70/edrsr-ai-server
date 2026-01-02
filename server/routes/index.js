@@ -105,7 +105,7 @@ router.post(
 router.use(attachUser);
 // Убираем /health/full из публичных маршрутов, оставляем только /health/light и /auth/signin
 // Также пропускаем /share, чтобы публічні шари з portalRoutes не блокувались тут.
-router.use(requireAuthExcept(['/health/light', '/auth/signin', '/share']));
+router.use(requireAuthExcept(['/health/light', '/auth/signin', '/share', '/prompts/definitions']));
 
 // Lightweight session/user info for web portal
 router.get('/me', (req, res) => {
@@ -175,6 +175,13 @@ function formatPromptsMeta(meta) {
   const lastUpdated = meta?.lastUpdated ? new Date(meta.lastUpdated).toISOString() : null;
   const etag = `W/"${count}:${lastUpdated || '0'}"`;
   return { count, lastUpdated, etag };
+}
+
+function formatPromptDefinitionsMeta(meta) {
+  const version = Number.isFinite(meta?.version) ? meta.version : 1;
+  const lastUpdated = meta?.lastUpdated ? new Date(meta.lastUpdated).toISOString() : null;
+  const etag = `W/"v${version}:${lastUpdated || '0'}"`;
+  return { version, lastUpdated, etag };
 }
 
 async function resolveWorkspaceFromQuery(req, res) {
@@ -927,6 +934,30 @@ export default function (clients) {
       processQueue();
     } catch (error) {
       next(error);
+    }
+  });
+
+  // --- Prompt Definitions (public) ---
+  router.get('/prompts/definitions', async (req, res, next) => {
+    try {
+      const meta = await dbService.getPromptDefinitionsMeta();
+      const { etag, lastUpdated, version } = formatPromptDefinitionsMeta(meta);
+      const ifNoneMatch = req.headers['if-none-match'];
+      if (ifNoneMatch && ifNoneMatch === etag) {
+        res.set('ETag', etag);
+        return res.status(304).end();
+      }
+
+      const defs = await dbService.getPromptDefinitions();
+      res.set('ETag', etag);
+      return res.json({
+        success: true,
+        definitions: defs?.payload || null,
+        version: defs?.version ?? version,
+        lastUpdated: defs?.updatedAt || lastUpdated,
+      });
+    } catch (error) {
+      return next(error);
     }
   });
 

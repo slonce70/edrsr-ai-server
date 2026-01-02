@@ -5,6 +5,7 @@
 import { API_BASE_URL, WS_URL } from './config.js';
 import { getAccessToken, isAuthenticated, forceRefresh } from './auth.js';
 import { initI18n, setLocale, t } from './i18n.js';
+import { PROMPT_GROUPS_I18N, PROMPT_DESCRIPTIONS_I18N } from './prompt-definitions.js';
 
 void initI18n();
 
@@ -35,10 +36,18 @@ const PROMPTS_MIGRATION_KEY = 'promptsMigrationVersion';
 const PROMPTS_MIGRATION_VERSION = 1;
 const PROMPTS_CACHE_TTL_MS = 15 * 60 * 1000;
 
+const PROMPT_DEFS_CACHE_KEY = 'prompt_definitions_cache';
+const PROMPT_DEFS_CACHE_TS_KEY = 'prompt_definitions_fetched_at';
+const PROMPT_DEFS_CACHE_ETAG_KEY = 'prompt_definitions_etag';
+const PROMPT_DEFS_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+
 const isAuthError = (error) => String(error?.message || '') === t('bg.authRequired');
 
 const isCacheFresh = (fetchedAt) =>
   Number.isFinite(fetchedAt) && Date.now() - fetchedAt < PROMPTS_CACHE_TTL_MS;
+
+const isDefsCacheFresh = (fetchedAt) =>
+  Number.isFinite(fetchedAt) && Date.now() - fetchedAt < PROMPT_DEFS_CACHE_TTL_MS;
 
 async function getPromptsCache() {
   const data = await chrome.storage.local.get([
@@ -53,11 +62,32 @@ async function getPromptsCache() {
   };
 }
 
+async function getPromptDefinitionsCache() {
+  const data = await chrome.storage.local.get([
+    PROMPT_DEFS_CACHE_KEY,
+    PROMPT_DEFS_CACHE_TS_KEY,
+    PROMPT_DEFS_CACHE_ETAG_KEY,
+  ]);
+  return {
+    definitions: data[PROMPT_DEFS_CACHE_KEY] || null,
+    fetchedAt: data[PROMPT_DEFS_CACHE_TS_KEY] || 0,
+    etag: data[PROMPT_DEFS_CACHE_ETAG_KEY] || null,
+  };
+}
+
 async function setPromptsCache(prompts, etag = null) {
   await chrome.storage.local.set({
     [PROMPTS_CACHE_KEY]: prompts,
     [PROMPTS_CACHE_TS_KEY]: Date.now(),
     [PROMPTS_CACHE_ETAG_KEY]: etag,
+  });
+}
+
+async function setPromptDefinitionsCache(definitions, etag = null) {
+  await chrome.storage.local.set({
+    [PROMPT_DEFS_CACHE_KEY]: definitions,
+    [PROMPT_DEFS_CACHE_TS_KEY]: Date.now(),
+    [PROMPT_DEFS_CACHE_ETAG_KEY]: etag,
   });
 }
 
@@ -67,6 +97,45 @@ async function clearPromptsCache() {
     PROMPTS_CACHE_TS_KEY,
     PROMPTS_CACHE_ETAG_KEY,
   ]);
+}
+
+async function fetchPromptDefinitionsFromServer({ etag } = {}) {
+  const headers = {};
+  if (etag) headers['If-None-Match'] = etag;
+  const res = await fetch(`${API_BASE_URL}/prompts/definitions`, { headers });
+  if (res.status === 304) {
+    return { notModified: true, etag };
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || `HTTP ${res.status}`);
+  }
+  const nextEtag = res.headers.get('ETag') || data.etag || null;
+  return { definitions: data.definitions || null, etag: nextEtag };
+}
+
+function pickDefinitionsForLocale(definitions, locale) {
+  if (!definitions) return null;
+  if (definitions.groups && definitions.descriptions) {
+    return {
+      groups: definitions.groups || {},
+      descriptions: definitions.descriptions || {},
+    };
+  }
+  const locales = definitions.locales || {};
+  const selected = locales[locale] || locales.uk || null;
+  if (!selected) return null;
+  return {
+    groups: selected.groups || {},
+    descriptions: selected.descriptions || {},
+  };
+}
+
+function getFallbackDefinitions(locale) {
+  return {
+    groups: PROMPT_GROUPS_I18N[locale] || PROMPT_GROUPS_I18N.uk,
+    descriptions: PROMPT_DESCRIPTIONS_I18N[locale] || PROMPT_DESCRIPTIONS_I18N.uk,
+  };
 }
 
 async function fetchPromptsFromServer({ etag } = {}) {
@@ -820,6 +889,51 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if (message.type === 'GET_VERSION') {
     sendResponse(CURRENT_VERSION);
+    return true;
+  }
+  if (message.type === 'PROMPT_DEFINITIONS_GET') {
+    (async () => {
+      const locale = message.payload?.locale || 'uk';
+      const force = !!message.payload?.force;
+      try {
+        const cache = await getPromptDefinitionsCache();
+        if (!force && cache.definitions && isDefsCacheFresh(cache.fetchedAt)) {
+          const defs = pickDefinitionsForLocale(cache.definitions, locale);
+          sendResponse({ success: true, definitions: defs, source: 'cache' });
+          return;
+        }
+
+        try {
+          const fetched = await fetchPromptDefinitionsFromServer({ etag: cache.etag });
+          if (fetched.notModified && cache.definitions) {
+            await setPromptDefinitionsCache(cache.definitions, cache.etag);
+            const defs = pickDefinitionsForLocale(cache.definitions, locale);
+            sendResponse({ success: true, definitions: defs, source: 'cache' });
+            return;
+          }
+          if (fetched.definitions) {
+            await setPromptDefinitionsCache(fetched.definitions, fetched.etag);
+            const defs = pickDefinitionsForLocale(fetched.definitions, locale);
+            sendResponse({ success: true, definitions: defs, source: 'server' });
+            return;
+          }
+        } catch (e) {
+          console.warn('[PROMPTS] Definitions fetch failed:', e.message);
+        }
+
+        // Fallback to bundled definitions
+        const fallback = getFallbackDefinitions(locale);
+        sendResponse({ success: true, definitions: fallback, source: 'fallback' });
+      } catch (e) {
+        const fallback = getFallbackDefinitions(locale);
+        sendResponse({
+          success: true,
+          definitions: fallback,
+          source: 'fallback',
+          error: e.message,
+        });
+      }
+    })();
     return true;
   }
   if (message.type === 'PROMPTS_GET') {
