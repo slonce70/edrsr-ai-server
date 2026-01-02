@@ -4,6 +4,7 @@ import database from './database/connection.js';
 import dbService from './services/dbService.js';
 import { logger } from './utils.js';
 import got from 'got';
+import { APP_VERSION } from './version.js';
 
 // Load environment variables from .env file, overriding any existing ones
 dotenv.config({ override: true });
@@ -19,7 +20,7 @@ async function start() {
     const server = createServer();
 
     server.listen(PORT, () => {
-      logger.log(`🚀 ЄДРСР AI Backend Server v1.2.0`);
+      logger.log(`🚀 ЄДРСР AI Backend Server v${APP_VERSION}`);
       logger.log(`📡 HTTP та WebSocket сервер запущено на порту ${PORT}`);
 
       // Keep-alive mechanism for free Render tier

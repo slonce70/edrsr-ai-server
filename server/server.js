@@ -15,8 +15,28 @@ import errorHandler from './middleware/errorHandler.js';
 import { securityHeaders } from './middleware/security.js';
 import { logger } from './utils.js';
 import { startCacheCleanupService } from './services/maintenance.js';
+import { APP_VERSION } from './version.js';
 
 // --- Security Configuration ---
+
+function getAllowedChromeExtensionIds() {
+  const raw = process.env.CHROME_EXTENSION_IDS || process.env.CHROME_EXTENSION_ID || '';
+  return raw
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean);
+}
+
+function isAllowedChromeExtensionOrigin(origin) {
+  if (typeof origin !== 'string') return false;
+  if (!origin.startsWith('chrome-extension://')) return false;
+
+  // If no IDs configured, keep backward compatibility (allow any extension origin)
+  const allowedIds = getAllowedChromeExtensionIds();
+  if (allowedIds.length === 0) return true;
+
+  return allowedIds.some((id) => origin === `chrome-extension://${id}`);
+}
 
 /**
  * Allowed CORS origins for the API.
@@ -67,13 +87,13 @@ const corsOptions = {
       return callback(null, true);
     }
 
-    // Check if origin matches allowed list
-    if (allowedOrigins.includes(origin)) {
+    // Allow configured chrome-extension:// origins (browser extensions)
+    if (isAllowedChromeExtensionOrigin(origin)) {
       return callback(null, true);
     }
 
-    // Allow chrome-extension:// origins (browser extensions)
-    if (origin.startsWith('chrome-extension://')) {
+    // Check if origin matches allowed list
+    if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
 
@@ -140,7 +160,7 @@ export function createServer() {
   app.get('/', (req, res) => {
     res.json({
       message: 'EDRSR-AI Server is running',
-      version: '2.0.0',
+      version: APP_VERSION,
       admin_panel: '/admin',
     });
   });
