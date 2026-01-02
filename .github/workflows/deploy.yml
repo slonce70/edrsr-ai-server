@@ -21,6 +21,7 @@ jobs:
           port: 22
           script: |
             set -euo pipefail
+            sudo chown -R edrsr:edrsr /opt/edrsr-ai
             sudo -u edrsr bash -lc 'cd /opt/edrsr-ai && git fetch --prune && git reset --hard origin/main && npm install && npm --prefix server install && npm --prefix web install && npm --prefix web run build'
             sudo mkdir -p /var/www/edrsr-ai-app
             sudo rsync -a --delete /opt/edrsr-ai/web/dist/ /var/www/edrsr-ai-app/
