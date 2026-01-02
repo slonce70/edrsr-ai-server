@@ -23,7 +23,7 @@ jobs:
             set -euo pipefail
             sudo chown -R edrsr:edrsr /opt/edrsr-ai
             sudo -u edrsr bash -lc 'mkdir -p ~/.ssh && chmod 700 ~/.ssh && ssh-keygen -R github.com -f ~/.ssh/known_hosts || true && ssh-keygen -R 140.82.121.3 -f ~/.ssh/known_hosts || true && ssh-keygen -R 140.82.121.4 -f ~/.ssh/known_hosts || true && ssh-keyscan -t rsa,ecdsa,ed25519 -H github.com >> ~/.ssh/known_hosts && chmod 600 ~/.ssh/known_hosts'
-            sudo -u edrsr bash -lc 'cd /opt/edrsr-ai && GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new -o CheckHostIP=no" git fetch --prune && git reset --hard origin/main && npm install && npm --prefix server install && npm --prefix web install && npm --prefix web run build'
+            sudo -u edrsr bash -lc 'cd /opt/edrsr-ai && GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new -o CheckHostIP=no" git fetch --prune && git reset --hard origin/main && npm install && npm --prefix server install && npm --prefix web install && npm --prefix web run build && npm run test:selfcheck && node server/scripts/test-prompts.js'
             sudo mkdir -p /var/www/edrsr-ai-app
             sudo rsync -a --delete /opt/edrsr-ai/web/dist/ /var/www/edrsr-ai-app/
             systemctl restart edrsr-ai

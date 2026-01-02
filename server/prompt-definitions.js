@@ -99,7 +99,7 @@ export const DEFAULT_PROMPT_DEFINITIONS = {
 export const PROMPT_GROUPS = PROMPT_GROUPS_I18N.uk;
 export const PROMPT_DESCRIPTIONS = PROMPT_DESCRIPTIONS_I18N.uk;
 
-const isCustomGroup = (label, prompts) => {
+function isCustomGroup(label, prompts) {
   if (prompts && Object.prototype.hasOwnProperty.call(prompts, 'custom')) {
     return true;
   }
@@ -109,7 +109,7 @@ const isCustomGroup = (label, prompts) => {
     normalized.includes('индивиду') ||
     normalized.includes('custom')
   );
-};
+}
 
 export function orderPromptGroups(groups) {
   if (!groups || typeof groups !== 'object') return groups;
