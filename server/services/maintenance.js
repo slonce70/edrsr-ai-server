@@ -1,4 +1,5 @@
-import dbService from './dbService.js';
+import cacheService from './cacheService.js';
+import promptService from './promptService.js';
 import { logger } from '../utils.js';
 
 let cleanupTimer = null;
@@ -20,7 +21,7 @@ export function startCacheCleanupService() {
 
   const runOnce = async () => {
     try {
-      const deleted = await dbService.cleanupOldCacheEntriesOptimized(maxEntries);
+      const deleted = await cacheService.cleanupOldCacheEntriesOptimized(maxEntries);
       logger.debug(`[MAINTENANCE] Cache cleanup run completed. Deleted: ${deleted}`);
     } catch (e) {
       logger.warn('[MAINTENANCE] Cache cleanup error:', e.message);
@@ -34,7 +35,7 @@ export function startCacheCleanupService() {
       );
       const now = Date.now();
       if (intervalMs > 0 && now - promptAuditLastRun >= intervalMs) {
-        const removed = await dbService.cleanupPromptAuditLogs(retentionDays);
+        const removed = await promptService.cleanupPromptAuditLogs(retentionDays);
         promptAuditLastRun = now;
         if (removed > 0) {
           logger.debug(`[MAINTENANCE] Prompt audit cleanup deleted: ${removed}`);

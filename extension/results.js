@@ -413,8 +413,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       port.postMessage({ type: 'RETRY_JOB', payload: { jobId: jobIdToRetry } });
       // Optionally, update UI to show it's retrying
       elements.analysisResult.innerHTML = `<p>${t('results.retryingJob')}</p>`;
-      elements.statusBadge.textContent = getStatusLabel('queued');
-      elements.statusBadge.className = 'status-badge status-queued';
+      elements.statusBadge.textContent = getStatusLabel('retrying');
+      elements.statusBadge.className = 'status-badge status-retrying';
     }
   }
 

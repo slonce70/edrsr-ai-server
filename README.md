@@ -3,11 +3,11 @@
 **A professional system for collecting and analyzing court decisions from the EDRSR using Gemini AI.**
 
 [![Status](https://img.shields.io/badge/Status-Production%20Ready-brightgreen)]()
-[![Version](https://img.shields.io/badge/Version-2.0.2-blue)]()
+[![Version](https://img.shields.io/badge/Version-2.0.3-blue)]()
 [![AI](https://img.shields.io/badge/AI-Gemini%203%20Pro%20%2B%202.5%20Flash-orange)]()
 [![Database](https://img.shields.io/badge/Database-PostgreSQL-blue)]()
 
-This is a comprehensive system for automatically collecting court decisions from the Unified State Register of Court Decisions (ЄДРСР) with intelligent analysis via Gemini AI. It includes a professional Chrome extension with a real-time interface and a powerful backend with asynchronous job processing.
+This is a comprehensive system for automatically collecting court decisions from the Unified State Register of Court Decisions (ЄДРСР) with intelligent analysis via Gemini AI. It includes a professional Chrome extension, a React web portal, an admin UI, and a backend with asynchronous job processing.
 
 ## 🎯 **Project Status: PRODUCTION READY**
 
@@ -32,12 +32,20 @@ The system is production‑ready and deployed on a VPS with a local PostgreSQL d
 
 ## 📁 **Project Architecture**
 
-The project is a monorepo containing the `server` and `extension` directories.
+The project is a monorepo with four runtime surfaces on top of a shared backend:
 
-- **`server/`**: The backend, built with Node.js and Express. It handles the scraping, AI analysis, and database interactions.
-- **`extension/`**: The Chrome extension, built with Vanilla JS. It provides the user interface for interacting with the system.
-- **`scripts/`**: Contains build scripts for the project.
-- **`ROADMAP.md`**: The project's detailed development plan.
+- **`server/`**: Node.js + Express backend with Postgres-backed jobs, queue/lease recovery, WebSocket updates, prompt/workspace/matter/share APIs, and the static admin UI.
+- **`web/`**: React + TypeScript portal for analyses, chat, prompts, workspaces, matters, and share links.
+- **`extension/`**: Chrome MV3 extension for collection, progress tracking, prompts, and report export directly from the registry pages.
+- **`server/public/admin/`**: Admin dashboard for operations, users, queue recovery, cleanup, and audit views.
+- **`scripts/`**: Build and maintenance scripts, including production extension packaging.
+
+Backend source-of-truth layers:
+
+- **Routes**: `server/routes/` exposes public, portal, worker, chat, and admin HTTP APIs.
+- **Services**: `server/services/` contains bounded-context services such as `promptService`, `collaborationService`, `jobQueryService`, `jobWriteService`, `queueService`, `chatService`, and `cacheService`.
+- **Compatibility facade**: `server/services/dbService.js` remains as a transitional facade for legacy callers during the refactor.
+- **Queue/worker**: `server/worker.js` + `server/websocket.js` process jobs and broadcast realtime state.
 
 ## ⚙️ **Installation and Setup**
 
@@ -52,7 +60,8 @@ The project is a monorepo containing the `server` and `extension` directories.
 ```bash
 # Install dependencies
 npm install
-cd server && npm install
+npm --prefix server install
+npm --prefix web install
 
 # Setup PostgreSQL database (local VPS recommended)
 createdb edrsr_ai
@@ -105,11 +114,21 @@ cp server/.env.example server/.env
 # Development mode (no memory limits)
 npm run dev
 
+# Web portal (Vite dev server)
+npm run web:dev
+
 # Production mode with memory optimization (manual GC + heap cap)
 npm run start:gc
 ```
 
 **Memory Optimization**: The production mode (`start:gc`) enables manual garbage collection and sets a heap limit (configured via `MAX_OLD_SPACE_MB`).
+
+Portal/frontend checks:
+
+```bash
+npm run web:lint
+npm run web:build
+```
 
 ### **Production URLs (VPS)**
 - API: `https://edrsr-ai-server.fun/api`
@@ -154,11 +173,12 @@ For Chrome Web Store publishing, use the generated `.zip` archive.
 1.  **Start the server**: `npm run dev` (development) or `npm run start:gc` (production)
 2.  **Open EDRSR**: Navigate to [reyestr.court.gov.ua](https://reyestr.court.gov.ua)
 3.  **Sign in**: Open the extension popup → tab "🔐 Вхід" to log in or sign up. If email confirmation is enabled, confirm and then sign in.
-4.  **Analyze**: Click the "🤖 Analyze with AI" button on the page.
-4.  **Track Progress**: See real-time updates in the extension popup with memory usage monitoring.
-5.  **Get Results**: Receive a Markdown report with the analysis.
-6.  **Download Reports**: Choose between TXT (compact) or PDF (visual) formats.
-7.  **Per‑user history**: Job history and statuses are visible only for the signed‑in account.
+4.  **Analyze**: Click the "🤖 Analyze with AI" button on the page or start a run from the web portal.
+5.  **Track Progress**: See real-time updates in the extension popup or web portal with memory usage monitoring.
+6.  **Get Results**: Receive a Markdown report with the analysis.
+7.  **Download Reports**: Choose between TXT (compact) or PDF (visual) formats.
+8.  **Collaborate**: Use workspaces, matters, shared prompts, and public share links in the portal.
+9.  **Per‑user history**: Job history and statuses are visible only for the signed‑in account or authorized workspace members.
 
 ## 🔧 **Performance & Optimization**
 
@@ -181,6 +201,7 @@ For Chrome Web Store publishing, use the generated `.zip` archive.
 - **Documentation**: 
   - [QUICK_COMMANDS.md](./docs/QUICK_COMMANDS.md) - **🚀 Быстрые команды для ежедневного использования**
   - [API_REFERENCE.md](./docs/API_REFERENCE.md) - **🔌 Документация актуальных API эндпоинтов**
+  - [BACKEND_ARCHITECTURE.md](./docs/BACKEND_ARCHITECTURE.md) - **🏗️ Архитектурная карта backend и service boundaries**
   - [ENVIRONMENT_VARIABLES.md](./docs/ENVIRONMENT_VARIABLES.md) - **🌍 Переменные окружения**
   - [ADMIN_SCRIPTS.md](./docs/ADMIN_SCRIPTS.md) - **🛠️ Админские скрипты**
   - [ADMIN_SETUP.md](./docs/ADMIN_SETUP.md) - **Настройка админки**

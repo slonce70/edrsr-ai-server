@@ -23,6 +23,8 @@ export const translations = {
       prompts: 'Промпти',
       shareLinks: 'Посилання',
       settings: 'Налаштування',
+      openMenu: 'Відкрити меню',
+      closeMenu: 'Закрити меню',
     },
     common: {
       loading: 'Завантаження...',
@@ -58,9 +60,12 @@ export const translations = {
     },
     status: {
       queued: 'У черзі',
+      retrying: 'Повтор',
+      processing: 'Обробка',
       downloading: 'Завантаження',
       analyzing: 'Аналіз',
       completed: 'Завершено',
+      error: 'Помилка',
       failed: 'Помилка',
       cancelled: 'Скасовано',
       pending: 'Очікує',
@@ -87,6 +92,7 @@ export const translations = {
       signUp: 'Створити акаунт',
       footer: 'Потрібен доступ? Попросіть адміністратора активувати ваш акаунт.',
       magicSent: 'Магічне посилання надіслано. Перевірте пошту.',
+      signupSent: 'Лист для підтвердження надіслано. Перевірте пошту.',
       resetSent: 'Лист для відновлення надіслано. Перевірте пошту.',
     },
     reset: {
@@ -295,6 +301,9 @@ export const translations = {
     errors: {
       invalidCredentials: 'Невірний email або пароль.',
       emailNotConfirmed: 'Email не підтверджено.',
+      invalidEmail: 'Невірна email-адреса.',
+      weakPassword: 'Пароль закороткий. Мінімум 6 символів.',
+      userAlreadyExists: 'Цей email вже зареєстрований. Спробуйте увійти.',
       rateLimited: 'Забагато спроб. Спробуйте пізніше.',
       passwordMismatch: 'Паролі не збігаються.',
       generic: 'Сталася помилка. Спробуйте ще раз.',
@@ -312,6 +321,8 @@ export const translations = {
       prompts: 'Промпты',
       shareLinks: 'Ссылки',
       settings: 'Настройки',
+      openMenu: 'Открыть меню',
+      closeMenu: 'Закрыть меню',
     },
     common: {
       loading: 'Загрузка...',
@@ -347,9 +358,12 @@ export const translations = {
     },
     status: {
       queued: 'В очереди',
+      retrying: 'Повтор',
+      processing: 'Обработка',
       downloading: 'Загрузка',
       analyzing: 'Анализ',
       completed: 'Завершено',
+      error: 'Ошибка',
       failed: 'Ошибка',
       cancelled: 'Отменено',
       pending: 'Ожидает',
@@ -376,6 +390,7 @@ export const translations = {
       signUp: 'Создать аккаунт',
       footer: 'Нужен доступ? Попросите администратора активировать аккаунт.',
       magicSent: 'Ссылка отправлена. Проверьте почту.',
+      signupSent: 'Письмо для подтверждения отправлено. Проверьте почту.',
       resetSent: 'Письмо для восстановления отправлено. Проверьте почту.',
     },
     reset: {
@@ -584,6 +599,9 @@ export const translations = {
     errors: {
       invalidCredentials: 'Неверный email или пароль.',
       emailNotConfirmed: 'Email не подтвержден.',
+      invalidEmail: 'Некорректный email.',
+      weakPassword: 'Слишком короткий пароль. Минимум 6 символов.',
+      userAlreadyExists: 'Этот email уже зарегистрирован. Попробуйте войти.',
       rateLimited: 'Слишком много попыток. Попробуйте позже.',
       passwordMismatch: 'Пароли не совпадают.',
       generic: 'Произошла ошибка. Попробуйте еще раз.',

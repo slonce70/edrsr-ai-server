@@ -52,6 +52,8 @@ export async function apiRequest<T = unknown>(path: string, options: RequestOpti
   if (body !== undefined) headers['Content-Type'] = 'application/json';
 
   const finalQuery = { ...(query || {}) } as Record<string, QueryValue>;
+  // Portal routes keep stable REST paths and pass workspace context via query.
+  // Callers can still override this explicitly by providing query.workspaceId.
   if (workspaceId && typeof finalQuery.workspaceId === 'undefined') {
     finalQuery.workspaceId = workspaceId;
   }

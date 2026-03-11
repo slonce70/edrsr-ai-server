@@ -15,6 +15,7 @@ const buildDir = path.join(projectRoot, 'extension-build');
 // Defaults (can be overridden via env)
 const PROD_API_URL = process.env.EXT_PROD_API_URL || 'https://edrsr-ai-server.fun';
 const DEV_API_URL = process.env.EXT_DEV_API_URL || 'http://localhost:4000';
+const SYNC_PROJECT_VERSION_ON_BUILD = process.env.SYNC_PROJECT_VERSION_ON_BUILD === 'true';
 
 // --- Start of Edit ---
 const PROD_WS_URL = process.env.EXT_PROD_WS_URL || 'wss://edrsr-ai-server.fun';
@@ -100,38 +101,45 @@ async function build() {
     await fs.writeFile(manifestPath, JSON.stringify(manifestJson, null, 2), 'utf-8');
     console.log('   ✅ Patched manifest.json');
 
-    // 5.1.1 Sync project versions (root + server) and README badge with manifest version
-    try {
-      const newVersion = manifestJson.version;
-      // Update root package.json
-      const rootPkgPath = path.join(projectRoot, 'package.json');
-      const rootPkg = JSON.parse(await fs.readFile(rootPkgPath, 'utf-8'));
-      if (rootPkg.version !== newVersion) {
-        rootPkg.version = newVersion;
-        await fs.writeFile(rootPkgPath, JSON.stringify(rootPkg, null, 2) + '\n', 'utf-8');
-        console.log(`   ✅ Synced root package.json version → ${newVersion}`);
-      }
-      // Update server package.json
-      const serverPkgPath = path.join(projectRoot, 'server', 'package.json');
-      const serverPkg = JSON.parse(await fs.readFile(serverPkgPath, 'utf-8'));
-      if (serverPkg.version !== newVersion) {
-        serverPkg.version = newVersion;
-        await fs.writeFile(serverPkgPath, JSON.stringify(serverPkg, null, 2) + '\n', 'utf-8');
-        console.log(`   ✅ Synced server/package.json version → ${newVersion}`);
-      }
-      // Update README version badge if present
-      const readmePath = path.join(projectRoot, 'README.md');
-      if (await fs.pathExists(readmePath)) {
-        let readme = await fs.readFile(readmePath, 'utf-8');
-        const badgeRe = /(https:\/\/img\.shields\.io\/badge\/Version-)([^-)]+)(-blue)/;
-        if (badgeRe.test(readme)) {
-          readme = readme.replace(badgeRe, `$1${newVersion}$3`);
-          await fs.writeFile(readmePath, readme, 'utf-8');
-          console.log('   ✅ Updated README version badge');
+    // 5.1.1 Optional version sync for release flows only.
+    // A regular extension build must not mutate repo metadata or docs.
+    if (SYNC_PROJECT_VERSION_ON_BUILD) {
+      try {
+        const newVersion = manifestJson.version;
+        // Update root package.json
+        const rootPkgPath = path.join(projectRoot, 'package.json');
+        const rootPkg = JSON.parse(await fs.readFile(rootPkgPath, 'utf-8'));
+        if (rootPkg.version !== newVersion) {
+          rootPkg.version = newVersion;
+          await fs.writeFile(rootPkgPath, JSON.stringify(rootPkg, null, 2) + '\n', 'utf-8');
+          console.log(`   ✅ Synced root package.json version → ${newVersion}`);
         }
+        // Update server package.json
+        const serverPkgPath = path.join(projectRoot, 'server', 'package.json');
+        const serverPkg = JSON.parse(await fs.readFile(serverPkgPath, 'utf-8'));
+        if (serverPkg.version !== newVersion) {
+          serverPkg.version = newVersion;
+          await fs.writeFile(serverPkgPath, JSON.stringify(serverPkg, null, 2) + '\n', 'utf-8');
+          console.log(`   ✅ Synced server/package.json version → ${newVersion}`);
+        }
+        // Update README version badge if present
+        const readmePath = path.join(projectRoot, 'README.md');
+        if (await fs.pathExists(readmePath)) {
+          let readme = await fs.readFile(readmePath, 'utf-8');
+          const badgeRe = /(https:\/\/img\.shields\.io\/badge\/Version-)([^-)]+)(-blue)/;
+          if (badgeRe.test(readme)) {
+            readme = readme.replace(badgeRe, `$1${newVersion}$3`);
+            await fs.writeFile(readmePath, readme, 'utf-8');
+            console.log('   ✅ Updated README version badge');
+          }
+        }
+      } catch (e) {
+        console.warn('   ⚠️ Version sync step warning:', e.message);
       }
-    } catch (e) {
-      console.warn('   ⚠️ Version sync step warning:', e.message);
+    } else {
+      console.log(
+        '   ℹ️ Skipping project version sync (set SYNC_PROJECT_VERSION_ON_BUILD=true to enable)'
+      );
     }
 
     // 5.1. Download packaged fonts for Unicode PDF
