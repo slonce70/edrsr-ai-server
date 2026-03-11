@@ -5,29 +5,22 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 import { createClient } from '@supabase/supabase-js';
+import collaborationService from '../services/collaborationService.js';
 import dbService from '../services/dbService.js';
+import jobQueryService from '../services/jobQueryService.js';
+import jobWriteService from '../services/jobWriteService.js';
+import queueService from '../services/queueService.js';
 import { attachUser, requireAuthExcept } from '../middleware/auth.js';
-import { requireAdmin } from '../middleware/adminAuth.js';
-import {
-  limitCollect,
-  limitRetry,
-  limitHealthLight,
-  limitPromptDefinitions,
-} from '../middleware/rateLimit.js';
-import {
-  validateCollectRequest,
-  validateChatMessage,
-  validatePromptCreate,
-  validatePromptUpdate,
-  validatePromptImport,
-} from '../middleware/validators.js';
+import { limitCollect, limitRetry } from '../middleware/rateLimit.js';
+import { validateCollectRequest } from '../middleware/validators.js';
 import { adminLoginRateLimit, checkBlocked, trackFailedLogin } from '../middleware/security.js';
-import { answerChatQuestion, testGeminiConnection } from '../gemini.js';
 import jobQueue from '../queue.js';
 import { sendUpdateToJobOwner } from '../websocket.js';
 import { logger, isValidEDRSRUrl } from '../utils.js';
-import { orderPromptDefinitions } from '../prompt-definitions.js';
-import { APP_VERSION } from '../version.js';
+import createChatRouter from './chat.js';
+import createJobQueriesRouter from './job-queries.js';
+import createOperationsRouter from './operations.js';
+import createPromptsRouter from './prompts.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -177,24 +170,10 @@ function generateInitialTitle({ linksCount = 0, prompt = null, promptLabel = nul
   return `Анализ от ${today}${suffix}`;
 }
 
-function formatPromptsMeta(meta) {
-  const count = Number.isFinite(meta?.count) ? meta.count : 0;
-  const lastUpdated = meta?.lastUpdated ? new Date(meta.lastUpdated).toISOString() : null;
-  const etag = `W/"${count}:${lastUpdated || '0'}"`;
-  return { count, lastUpdated, etag };
-}
-
-function formatPromptDefinitionsMeta(meta) {
-  const version = Number.isFinite(meta?.version) ? meta.version : 1;
-  const lastUpdated = meta?.lastUpdated ? new Date(meta.lastUpdated).toISOString() : null;
-  const etag = `W/"v${version}:${lastUpdated || '0'}"`;
-  return { version, lastUpdated, etag };
-}
-
 async function resolveWorkspaceFromQuery(req, res) {
   const workspaceId = typeof req.query.workspaceId === 'string' ? req.query.workspaceId : null;
   if (!workspaceId) return null;
-  const role = await dbService.getWorkspaceRole(req.user?.id, workspaceId);
+  const role = await collaborationService.getWorkspaceRole(req.user?.id, workspaceId);
   if (!role) {
     res.status(403).json({ error: 'Недостаточно прав доступа' });
     return null;
@@ -204,10 +183,10 @@ async function resolveWorkspaceFromQuery(req, res) {
 
 async function refreshHeuristicTitle(jobId) {
   try {
-    const userId = await dbService.getJobOwnerId(jobId);
-    const summary = await dbService.summarizeJobForTitle(jobId, userId || null);
+    const userId = await jobQueryService.getJobOwnerId(jobId);
+    const summary = await jobQueryService.summarizeJobForTitle(jobId, userId || null);
     const { processed, total, topArticle, topCaseType } = summary;
-    const status = await dbService.getJobStatus(jobId);
+    const status = await jobQueryService.getJobStatus(jobId);
     if (!total || total < 1) return false;
     let base = '';
     if (topArticle) base = `Ст. ${topArticle}`;
@@ -218,7 +197,7 @@ async function refreshHeuristicTitle(jobId) {
     const suffix =
       status === 'completed' ? (processed ? ` — ${processed} из ${total}` : '') : ` — ${total}`;
     const title = truncate(`${base}${suffix}`, 70);
-    const ok = await dbService.updateAutoTitleIfAllowed(jobId, title, 'heuristic');
+    const ok = await jobWriteService.updateAutoTitleIfAllowed(jobId, title, 'heuristic');
     if (ok) {
       const updatedJob = await dbService.getJob(jobId, userId || null);
       // Send light update to clients if job still exists
@@ -246,7 +225,7 @@ async function refreshHeuristicTitle(jobId) {
 function startWorker({ jobId, links, cookie, prompt, claimed = false }) {
   // If the job wasn't claimed via DB, attempt to lock it now (best-effort)
   if (!claimed) {
-    dbService
+    queueService
       .lockJob(jobId, WORKER_ID)
       .then((locked) => {
         if (!locked) logger.warn(`[${jobId}] Could not acquire DB lock before start`);
@@ -269,12 +248,12 @@ function startWorker({ jobId, links, cookie, prompt, claimed = false }) {
     const jobDataToUpdate = { progress, ...extra };
     let updatedJob = null;
     try {
-      updatedJob = await dbService.updateJobStatus(jobId, status, jobDataToUpdate);
+      updatedJob = await jobWriteService.updateJobStatus(jobId, status, jobDataToUpdate);
     } catch (e) {
       logger.warn(`[${jobId}] updateStatus DB error: ${e.message}`);
     }
     // Heartbeat to extend lease while processing
-    dbService.heartbeatJob(jobId, WORKER_ID).catch(() => {});
+    queueService.heartbeatJob(jobId, WORKER_ID).catch(() => {});
 
     if (updatedJob) {
       // Send light updates during progress to reduce payload; full data only on completion
@@ -343,7 +322,7 @@ function startWorker({ jobId, links, cookie, prompt, claimed = false }) {
     } else if (msg.type === 'jobSuccess') {
       await updateStatus('analyzing', 95, 'Контроль качества...');
       await updateStatus('completed', 100, 'Анализ успешно завершён!', msg.payload);
-      await dbService.clearJobLock(jobId);
+      await queueService.clearJobLock(jobId);
       // Удаляем воркер из отслеживания
       const workerInfo = activeWorkers.get(jobId);
       if (workerInfo) {
@@ -363,7 +342,7 @@ function startWorker({ jobId, links, cookie, prompt, claimed = false }) {
         error_message: errorMessage,
         duration,
       });
-      await dbService.clearJobLock(jobId);
+      await queueService.clearJobLock(jobId);
       // Удаляем воркер из отслеживания
       const workerInfo = activeWorkers.get(jobId);
       if (workerInfo) {
@@ -380,7 +359,7 @@ function startWorker({ jobId, links, cookie, prompt, claimed = false }) {
       await updateStatus('error', 0, `Задача отменена: ${message}`, {
         error_message: message,
       });
-      await dbService.clearJobLock(jobId);
+      await queueService.clearJobLock(jobId);
       // Удаляем воркер из отслеживания
       const workerInfo = activeWorkers.get(jobId);
       if (workerInfo) {
@@ -400,7 +379,7 @@ function startWorker({ jobId, links, cookie, prompt, claimed = false }) {
     await updateStatus('error', 0, `Критическая ошибка: ${error.message}`, {
       error_message: error.message,
     });
-    await dbService.clearJobLock(jobId);
+    await queueService.clearJobLock(jobId);
   });
 
   worker.on('exit', (code) => {
@@ -410,7 +389,7 @@ function startWorker({ jobId, links, cookie, prompt, claimed = false }) {
       jobQueue.endProcessing();
       logger.info(`[${jobId}] Воркер завершился аварийно. Проверяю очередь...`);
 
-      dbService.clearJobLock(jobId).catch(() => {});
+      queueService.clearJobLock(jobId).catch(() => {});
       processQueue();
     } else {
       logger.info(`[${jobId}] Воркер завершил работу корректно.`);
@@ -495,7 +474,7 @@ function forceTerminateWorker(jobId, reason = 'Принудительное за
         activeWorkers.delete(jobId);
 
         // Освобождаем блокировку в БД
-        dbService.clearJobLock(jobId).catch((err) => {
+        queueService.clearJobLock(jobId).catch((err) => {
           logger.error(
             `[FORCE_TERMINATE] Ошибка очистки блокировки в БД для ${jobId}:`,
             err.message
@@ -529,9 +508,9 @@ async function processQueue() {
 
   // Черга тепер повністю в БД - завжди беремо через claimNextJob()
   try {
-    const claimed = await dbService.claimNextJob(WORKER_ID);
+    const claimed = await queueService.claimNextJob(WORKER_ID);
     if (claimed && claimed.id) {
-      const links = await dbService.getJobLinks(claimed.id, claimed.user_id || null);
+      const links = await jobQueryService.getJobLinks(claimed.id, claimed.user_id || null);
       // Спробувати отримати cookie з кешу (якщо job був щойно створений)
       const cachedCookie = jobQueue.getCachedCookie(claimed.id);
       const cookie = cachedCookie || '';
@@ -675,8 +654,8 @@ function startWorkerCleanupService() {
 async function recoverStuckJobs() {
   try {
     const [stuckCount, failedCount] = await Promise.all([
-      dbService.recoverStuckJobs(),
-      dbService.retryFailedJobs(),
+      queueService.recoverStuckJobs(),
+      queueService.retryFailedJobs(),
     ]);
 
     const totalRecovered = stuckCount + failedCount;
@@ -724,7 +703,7 @@ function startPeriodicRecovery() {
 function initializeMonitoringServices() {
   // Первоначальное восстановление при старте
   // 1) Вернуть в очередь задания, "зависшие" до рестарта (сервер упал/перезапущен)
-  dbService
+  queueService
     .recoverJobsAfterServerRestart(SERVER_STARTED_AT)
     .then((recovered) => {
       if (recovered > 0) setTimeout(() => processQueue(), 500);
@@ -809,13 +788,13 @@ export default function (clients) {
   }
 
   // Queue recovery on startup + periodic pump (throttled, quiet)
-  dbService.recoverStuckJobs().catch((e) => {
+  queueService.recoverStuckJobs().catch((e) => {
     logger.warn('[QUEUE] Initial recovery failed:', e.message);
   });
   const PUMP_INTERVAL = parseInt(process.env.QUEUE_PUMP_INTERVAL_MS || '60000', 10);
   setInterval(async () => {
     try {
-      const recovered = await dbService.recoverStuckJobs();
+      const recovered = await queueService.recoverStuckJobs();
       if (recovered > 0) {
         processQueue();
       }
@@ -910,23 +889,29 @@ export default function (clients) {
         typeof req.body.workspaceId === 'string' ? req.body.workspaceId : null;
       if (req.user?.id) {
         if (requestedWorkspaceId) {
-          const role = await dbService.getWorkspaceRole(req.user.id, requestedWorkspaceId);
+          const role = await collaborationService.getWorkspaceRole(
+            req.user.id,
+            requestedWorkspaceId
+          );
           if (!role) return res.status(403).json({ error: 'Недостаточно прав доступа' });
           workspace = { id: requestedWorkspaceId, role };
         } else {
-          workspace = await dbService.ensureWorkspaceForUser(req.user.id, req.user.email);
+          workspace = await collaborationService.ensureWorkspaceForUser(
+            req.user.id,
+            req.user.email
+          );
         }
       }
       const matterId = typeof req.body.matterId === 'string' ? req.body.matterId : null;
       if (matterId && workspace) {
-        const matter = await dbService.getMatter(matterId, workspace.id);
+        const matter = await collaborationService.getMatter(matterId, workspace.id);
         if (!matter) return res.status(404).json({ error: 'Matter not found' });
       }
 
       await dbService.createJob(jobData, req.user?.id || null, workspace?.id || null, matterId);
       const initialJobState = await dbService.getJob(jobId, req.user?.id || null);
 
-      await dbService.updateJobStatus(jobId, 'queued', { progress: 0 });
+      await jobWriteService.updateJobStatus(jobId, 'queued', { progress: 0 });
       sendUpdateToJobOwner(jobId, {
         ...initialJobState,
         status: 'queued',
@@ -943,131 +928,7 @@ export default function (clients) {
       next(error);
     }
   });
-
-  // --- Prompt Definitions (public) ---
-  router.get('/prompts/definitions', limitPromptDefinitions, async (req, res, next) => {
-    try {
-      const meta = await dbService.getPromptDefinitionsMeta();
-      const { etag, lastUpdated, version } = formatPromptDefinitionsMeta(meta);
-      const ifNoneMatch = req.headers['if-none-match'];
-      if (ifNoneMatch && ifNoneMatch === etag) {
-        res.set('ETag', etag);
-        return res.status(304).end();
-      }
-
-      const defs = await dbService.getPromptDefinitions();
-      res.set('ETag', etag);
-      return res.json({
-        success: true,
-        definitions: orderPromptDefinitions(defs?.payload || null),
-        version: defs?.version ?? version,
-        lastUpdated: defs?.updatedAt || lastUpdated,
-      });
-    } catch (error) {
-      return next(error);
-    }
-  });
-
-  // --- User Prompts ---
-  router.get('/prompts', async (req, res, next) => {
-    try {
-      const userId = req.user?.id;
-      const meta = await dbService.getPromptsMeta(userId);
-      const { etag, lastUpdated } = formatPromptsMeta(meta);
-
-      const ifNoneMatch = req.headers['if-none-match'];
-      if (ifNoneMatch && ifNoneMatch === etag) {
-        res.set('ETag', etag);
-        return res.status(304).end();
-      }
-
-      const prompts = await dbService.listPrompts(userId);
-      res.set('ETag', etag);
-      return res.json({ success: true, prompts, lastUpdated });
-    } catch (error) {
-      return next(error);
-    }
-  });
-
-  router.post('/prompts', validatePromptCreate, async (req, res, next) => {
-    try {
-      const userId = req.user?.id;
-      const { name, content } = req.body || {};
-      const result = await dbService.createPrompt(userId, name, content);
-      const meta = await dbService.getPromptsMeta(userId);
-      const { etag, lastUpdated } = formatPromptsMeta(meta);
-      res.set('ETag', etag);
-      return res.json({
-        success: true,
-        prompt: result.prompt,
-        renamed: result.renamed,
-        lastUpdated,
-        etag,
-      });
-    } catch (error) {
-      return next(error);
-    }
-  });
-
-  router.patch('/prompts/:id', validatePromptUpdate, async (req, res, next) => {
-    try {
-      const userId = req.user?.id;
-      const promptId = req.params.id;
-      const result = await dbService.updatePrompt(userId, promptId, req.body || {});
-      if (!result?.prompt) {
-        return res.status(404).json({ error: 'Промпт не найден' });
-      }
-      const meta = await dbService.getPromptsMeta(userId);
-      const { etag, lastUpdated } = formatPromptsMeta(meta);
-      res.set('ETag', etag);
-      return res.json({
-        success: true,
-        prompt: result.prompt,
-        renamed: result.renamed,
-        lastUpdated,
-        etag,
-      });
-    } catch (error) {
-      return next(error);
-    }
-  });
-
-  router.delete('/prompts/:id', async (req, res, next) => {
-    try {
-      const userId = req.user?.id;
-      const promptId = req.params.id;
-      const ok = await dbService.deletePrompt(userId, promptId);
-      if (!ok) {
-        return res.status(404).json({ error: 'Промпт не найден' });
-      }
-      const meta = await dbService.getPromptsMeta(userId);
-      const { etag, lastUpdated } = formatPromptsMeta(meta);
-      res.set('ETag', etag);
-      return res.json({ success: true, lastUpdated, etag });
-    } catch (error) {
-      return next(error);
-    }
-  });
-
-  router.post('/prompts/import', validatePromptImport, async (req, res, next) => {
-    try {
-      const userId = req.user?.id;
-      const { prompts } = req.body || {};
-      const result = await dbService.importPrompts(userId, prompts);
-      const meta = await dbService.getPromptsMeta(userId);
-      const { etag, lastUpdated } = formatPromptsMeta(meta);
-      res.set('ETag', etag);
-      return res.json({
-        success: true,
-        imported: result.imported,
-        renamedCount: result.renamedCount,
-        lastUpdated,
-        etag,
-      });
-    } catch (error) {
-      return next(error);
-    }
-  });
+  router.use(createPromptsRouter());
 
   router.post('/retry/:jobId', limitRetry, async (req, res, next) => {
     try {
@@ -1093,7 +954,7 @@ export default function (clients) {
         id: newJobId,
         title: defaultTitle,
         status: 'queued',
-        totalLinks: originalJob.totalLinks,
+        totalLinks: originalJob.total_links || originalJob.totalLinks || originalJob.links.length,
         links: originalJob.links.map((link) => ({
           url: link.url,
           decisionDate: link.decision_date,
@@ -1160,14 +1021,14 @@ export default function (clients) {
 
       let updatedJob = null;
       if (workspace) {
-        const job = await dbService.getJobLightForWorkspace(id, workspace.id);
+        const job = await jobQueryService.getJobLightForWorkspace(id, workspace.id);
         if (!job) return res.status(404).json({ error: 'Задание не найдено' });
         if (workspace.role === 'member' && job.user_id && job.user_id !== req.user.id) {
           return res.status(403).json({ error: 'Недостаточно прав доступа' });
         }
-        updatedJob = await dbService.updateJobTitleForWorkspace(id, title, workspace.id);
+        updatedJob = await jobWriteService.updateJobTitleForWorkspace(id, title, workspace.id);
       } else {
-        updatedJob = await dbService.updateJobTitle(id, title, req.user?.id || null);
+        updatedJob = await jobWriteService.updateJobTitle(id, title, req.user?.id || null);
       }
 
       if (!updatedJob) {
@@ -1199,13 +1060,13 @@ export default function (clients) {
       const wantPaged = typeof page !== 'undefined' || status || search;
       if (limit === 'all' && !wantPaged) {
         const jobs = workspace
-          ? await dbService.getRecentJobsForWorkspace(workspace.id, 'all')
-          : await dbService.getRecentJobs('all', req.user?.id || null);
+          ? await jobQueryService.getRecentJobsForWorkspace(workspace.id, 'all')
+          : await jobQueryService.getRecentJobs('all', req.user?.id || null);
         return res.json({ success: true, jobs });
       }
 
       const pageNum = Math.max(1, parseInt(page, 10) || 1);
-      const result = await dbService.getJobsPage({
+      const result = await jobQueryService.getJobsPage({
         page: pageNum,
         limit: finalLimit,
         status: typeof status === 'string' ? status : '',
@@ -1243,14 +1104,14 @@ export default function (clients) {
       if (req.query.workspaceId && !workspace) return;
 
       if (workspace) {
-        const job = await dbService.getJobLightForWorkspace(id, workspace.id);
+        const job = await jobQueryService.getJobLightForWorkspace(id, workspace.id);
         if (!job) return res.status(404).json({ error: 'Задание не найдено' });
         if (workspace.role === 'member' && job.user_id && job.user_id !== req.user.id) {
           return res.status(403).json({ error: 'Недостаточно прав доступа' });
         }
-        await dbService.deleteJobForWorkspace(id, workspace.id);
+        await jobWriteService.deleteJobForWorkspace(id, workspace.id);
       } else {
-        await dbService.deleteJob(id, req.user?.id || null);
+        await jobWriteService.deleteJob(id, req.user?.id || null);
       }
       // Clean up chat session context and metadata for this job
       if (chatSessions.has(id)) chatSessions.delete(id);
@@ -1264,413 +1125,24 @@ export default function (clients) {
       next(error);
     }
   });
+  router.use(createJobQueriesRouter({ resolveWorkspaceFromQuery }));
 
-  router.get('/status/:id', async (req, res, next) => {
-    try {
-      const include = []
-        .concat(req.query.include || [])
-        .flat()
-        .map((s) => String(s).toLowerCase());
-      const wantAnalysis = include.includes('analysis');
-      const wantLinks = include.includes('links');
+  router.use(createChatRouter({ chatMeta, chatSessions, resolveWorkspaceFromQuery }));
 
-      const workspace = await resolveWorkspaceFromQuery(req, res);
-      if (req.query.workspaceId && !workspace) return;
-
-      const userId = workspace ? null : req.user?.id || null;
-      const base = workspace
-        ? await dbService.getJobLightForWorkspace(req.params.id, workspace.id)
-        : await dbService.getJobLight(req.params.id, userId);
-      if (!base) return res.status(404).json({ error: 'Задание не найдено' });
-
-      if (wantAnalysis) {
-        base.analysis = workspace
-          ? await dbService.getJobResultForWorkspace(req.params.id, workspace.id)
-          : await dbService.getJobResult(req.params.id, userId);
-      }
-      if (wantLinks) {
-        base.links = workspace
-          ? await dbService.getJobLinksLightForWorkspace(req.params.id, workspace.id)
-          : await dbService.getJobLinksLight(req.params.id, userId);
-      }
-
-      res.json(base);
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  // Analysis-only endpoint
-  router.get('/jobs/:jobId/analysis', async (req, res, next) => {
-    try {
-      const { jobId } = req.params;
-      const workspace = await resolveWorkspaceFromQuery(req, res);
-      if (req.query.workspaceId && !workspace) return;
-      const analysis = workspace
-        ? await dbService.getJobResultForWorkspace(jobId, workspace.id)
-        : await dbService.getJobResult(jobId, req.user?.id || null);
-      if (!analysis) return res.status(404).json({ error: 'Анализ для этого задания не найден.' });
-      res.json({ success: true, jobId, analysis });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  // Links content-only endpoint (for TXT download on demand)
-  router.get('/jobs/:jobId/links-content', async (req, res, next) => {
-    try {
-      const { jobId } = req.params;
-      const workspace = await resolveWorkspaceFromQuery(req, res);
-      if (req.query.workspaceId && !workspace) return;
-      const links = workspace
-        ? await dbService.getLinksContentForWorkspace(jobId, workspace.id)
-        : await dbService.getLinksContent(jobId, req.user?.id || null);
-      res.json({ success: true, jobId, links });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  // Endpoint для просмотра активных воркеров
-  router.get('/workers/active', requireAdmin, (req, res) => {
-    try {
-      const workersInfo = getActiveWorkersInfo();
-      res.json({
-        success: true,
-        timestamp: new Date().toISOString(),
-        ...workersInfo,
-      });
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: 'Ошибка получения информации о воркерах',
-        message: error.message,
-      });
-    }
-  });
-
-  // Endpoint для принудительного завершения воркера
-  router.post('/workers/:jobId/terminate', requireAdmin, (req, res) => {
-    try {
-      const { jobId } = req.params;
-      const { reason } = req.body;
-
-      const success = forceTerminateWorker(jobId, reason || 'Принудительное завершение через API');
-
-      if (success) {
-        res.json({
-          success: true,
-          message: `Воркер для задачи ${jobId} завершается...`,
-          jobId,
-        });
-      } else {
-        res.status(404).json({
-          success: false,
-          error: `Активный воркер для задачи ${jobId} не найден`,
-        });
-      }
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: 'Ошибка завершения воркера',
-        message: error.message,
-      });
-    }
-  });
-
-  // Endpoint для принудительного завершения всех активных воркеров
-  router.post('/workers/terminate-all', requireAdmin, (req, res) => {
-    try {
-      const { reason } = req.body;
-      const workersInfo = getActiveWorkersInfo();
-
-      if (workersInfo.count === 0) {
-        return res.json({
-          success: true,
-          message: 'Нет активных воркеров для завершения',
-          terminated: 0,
-        });
-      }
-
-      let terminatedCount = 0;
-      const terminationReason = reason || 'Массовое завершение через API';
-
-      for (const worker of workersInfo.workers) {
-        if (forceTerminateWorker(worker.jobId, terminationReason)) {
-          terminatedCount++;
-        }
-      }
-
-      res.json({
-        success: true,
-        message: `Завершается ${terminatedCount} из ${workersInfo.count} воркеров`,
-        terminated: terminatedCount,
-        total: workersInfo.count,
-      });
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: 'Ошибка массового завершения воркеров',
-        message: error.message,
-      });
-    }
-  });
-
-  // Endpoint для отримання статистики системи
-  router.get('/system/stats', requireAdmin, async (req, res) => {
-    try {
-      const workersInfo = getActiveWorkersInfo();
-      const memoryUsage = process.memoryUsage();
-
-      // Отримати кількість jobs в черзі з БД
-      let queuedJobsCount = 0;
-      try {
-        const result = await dbService.pool.query(
-          `SELECT COUNT(*) FROM jobs WHERE status IN ('queued', 'retrying')`
-        );
-        queuedJobsCount = parseInt(result.rows[0]?.count || 0, 10);
-      } catch (dbErr) {
-        logger.warn('[STATS] Не вдалося отримати кількість jobs з БД:', dbErr.message);
-      }
-
-      res.json({
-        success: true,
-        timestamp: new Date().toISOString(),
-        workers: {
-          active: workersInfo.count,
-          details: workersInfo.workers,
-        },
-        queue: {
-          length: queuedJobsCount,
-          isProcessing: !jobQueue.isIdle(),
-          cachedCookies: jobQueue.getCachedJobsCount(),
-        },
-        memory: {
-          heapUsed: Math.round(memoryUsage.heapUsed / 1024 / 1024),
-          heapTotal: Math.round(memoryUsage.heapTotal / 1024 / 1024),
-          rss: Math.round(memoryUsage.rss / 1024 / 1024),
-          external: Math.round(memoryUsage.external / 1024 / 1024),
-        },
-        uptime: process.uptime(),
-      });
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: 'Помилка отримання статистики системи',
-        message: error.message,
-      });
-    }
-  });
-
-  // Debug endpoint for chat-session state (requires auth)
-  router.get('/system/chat-sessions', requireAdmin, (req, res) => {
-    try {
-      const now = Date.now();
-      const items = Array.from(chatMeta.entries()).map(([jobId, meta]) => ({
-        jobId,
-        createdAt: meta?.createdAt || 0,
-        lastUsed: meta?.lastUsed || 0,
-        ageMs: meta?.lastUsed ? now - meta.lastUsed : now - (meta?.createdAt || 0),
-      }));
-      items.sort((a, b) => a.lastUsed - b.lastUsed);
-
-      const oldest = items[0] || null;
-      const newest = items[items.length - 1] || null;
-
-      res.json({
-        success: true,
-        config: {
-          CHAT_MAX_SESSIONS,
-          CHAT_TTL_MS,
-          CHAT_CLEANUP_INTERVAL_MS,
-        },
-        counts: {
-          sessions: chatSessions.size,
-          metas: chatMeta.size,
-        },
-        oldest,
-        newest,
-        sample: items.slice(0, 10),
-      });
-    } catch (error) {
-      res.status(500).json({ success: false, error: error.message });
-    }
-  });
-
-  // Endpoint для очищення черги
-  router.post('/queue/clear', requireAdmin, async (req, res) => {
-    try {
-      // Очистити кеш cookies
-      const cachedCount = jobQueue.getCachedJobsCount();
-      jobQueue.clearAllCookies();
-
-      // Скасувати всі queued jobs в БД (змінити статус на 'cancelled')
-      let cancelledCount = 0;
-      try {
-        const result = await dbService.pool.query(
-          `UPDATE jobs SET status = 'error', error_message = 'Скасовано адміністратором'
-           WHERE status IN ('queued', 'retrying')
-           RETURNING id`
-        );
-        cancelledCount = result.rowCount || 0;
-      } catch (dbErr) {
-        logger.warn('[QUEUE/CLEAR] Не вдалося скасувати jobs в БД:', dbErr.message);
-      }
-
-      res.json({
-        success: true,
-        message: `Чергу очищено. Скасовано ${cancelledCount} завдань, очищено ${cachedCount} cookies`,
-        cancelledJobs: cancelledCount,
-        clearedCookies: cachedCount,
-      });
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: 'Помилка очищення черги',
-        message: error.message,
-      });
-    }
-  });
-
-  router.post('/chat/:jobId', validateChatMessage, async (req, res, next) => {
-    try {
-      const { jobId } = req.params;
-      const { message } = req.body;
-      if (!message) return res.status(400).json({ error: 'Сообщение не может быть пустым' });
-
-      // 1. Получаем необходимый контекст (только при первом сообщении)
-      const workspace = await resolveWorkspaceFromQuery(req, res);
-      if (req.query.workspaceId && !workspace) return;
-      const analysis = workspace
-        ? await dbService.getJobResultForWorkspace(jobId, workspace.id)
-        : await dbService.getJobResult(jobId, req.user?.id || null);
-      if (!analysis) return res.status(404).json({ error: 'Анализ для этого задания не найден.' });
-
-      // 2. Обновляем историю в БД
-      await dbService.addChatMessage(jobId, 'user', message, req.user?.id || null);
-      const history = workspace
-        ? await dbService.getChatHistoryForWorkspace(jobId, workspace.id)
-        : await dbService.getChatHistory(jobId, req.user?.id || null);
-
-      // 3. Получаем ответ от AI с использованием сессии
-      const hadSessionBefore = chatSessions.has(jobId);
-      const answer = await answerChatQuestion(jobId, analysis, history, message, chatSessions);
-
-      // Обновляем/создаем метаданные сессии
-      const now = Date.now();
-      const current = chatMeta.get(jobId) || { createdAt: now, lastUsed: now };
-      chatMeta.set(jobId, {
-        createdAt: hadSessionBefore ? (current.createdAt ?? now) : now,
-        lastUsed: now,
-      });
-
-      // 4. Сохраняем ответ AI в БД
-      await dbService.addChatMessage(jobId, 'ai', answer, req.user?.id || null);
-
-      // 5. Отправляем обновленную историю клиенту
-      const newHistory = workspace
-        ? await dbService.getChatHistoryForWorkspace(jobId, workspace.id)
-        : await dbService.getChatHistory(jobId, req.user?.id || null);
-      sendUpdateToJobOwner(jobId, { type: 'CHAT_UPDATE', payload: newHistory });
-
-      // 6. Отвечаем на HTTP запрос
-      res.json({ success: true, answer });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  router.get('/chat/:jobId', async (req, res, next) => {
-    try {
-      const workspace = await resolveWorkspaceFromQuery(req, res);
-      if (req.query.workspaceId && !workspace) return;
-      const history = workspace
-        ? await dbService.getChatHistoryForWorkspace(req.params.jobId, workspace.id)
-        : await dbService.getChatHistory(req.params.jobId, req.user?.id || null);
-      res.json(history);
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  router.get('/jobs/last', async (req, res, next) => {
-    try {
-      const lastJob = await dbService.getLastRelevantJob(req.user?.id || null);
-      if (!lastJob) {
-        return res.status(404).json({ error: 'Нет доступных заданий' });
-      }
-      res.json({ success: true, job: lastJob });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  router.get('/health/light', limitHealthLight, (req, res) => {
-    res.status(200).json({ status: 'ok' });
-  });
-
-  // Кэш состояния health/full, чтобы не дергать дорогие проверки слишком часто
-  const HEALTH_TTL = parseInt(process.env.HEALTH_FULL_TTL_MS || '60000', 10);
-  let healthCache = { data: null, ts: 0 };
-
-  router.get('/health/full', requireAdmin, async (req, res, next) => {
-    try {
-      const now = Date.now();
-      if (healthCache.data && now - healthCache.ts < HEALTH_TTL) {
-        return res.json(healthCache.data);
-      }
-
-      const [geminiStatus, activeJobs] = await Promise.all([
-        testGeminiConnection(),
-        dbService.getActiveJobsCount(),
-      ]);
-      const payload = {
-        status: 'healthy',
-        services: { gemini: geminiStatus ? 'online' : 'offline' },
-        activeJobs,
-        version: APP_VERSION,
-        cachedAt: new Date().toISOString(),
-        ttlMs: HEALTH_TTL,
-      };
-      healthCache = { data: payload, ts: now };
-      res.json(payload);
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  // Внутренний endpoint для запуска обработки очереди
-  router.post('/internal/process-queue', requireAdmin, async (req, res) => {
-    try {
-      logger.info('[INTERNAL] Запуск обработки очереди по внутреннему запросу');
-      processQueue();
-      res.json({ success: true, message: 'Queue processing triggered' });
-    } catch (error) {
-      logger.error('[INTERNAL] Ошибка запуска очереди:', error.message);
-      res.status(500).json({ error: 'Failed to process queue' });
-    }
-  });
-
-  router.get('/processed-urls', async (req, res, next) => {
-    try {
-      const processedUrls = await dbService.getProcessedUrls(req.user?.id || null);
-      res.json({ success: true, urls: processedUrls });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  // Membership check for processed URLs on the current page
-  router.post('/urls/processed-check', async (req, res, next) => {
-    try {
-      const urls = Array.isArray(req.body?.urls) ? req.body.urls.filter(Boolean) : [];
-      if (urls.length === 0) return res.json({ success: true, processed: [] });
-      const processed = await dbService.getProcessedMembership(urls, req.user?.id || null);
-      res.json({ success: true, processed });
-    } catch (error) {
-      next(error);
-    }
-  });
+  router.use(
+    createOperationsRouter({
+      chatMeta,
+      chatSessions,
+      chatSettings: {
+        CHAT_MAX_SESSIONS,
+        CHAT_TTL_MS,
+        CHAT_CLEANUP_INTERVAL_MS,
+      },
+      forceTerminateWorker,
+      getActiveWorkersInfo,
+      processQueue,
+    })
+  );
 
   return router;
 }

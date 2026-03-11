@@ -270,9 +270,11 @@ export function MatterDetailPage() {
                   <option value="">{t('common.all')}</option>
                   <option value="completed">{t('status.completed')}</option>
                   <option value="queued">{t('status.queued')}</option>
+                  <option value="retrying">{t('status.retrying')}</option>
+                  <option value="processing">{t('status.processing')}</option>
                   <option value="downloading">{t('status.downloading')}</option>
                   <option value="analyzing">{t('status.analyzing')}</option>
-                  <option value="failed">{t('status.failed')}</option>
+                  <option value="error">{t('status.error')}</option>
                   <option value="cancelled">{t('status.cancelled')}</option>
                   <option value="pending">{t('status.pending')}</option>
                 </select>
@@ -322,9 +324,12 @@ export function MatterDetailPage() {
                           {formatDateShort(job.created_at, dateLocale)} •{' '}
                           {formatStatus(job.status, {
                             queued: t('status.queued'),
+                            retrying: t('status.retrying'),
+                            processing: t('status.processing'),
                             downloading: t('status.downloading'),
                             analyzing: t('status.analyzing'),
                             completed: t('status.completed'),
+                            error: t('status.error'),
                             failed: t('status.failed'),
                             cancelled: t('status.cancelled'),
                             pending: t('status.pending'),
@@ -371,9 +376,12 @@ export function MatterDetailPage() {
                       {formatDateShort(job.created_at, dateLocale)} •{' '}
                       {formatStatus(job.status, {
                         queued: t('status.queued'),
+                        retrying: t('status.retrying'),
+                        processing: t('status.processing'),
                         downloading: t('status.downloading'),
                         analyzing: t('status.analyzing'),
                         completed: t('status.completed'),
+                        error: t('status.error'),
                         failed: t('status.failed'),
                         cancelled: t('status.cancelled'),
                         pending: t('status.pending'),

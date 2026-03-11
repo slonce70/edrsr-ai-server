@@ -14,8 +14,9 @@ import {
   logSuspiciousActivity,
   getSecurityStats,
 } from '../middleware/security.js';
+import jobWriteService from '../services/jobWriteService.js';
 import { logger } from '../utils.js';
-import dbService from '../services/dbService.js';
+import queueService from '../services/queueService.js';
 
 const router = express.Router();
 
@@ -408,7 +409,7 @@ router.post('/jobs/:id/requeue', async (req, res) => {
     const { id } = req.params;
     const { reset_links = false } = req.body || {};
 
-    const ok = await dbService.requeueJob(id, { resetLinks: !!reset_links });
+    const ok = await queueService.requeueJob(id, { resetLinks: !!reset_links });
     if (!ok) {
       return res.status(404).json({ success: false, error: 'Задание не найдено' });
     }
@@ -716,8 +717,7 @@ router.delete('/jobs/:jobId', async (req, res) => {
       return res.status(404).json({ error: 'Задание не найдено' });
     }
 
-    // Удаляем задание (каскадно удалятся связанные записи)
-    await database.run('DELETE FROM jobs WHERE id = $1', [jobId]);
+    await jobWriteService.deleteJob(jobId);
 
     await logAdminAction(
       req.user.id,
@@ -746,7 +746,7 @@ router.delete('/jobs/:jobId', async (req, res) => {
 router.get('/jobs/errors', async (req, res) => {
   try {
     const { limit = 20 } = req.query;
-    const errorJobs = await dbService.getJobsWithErrors(parseInt(limit));
+    const errorJobs = await queueService.getJobsWithErrors(parseInt(limit));
 
     await logAdminAction(req.user.id, 'VIEW_ERROR_JOBS', 'system', 'N/A', { limit }, req);
 
@@ -778,7 +778,7 @@ router.post('/jobs/:jobId/retry', async (req, res) => {
         .json({ error: `Задание не в статусе ошибки (текущий статус: ${job.status})` });
     }
 
-    const success = await dbService.manualRetryJob(jobId);
+    const success = await queueService.manualRetryJob(jobId);
 
     if (success) {
       await logAdminAction(
@@ -817,7 +817,7 @@ router.post('/jobs/:jobId/retry', async (req, res) => {
 // Автоматическое восстановление заданий с временными ошибками
 router.post('/jobs/retry-failed', async (req, res) => {
   try {
-    const retriedCount = await dbService.retryFailedJobs();
+    const retriedCount = await queueService.retryFailedJobs();
 
     await logAdminAction(
       req.user.id,
@@ -859,7 +859,7 @@ router.post('/jobs/recover-stuck', async (req, res) => {
     const { grace_minutes = 5 } = req.body || {};
     const minutes = Math.max(1, parseInt(grace_minutes, 10) || 5);
 
-    const recovered = await dbService.recoverJobsWithStaleHeartbeat(minutes);
+    const recovered = await queueService.recoverJobsWithStaleHeartbeat(minutes);
 
     await logAdminAction(
       req.user.id,

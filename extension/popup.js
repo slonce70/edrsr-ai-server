@@ -252,7 +252,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Проверяем, не зависла ли задача (активна больше 10 минут)
     const isStuck =
-      ['downloading', 'analyzing', 'queued', 'pending'].includes(jobData.status) &&
+      ['downloading', 'analyzing', 'processing', 'retrying', 'queued', 'pending'].includes(
+        jobData.status
+      ) &&
       jobData.created_at &&
       Date.now() - new Date(jobData.created_at).getTime() > 10 * 60 * 1000; // 10 минут
 
@@ -269,6 +271,8 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
       switch (jobData.status) {
         case 'queued':
+        case 'retrying':
+        case 'processing':
         case 'pending':
           statusText = getStatusText(jobData.status);
           break;
@@ -301,7 +305,14 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.jobStartTime.textContent = formatUiDate(jobData.created_at);
 
     const canRetry = isCompleted || isError || isStuck || isWarning;
-    const isActive = ['downloading', 'analyzing', 'queued', 'pending'].includes(jobData.status);
+    const isActive = [
+      'downloading',
+      'analyzing',
+      'processing',
+      'retrying',
+      'queued',
+      'pending',
+    ].includes(jobData.status);
     const canForceRetry = isActive && !isStuck; // Показываем принудительный перезапуск для активных, но не зависших
     const hasAnalysis = isCompleted && jobData.analysis;
 
@@ -999,7 +1010,9 @@ document.addEventListener('DOMContentLoaded', () => {
   elements.retryJobBtn.addEventListener('click', () => {
     if (currentJobData?.id && clientId) {
       const isStuck =
-        ['downloading', 'analyzing', 'queued', 'pending'].includes(currentJobData.status) &&
+        ['downloading', 'analyzing', 'processing', 'retrying', 'queued', 'pending'].includes(
+          currentJobData.status
+        ) &&
         currentJobData.created_at &&
         Date.now() - new Date(currentJobData.created_at).getTime() > 10 * 60 * 1000;
 

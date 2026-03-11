@@ -1,5 +1,5 @@
 import { type MouseEvent, useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { apiRequest } from '../lib/api';
 import { formatDateShort, formatStatus } from '../lib/format';
 import { useAuth } from '../state/AuthContext';
@@ -39,6 +39,7 @@ export function AnalysesPage() {
   const { onJobUpdate, subscribe } = useWebSocket();
   const { t, dateLocale } = useLocale();
   const { activeWorkspaceId } = useWorkspace();
+  const navigate = useNavigate();
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [statusFilter, setStatusFilter] = useState('');
   const [searchInput, setSearchInput] = useState('');
@@ -95,7 +96,9 @@ export function AnalysesPage() {
 
   useEffect(() => {
     const hasActive = jobs.some((job) =>
-      ['queued', 'downloading', 'analyzing', 'pending'].includes(job.status)
+      ['queued', 'retrying', 'processing', 'downloading', 'analyzing', 'pending'].includes(
+        job.status
+      )
     );
     if (!hasActive) return undefined;
     const interval = window.setInterval(() => {
@@ -182,10 +185,12 @@ export function AnalysesPage() {
           >
             <option value="">{t('common.all')}</option>
             <option value="queued">{t('status.queued')}</option>
+            <option value="retrying">{t('status.retrying')}</option>
+            <option value="processing">{t('status.processing')}</option>
             <option value="downloading">{t('status.downloading')}</option>
             <option value="analyzing">{t('status.analyzing')}</option>
             <option value="completed">{t('status.completed')}</option>
-            <option value="failed">{t('status.failed')}</option>
+            <option value="error">{t('status.error')}</option>
             <option value="cancelled">{t('status.cancelled')}</option>
             <option value="pending">{t('status.pending')}</option>
           </select>
@@ -212,7 +217,19 @@ export function AnalysesPage() {
       ) : (
         <div className="list">
           {jobs.map((job) => (
-            <Link key={job.id} to={`/analyses/${job.id}`} className="card card--link">
+            <div
+              key={job.id}
+              className="card card--link"
+              role="link"
+              tabIndex={0}
+              onClick={() => navigate(`/analyses/${job.id}`)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  navigate(`/analyses/${job.id}`);
+                }
+              }}
+            >
               <div className="card__header">
                 <div>
                   <div className="card__title">{job.title || t('analyses.untitled')}</div>
@@ -220,9 +237,12 @@ export function AnalysesPage() {
                     {formatDateShort(job.created_at, dateLocale)} •{' '}
                     {formatStatus(job.status, {
                       queued: t('status.queued'),
+                      retrying: t('status.retrying'),
+                      processing: t('status.processing'),
                       downloading: t('status.downloading'),
                       analyzing: t('status.analyzing'),
                       completed: t('status.completed'),
+                      error: t('status.error'),
                       failed: t('status.failed'),
                       cancelled: t('status.cancelled'),
                       pending: t('status.pending'),
@@ -250,7 +270,7 @@ export function AnalysesPage() {
                   })}
                 </div>
               </div>
-            </Link>
+            </div>
           ))}
         </div>
       )}

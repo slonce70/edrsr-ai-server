@@ -57,7 +57,14 @@ type JobUpdatePayload = {
   payload?: ChatMessage[];
 };
 
-const ACTIVE_STATUSES = new Set(['queued', 'downloading', 'analyzing', 'pending']);
+const ACTIVE_STATUSES = new Set([
+  'queued',
+  'retrying',
+  'processing',
+  'downloading',
+  'analyzing',
+  'pending',
+]);
 
 export function JobDetailPage() {
   const { jobId } = useParams();
@@ -229,9 +236,9 @@ export function JobDetailPage() {
     }
   };
 
-  const handlePrint = () => {
+  const handlePrint = async () => {
     const content = analysis || '';
-    const html = renderMarkdown(content);
+    const html = await renderMarkdown(content);
     const printWindow = window.open('', '_blank', 'width=960,height=720');
     if (!printWindow) return;
     printWindow.document.write(
@@ -401,30 +408,37 @@ export function JobDetailPage() {
             {links.length === 0 ? (
               <div className="muted">{t('job.linksEmpty')}</div>
             ) : (
-              links.map((link) => (
-                <div key={link.url} className="list__row">
-                  <div>
-                    <a href={link.url} target="_blank" rel="noreferrer" className="link">
-                      {link.url}
-                    </a>
-                    <div className="meta">
-                      {formatDateShort(link.decision_date || null, dateLocale)}
+              links.map((link) => {
+                const normalizedStatus = link.status === 'processed' ? 'completed' : link.status;
+
+                return (
+                  <div key={link.url} className="list__row">
+                    <div>
+                      <a href={link.url} target="_blank" rel="noreferrer" className="link">
+                        {link.url}
+                      </a>
+                      <div className="meta">
+                        {formatDateShort(link.decision_date || null, dateLocale)}
+                      </div>
                     </div>
+                    <span className={`badge badge-${normalizedStatus}`}>
+                      {formatStatus(normalizedStatus, {
+                        queued: t('status.queued'),
+                        retrying: t('status.retrying'),
+                        processing: t('status.processing'),
+                        downloading: t('status.downloading'),
+                        analyzing: t('status.analyzing'),
+                        completed: t('status.completed'),
+                        error: t('status.error'),
+                        failed: t('status.failed'),
+                        cancelled: t('status.cancelled'),
+                        pending: t('status.pending'),
+                        unknown: t('status.unknown'),
+                      })}
+                    </span>
                   </div>
-                  <span className={`badge badge-${link.status}`}>
-                    {formatStatus(link.status, {
-                      queued: t('status.queued'),
-                      downloading: t('status.downloading'),
-                      analyzing: t('status.analyzing'),
-                      completed: t('status.completed'),
-                      failed: t('status.failed'),
-                      cancelled: t('status.cancelled'),
-                      pending: t('status.pending'),
-                      unknown: t('status.unknown'),
-                    })}
-                  </span>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>

@@ -375,6 +375,8 @@ async function updateBadge(job, oldStatus = null) {
 
   const statusColors = {
     queued: '#9E9E9E',
+    retrying: '#FF9800',
+    processing: '#FF9800',
     downloading: '#2196F3',
     analyzing: '#9C27B0',
     completed: '#4CAF50',
