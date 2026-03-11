@@ -224,6 +224,7 @@ export function AnalysesPage() {
               tabIndex={0}
               onClick={() => navigate(`/analyses/${job.id}`)}
               onKeyDown={(event) => {
+                if (event.currentTarget !== event.target) return;
                 if (event.key === 'Enter' || event.key === ' ') {
                   event.preventDefault();
                   navigate(`/analyses/${job.id}`);
