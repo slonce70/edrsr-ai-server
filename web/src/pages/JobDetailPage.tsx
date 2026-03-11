@@ -238,9 +238,19 @@ export function JobDetailPage() {
 
   const handlePrint = async () => {
     const content = analysis || '';
-    const html = await renderMarkdown(content);
     const printWindow = window.open('', '_blank', 'width=960,height=720');
     if (!printWindow) return;
+    printWindow.document.write('<!doctype html><html><head><title>Preparing report...</title></head><body></body></html>');
+    printWindow.document.close();
+
+    let html = '';
+    try {
+      html = await renderMarkdown(content);
+    } catch {
+      html = '';
+    }
+
+    printWindow.document.open();
     printWindow.document.write(
       `<!doctype html><html><head><title>${
         job?.title || t('job.report')
