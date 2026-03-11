@@ -240,7 +240,9 @@ export function JobDetailPage() {
     const content = analysis || '';
     const printWindow = window.open('', '_blank', 'width=960,height=720');
     if (!printWindow) return;
-    printWindow.document.write('<!doctype html><html><head><title>Preparing report...</title></head><body></body></html>');
+    printWindow.document.write(
+      '<!doctype html><html><head><title>Preparing report...</title></head><body></body></html>'
+    );
     printWindow.document.close();
 
     let html = '';
