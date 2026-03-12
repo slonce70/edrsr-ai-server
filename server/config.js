@@ -561,7 +561,7 @@ export const MAX_TOKENS_PER_BATCH = parseInt(process.env.MAX_TOKENS_PER_BATCH) |
 import { CLIProxyClient } from './cliProxyClient.js';
 
 export const CLI_PROXY_URL = process.env.CLI_PROXY_URL || '';
-export const CLI_PROXY_MODEL = process.env.CLI_PROXY_MODEL || 'gemini-3.1-pro-preview';
+export const CLI_PROXY_MODEL = process.env.CLI_PROXY_MODEL || 'gemini-3.1-pro-high';
 export const ENABLE_CLI_PROXY = process.env.ENABLE_CLI_PROXY === 'true';
 export const CLI_PROXY_MAX_ATTEMPTS_PER_KEY = parseInt(
   process.env.CLI_PROXY_MAX_ATTEMPTS_PER_KEY || '1',
