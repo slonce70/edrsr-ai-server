@@ -267,6 +267,9 @@ function startWorker({ jobId, links, cookie, prompt, claimed = false }) {
 
   const updateStatus = async (status, progress, message, extra = {}) => {
     const jobDataToUpdate = { progress, ...extra };
+    if ((status === 'completed' || status === 'error') && !('end_time' in jobDataToUpdate)) {
+      jobDataToUpdate.end_time = new Date().toISOString();
+    }
     let updatedJob = null;
     try {
       updatedJob = await dbService.updateJobStatus(jobId, status, jobDataToUpdate);
