@@ -509,11 +509,13 @@ export const apiKeyManager = new ApiKeyManager(apiKeys);
 export const genAI = apiKeyManager.clients[0];
 
 // Model configuration from environment
-export const modelName = process.env.MODEL_NAME || 'gemini-2.5-flash';
+export const modelName = process.env.MODEL_NAME || 'gemini-3-flash-preview';
 // Fallback модель - якщо основна rate limited, спробувати цю
+const DEFAULT_PRO_FALLBACK_MODEL = 'gemini-3-flash-preview';
+const DEFAULT_FLASH_FALLBACK_MODEL = 'gemini-3.1-pro-preview';
 export const FALLBACK_MODEL_NAME =
   process.env.FALLBACK_MODEL_NAME ||
-  (modelName === 'gemini-2.5-pro' ? 'gemini-2.5-flash' : 'gemini-2.5-pro');
+  (modelName.includes('pro') ? DEFAULT_PRO_FALLBACK_MODEL : DEFAULT_FLASH_FALLBACK_MODEL);
 
 // Логування конфігурації моделей при запуску
 console.log(`📋 [CONFIG] Основна модель: ${modelName}`);
@@ -559,7 +561,7 @@ export const MAX_TOKENS_PER_BATCH = parseInt(process.env.MAX_TOKENS_PER_BATCH) |
 import { CLIProxyClient } from './cliProxyClient.js';
 
 export const CLI_PROXY_URL = process.env.CLI_PROXY_URL || '';
-export const CLI_PROXY_MODEL = process.env.CLI_PROXY_MODEL || 'gemini-3-pro-preview';
+export const CLI_PROXY_MODEL = process.env.CLI_PROXY_MODEL || 'gemini-3.1-pro-preview';
 export const ENABLE_CLI_PROXY = process.env.ENABLE_CLI_PROXY === 'true';
 export const CLI_PROXY_MAX_ATTEMPTS_PER_KEY = parseInt(
   process.env.CLI_PROXY_MAX_ATTEMPTS_PER_KEY || '1',
