@@ -240,10 +240,6 @@ export function JobDetailPage() {
     const content = analysis || '';
     const printWindow = window.open('', '_blank', 'width=960,height=720');
     if (!printWindow) return;
-    printWindow.document.write(
-      '<!doctype html><html><head><title>Preparing report...</title></head><body></body></html>'
-    );
-    printWindow.document.close();
 
     let html = '';
     try {
@@ -252,20 +248,40 @@ export function JobDetailPage() {
       html = '';
     }
 
-    printWindow.document.open();
-    printWindow.document.write(
-      `<!doctype html><html><head><title>${
-        job?.title || t('job.report')
-      }</title><style>body{font-family:Arial, sans-serif; padding:32px;} h1{margin-bottom:16px;} .meta{color:#555; font-size:12px; margin-bottom:24px;} pre,code{white-space:pre-wrap;} a{color:#0f766e;}</style></head><body>`
-    );
-    printWindow.document.write(`<h1>${job?.title || t('job.report')}</h1>`);
+    const printDocument = printWindow.document;
+    printDocument.open();
+    printDocument.close();
+    printDocument.title = job?.title || t('job.report');
+
+    while (printDocument.head.firstChild) {
+      printDocument.head.removeChild(printDocument.head.firstChild);
+    }
+
+    const style = printDocument.createElement('style');
+    style.textContent =
+      'body{font-family:Arial, sans-serif; padding:32px;} h1{margin-bottom:16px;} .meta{color:#555; font-size:12px; margin-bottom:24px;} pre,code{white-space:pre-wrap;} a{color:#0f766e;}';
+    printDocument.head.appendChild(style);
+
+    while (printDocument.body.firstChild) {
+      printDocument.body.removeChild(printDocument.body.firstChild);
+    }
+
+    const heading = printDocument.createElement('h1');
+    heading.textContent = job?.title || t('job.report');
+    printDocument.body.appendChild(heading);
+
     const meta = `${t('job.created', {
       date: formatDate(job?.created_at, dateLocale),
     })} | ${progressLabel}`;
-    printWindow.document.write(`<div class="meta">${meta}</div>`);
-    printWindow.document.write(html);
-    printWindow.document.write('</body></html>');
-    printWindow.document.close();
+    const metaElement = printDocument.createElement('div');
+    metaElement.className = 'meta';
+    metaElement.textContent = meta;
+    printDocument.body.appendChild(metaElement);
+
+    const reportBody = printDocument.createElement('div');
+    reportBody.innerHTML = html;
+    printDocument.body.appendChild(reportBody);
+
     printWindow.focus();
     printWindow.print();
   };

@@ -439,73 +439,6 @@ function removeCompletionButton() {
 
 // --- CORE LOGIC ---
 
-async function markProcessedLinksAsVisited() {
-  try {
-    console.log('EDRSR-AI: Запитую список оброблених URL...');
-
-    // Get API URL from background script
-    await chrome.runtime.sendMessage({ type: 'GET_API_URL' });
-
-    // Получаем только обработанные URL из текущего набора ссылок
-    const pageLinks = getDecisionLinkElements().map(
-      (link) => 'https://reyestr.court.gov.ua' + link.getAttribute('href')
-    );
-    const response = await chrome.runtime.sendMessage({
-      type: 'API_CHECK_PROCESSED',
-      urls: pageLinks,
-    });
-
-    if (!response || response.success === false) {
-      console.warn('EDRSR-AI: Не вдалося отримати оброблені URL:', response?.error);
-      return;
-    }
-
-    const data = response;
-    console.log('EDRSR-AI: Дані з сервера:', data);
-
-    if (!data.success || !Array.isArray(data.urls)) {
-      console.warn('EDRSR-AI: Невірний формат відповіді сервера:', data);
-      return;
-    }
-
-    console.log(`EDRSR-AI: Обработано (на странице): ${data.urls.length} URL`);
-
-    // Создаем Set для быстрого поиска обработанных URL
-    const processedUrls = new Set(data.urls);
-
-    // Находим все ссылки на дела и отмечаем обработанные визуально
-    const links = getDecisionLinkElements();
-    let markedCount = 0;
-
-    links.forEach((link) => {
-      const fullUrl = 'https://reyestr.court.gov.ua' + link.getAttribute('href');
-      if (processedUrls.has(fullUrl)) {
-        // Применяем стили посещенной ссылки без добавления в историю
-        link.style.color = '#551a8b'; // Фиолетовый цвет посещенной ссылки
-        link.setAttribute('data-edrsr-processed', 'true');
-        markedCount++;
-      }
-    });
-
-    // Добавляем CSS правило для всех обработанных ссылок
-    if (!document.getElementById('edrsr-processed-links-style')) {
-      const style = document.createElement('style');
-      style.id = 'edrsr-processed-links-style';
-      style.textContent = `
-        a[data-edrsr-processed="true"]:visited,
-        a[data-edrsr-processed="true"] {
-          color: #551a8b !important;
-        }
-      `;
-      document.head.appendChild(style);
-    }
-
-    console.log(`EDRSR-AI: Позначено ${markedCount} обработанных ссылок на странице`);
-  } catch (error) {
-    console.error('EDRSR-AI: Помилка отримання оброблених URL:', error);
-  }
-}
-
 function collectDecisionLinks() {
   const decisions = [];
   const seen = new Set();
@@ -562,6 +495,33 @@ function showMessage(message, type = 'info') {
   }, 5000);
 }
 
+async function getProcessedUrls(decisions) {
+  const urls = Array.isArray(decisions)
+    ? decisions
+        .map((decision) => decision?.url)
+        .filter((url) => typeof url === 'string' && url.length > 0)
+    : [];
+
+  if (urls.length === 0) {
+    return [];
+  }
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: 'API_CHECK_PROCESSED',
+      urls,
+    });
+
+    if (response?.success && Array.isArray(response.urls)) {
+      return response.urls;
+    }
+  } catch (error) {
+    console.warn('EDRSR-AI: Processed URL check skipped:', error);
+  }
+
+  return [];
+}
+
 async function collectAndSend(options) {
   if (isProcessing) {
     const { t } = await getI18n();
@@ -579,12 +539,9 @@ async function collectAndSend(options) {
 
     // Filter to only unique decisions for this user if requested
     if (options?.uniqueOnly) {
-      const res = await chrome.runtime.sendMessage({
-        type: 'API_CHECK_PROCESSED',
-        urls: decisions.map((d) => d.url),
-      });
-      if (res && res.success && Array.isArray(res.urls)) {
-        const processed = new Set(res.urls);
+      const processedUrls = await getProcessedUrls(decisions);
+      if (processedUrls.length > 0) {
+        const processed = new Set(processedUrls);
         const before = decisions.length;
         decisions = decisions.filter((d) => d && d.url && !processed.has(d.url));
         const removed = before - decisions.length;
@@ -695,12 +652,9 @@ async function copyDecisionUrls(options) {
     }
 
     if (options?.uniqueOnly) {
-      const res = await chrome.runtime.sendMessage({
-        type: 'API_CHECK_PROCESSED',
-        urls: decisions.map((d) => d.url),
-      });
-      if (res && res.success && Array.isArray(res.urls)) {
-        const processed = new Set(res.urls);
+      const processedUrls = await getProcessedUrls(decisions);
+      if (processedUrls.length > 0) {
+        const processed = new Set(processedUrls);
         const before = decisions.length;
         decisions = decisions.filter((d) => d && d.url && !processed.has(d.url));
         const removed = before - decisions.length;
@@ -800,14 +754,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 function initialize() {
   if (hasDecisionLinks()) {
     void addCollectButton();
-    // Отмечаем обработанные ссылки как посещенные
-    markProcessedLinksAsVisited();
   }
   const observer = new MutationObserver(() => {
     if (hasDecisionLinks() && !document.getElementById('edrsr-ai-collect-btn')) {
       void addCollectButton();
-      // Отмечаем обработанные ссылки при динамическом добавлении контента
-      markProcessedLinksAsVisited();
     }
   });
   observer.observe(document.body, { childList: true, subtree: true });

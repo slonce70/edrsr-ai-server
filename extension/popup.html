@@ -178,6 +178,13 @@
         color: #555;
       }
 
+      .helper-text {
+        margin-top: 10px;
+        font-size: 11px;
+        line-height: 1.4;
+        color: #6b7280;
+      }
+
       .progress-bar {
         width: 100%;
         height: 6px;
@@ -555,6 +562,13 @@
           <div class="job-detail">
             <span data-i18n="popup.collect.uniqueSessionLabel">С учетом сессии:</span>
             <strong id="uniqueCountSession">0</strong>
+          </div>
+          <div
+            class="helper-text hidden"
+            id="historyCountHint"
+            data-i18n="popup.collect.historyCountHint"
+          >
+            Точное количество по истории будет проверено только после запуска.
           </div>
         </div>
 

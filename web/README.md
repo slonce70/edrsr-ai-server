@@ -11,6 +11,12 @@ Currently, two official plugins are available:
 
 The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
 
+## Runtime Config
+
+- `VITE_API_BASE` and `VITE_WS_PATH` default to `/api` and `/ws`, which keeps localhost dev aligned with the Vite proxy.
+- `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` must be set explicitly for production or staging deployments.
+- Localhost development keeps the existing convenience fallback for Supabase if those vars are not set, so `npm run web:dev` still works without extra setup.
+
 ## Expanding the ESLint configuration
 
 If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:

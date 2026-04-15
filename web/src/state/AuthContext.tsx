@@ -1,6 +1,13 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
+import { DEV_AUTH_ENABLED } from '../lib/config';
+import {
+  clearStoredDevSession,
+  createDevSession,
+  getStoredDevSession,
+  storeDevSession,
+} from '../lib/dev-auth';
 import { supabase } from '../lib/supabaseClient';
 
 type AuthContextValue = {
@@ -19,11 +26,16 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null);
-  const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const initialDevSession = DEV_AUTH_ENABLED ? getStoredDevSession() : null;
+  const [session, setSession] = useState<Session | null>(initialDevSession);
+  const [user, setUser] = useState<User | null>(initialDevSession?.user ?? null);
+  const [isLoading, setIsLoading] = useState(!DEV_AUTH_ENABLED);
 
   useEffect(() => {
+    if (DEV_AUTH_ENABLED) {
+      return () => {};
+    }
+
     let active = true;
     supabase.auth
       .getSession()
@@ -58,11 +70,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       accessToken: session?.access_token ?? null,
       isLoading,
       signIn: async (email, password) => {
+        if (DEV_AUTH_ENABLED) {
+          if (!email.trim()) return { error: 'Email is required' };
+          if (!password.trim()) return { error: 'Password is required' };
+          const nextSession = createDevSession(email);
+          storeDevSession(nextSession);
+          setSession(nextSession);
+          setUser(nextSession.user ?? null);
+          return null;
+        }
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) return { error: error.message };
         return null;
       },
       signUp: async (email) => {
+        if (DEV_AUTH_ENABLED) {
+          return { error: 'Sign up is disabled in local dev auth mode' };
+        }
         const { error } = await supabase.auth.signInWithOtp({
           email,
           options: { shouldCreateUser: true, emailRedirectTo: window.location.origin },
@@ -71,6 +95,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return null;
       },
       sendMagicLink: async (email) => {
+        if (DEV_AUTH_ENABLED) {
+          return { error: 'Magic links are disabled in local dev auth mode' };
+        }
         const { error } = await supabase.auth.signInWithOtp({
           email,
           options: { emailRedirectTo: window.location.origin },
@@ -79,6 +106,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return null;
       },
       resetPassword: async (email) => {
+        if (DEV_AUTH_ENABLED) {
+          return { error: 'Password reset is disabled in local dev auth mode' };
+        }
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
           redirectTo: `${window.location.origin}/reset`,
         });
@@ -86,11 +116,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return null;
       },
       updatePassword: async (password) => {
+        if (DEV_AUTH_ENABLED) {
+          return { error: 'Password updates are disabled in local dev auth mode' };
+        }
         const { error } = await supabase.auth.updateUser({ password });
         if (error) return { error: error.message };
         return null;
       },
       signOut: async () => {
+        if (DEV_AUTH_ENABLED) {
+          clearStoredDevSession();
+          setSession(null);
+          setUser(null);
+          return;
+        }
         await supabase.auth.signOut({ scope: 'local' });
       },
     };

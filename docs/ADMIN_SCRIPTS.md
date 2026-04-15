@@ -96,6 +96,7 @@ npm run apply:rls
 
 ```bash
 npm run build:extension
+npm run build:extension:release
 npm run test:selfcheck
 ```
 
