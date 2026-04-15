@@ -40,21 +40,63 @@ const expectations = [
     label: 'workspace members delete',
     pattern: /router\.delete\(\s*'\/workspaces\/:workspaceId\/members\/:memberId'/m,
   },
+  {
+    label: 'workspace member create admin guard',
+    pattern:
+      /router\.post\(\s*'\/workspaces\/:workspaceId\/members',\s*requireWorkspaceRole\(\['owner', 'admin'\]\)/m,
+  },
+  {
+    label: 'workspace member update admin guard',
+    pattern:
+      /router\.patch\(\s*'\/workspaces\/:workspaceId\/members\/:memberId',\s*requireWorkspaceRole\(\['owner', 'admin'\]\)/m,
+  },
+  {
+    label: 'workspace member delete admin guard',
+    pattern:
+      /router\.delete\(\s*'\/workspaces\/:workspaceId\/members\/:memberId',\s*requireWorkspaceRole\(\['owner', 'admin'\]\)/m,
+  },
+  { label: 'member invite invalid role response', pattern: /Invalid role/ },
+  { label: 'member invite owner guard', pattern: /Cannot assign owner role through member invite/ },
   { label: 'owner role protection', pattern: /Cannot change owner role/ },
   { label: 'owner removal protection', pattern: /Cannot remove workspace owner/ },
   { label: 'matters list', pattern: /router\.get\('\/matters'/ },
-  { label: 'matters create', pattern: /router\.post\('\/matters'/ },
+  {
+    label: 'matters create',
+    pattern: /router\.post\('\/matters',\s*requireWorkspaceRole\(\['owner', 'admin'\]\)/,
+  },
   { label: 'matter detail', pattern: /router\.get\('\/matters\/:matterId'/ },
-  { label: 'matter update', pattern: /router\.patch\('\/matters\/:matterId'/ },
-  { label: 'matter delete', pattern: /router\.delete\('\/matters\/:matterId'/ },
-  { label: 'assign job to matter', pattern: /router\.post\('\/matters\/:matterId\/jobs'/ },
+  {
+    label: 'matter update',
+    pattern:
+      /router\.patch\(\s*'\/matters\/:matterId',\s*requireWorkspaceRole\(\['owner', 'admin'\]\)/m,
+  },
+  {
+    label: 'matter delete',
+    pattern:
+      /router\.delete\(\s*'\/matters\/:matterId',\s*requireWorkspaceRole\(\['owner', 'admin'\]\)/m,
+  },
+  {
+    label: 'assign job to matter',
+    pattern:
+      /router\.post\(\s*'\/matters\/:matterId\/jobs',\s*requireWorkspaceRole\(\['owner', 'admin'\]\)/m,
+  },
   {
     label: 'remove job from matter',
-    pattern: /router\.delete\('\/matters\/:matterId\/jobs\/:jobId'/,
+    pattern:
+      /router\.delete\(\s*'\/matters\/:matterId\/jobs\/:jobId',\s*requireWorkspaceRole\(\['owner', 'admin'\]\)/m,
   },
   { label: 'share links list', pattern: /router\.get\('\/share-links'/ },
-  { label: 'share links create', pattern: /router\.post\('\/share-links'/ },
-  { label: 'share links revoke', pattern: /router\.post\('\/share-links\/:id\/revoke'/ },
+  {
+    label: 'share links create',
+    pattern: /router\.post\('\/share-links',\s*requireWorkspaceRole\(\['owner', 'admin'\]\)/,
+  },
+  {
+    label: 'share links revoke',
+    pattern:
+      /router\.post\(\s*'\/share-links\/:id\/revoke',\s*requireWorkspaceRole\(\['owner', 'admin'\]\)/m,
+  },
+  { label: 'share link day parsing', pattern: /parseShareLinkDays\(req\.body\?\.expiresInDays\)/ },
+  { label: 'share link one-time url response', pattern: /url: result\.url \|\| null/ },
   {
     label: 'portal collaboration service import',
     pattern: /from '\.\.\/services\/collaborationService\.js'/,

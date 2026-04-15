@@ -33,7 +33,6 @@ export function ShareLinksPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [revokingId, setRevokingId] = useState<string | null>(null);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const loadLinks = useCallback(async () => {
     if (!accessToken || !activeWorkspaceId) return;
@@ -85,20 +84,6 @@ export function ShareLinksPage() {
       setError(err instanceof Error ? err.message : t('errors.generic'));
     } finally {
       setRevokingId(null);
-    }
-  };
-
-  const handleCopy = async (link: ShareLink) => {
-    if (!link.share_url) return;
-    try {
-      await navigator.clipboard.writeText(link.share_url);
-      setCopiedId(link.id);
-      window.setTimeout(
-        () => setCopiedId((current) => (current === link.id ? null : current)),
-        1500
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('errors.generic'));
     }
   };
 
@@ -171,16 +156,7 @@ export function ShareLinksPage() {
                 </div>
               </div>
               <div className="card__body">
-                {link.share_url ? (
-                  <div className="share-link">
-                    <input value={link.share_url} readOnly />
-                    <button className="btn btn-ghost" onClick={() => handleCopy(link)}>
-                      {copiedId === link.id ? t('common.copied') : t('common.copy')}
-                    </button>
-                  </div>
-                ) : (
-                  <div className="muted">{t('share.urlMissing')}</div>
-                )}
+                <div className="muted">{t('share.urlMissing')}</div>
                 <div className="meta">
                   {link.created_by ? t('share.createdBy', { id: link.created_by }) : null}
                 </div>

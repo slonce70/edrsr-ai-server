@@ -204,6 +204,70 @@ class Database {
     return result.rows;
   }
 
+  async withClientTransaction(work) {
+    const client = await this.pool.connect();
+    const onClientError = (err) => {
+      console.error('[DB] Transaction client error:', err);
+    };
+    client.on('error', onClientError);
+
+    try {
+      await client.query('BEGIN');
+      const result = await work(client);
+      await client.query('COMMIT');
+      return result;
+    } catch (error) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackErr) {
+        console.error('[DB] ROLLBACK failed:', rollbackErr);
+      }
+      throw error;
+    } finally {
+      try {
+        client.removeListener('error', onClientError);
+      } catch {
+        // noop
+      }
+      client.release();
+    }
+  }
+
+  async withTransaction(callback) {
+    const client = await this.pool.connect();
+    const tx = {
+      query: async (sql, params = []) => client.query(sql, params),
+      run: async (sql, params = []) => {
+        const result = await client.query(sql, params);
+        return { changes: result.rowCount };
+      },
+      get: async (sql, params = []) => {
+        const result = await client.query(sql, params);
+        return result.rows[0];
+      },
+      all: async (sql, params = []) => {
+        const result = await client.query(sql, params);
+        return result.rows;
+      },
+    };
+
+    try {
+      await client.query('BEGIN');
+      const result = await callback(tx, client);
+      await client.query('COMMIT');
+      return result;
+    } catch (error) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackError) {
+        console.error('Transaction rollback error:', rollbackError.message);
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async initializeTables() {
     const jobsTable = `
             CREATE TABLE IF NOT EXISTS jobs (
@@ -414,6 +478,8 @@ class Database {
     await this.runMigration_addWorkspaceColumns();
     await this.runMigration_addEvidenceColumns();
     await this.runMigration_addShareLinkUrl();
+    await this.runMigration_normalizeWorkspaceRoles();
+    await this.runMigration_scrubShareLinkUrls();
 
     // Create performance indexes
     await this.createIndexes();
@@ -807,6 +873,76 @@ class Database {
     };
 
     await addColumnIfMissing('share_links', 'share_url', 'TEXT NULL');
+  }
+
+  async runMigration_normalizeWorkspaceRoles() {
+    try {
+      await this.query(
+        `UPDATE workspace_members
+         SET role = 'member', updated_at = CURRENT_TIMESTAMP
+         WHERE role NOT IN ('owner', 'admin', 'member')`
+      );
+
+      await this.query(
+        `INSERT INTO workspace_members (workspace_id, user_id, role, invited_by, created_at, updated_at)
+         SELECT w.id, w.owner_user_id, 'owner', w.owner_user_id, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+         FROM workspaces w
+         WHERE NOT EXISTS (
+           SELECT 1
+           FROM workspace_members wm
+           WHERE wm.workspace_id = w.id AND wm.user_id = w.owner_user_id
+         )`
+      );
+
+      await this.query(
+        `UPDATE workspace_members wm
+         SET role = CASE WHEN wm.user_id = w.owner_user_id THEN 'owner' ELSE 'admin' END,
+             updated_at = CURRENT_TIMESTAMP
+         FROM workspaces w
+         WHERE wm.workspace_id = w.id
+           AND wm.role = 'owner'
+           AND wm.user_id <> w.owner_user_id`
+      );
+
+      await this.query(
+        `UPDATE workspace_members wm
+         SET role = 'owner', updated_at = CURRENT_TIMESTAMP
+         FROM workspaces w
+         WHERE wm.workspace_id = w.id
+           AND wm.user_id = w.owner_user_id
+           AND wm.role <> 'owner'`
+      );
+
+      const constraintExists = await this.get(
+        `SELECT conname
+         FROM pg_constraint
+         WHERE conname = 'workspace_members_role_valid'`
+      );
+      if (!constraintExists) {
+        await this.query(
+          `ALTER TABLE workspace_members
+           ADD CONSTRAINT workspace_members_role_valid
+           CHECK (role IN ('owner', 'admin', 'member'))`
+        );
+      }
+    } catch (error) {
+      console.error('Migration error (normalizeWorkspaceRoles):', error.message);
+    }
+  }
+
+  async runMigration_scrubShareLinkUrls() {
+    try {
+      const result = await this.run(
+        `UPDATE share_links
+         SET share_url = NULL
+         WHERE share_url IS NOT NULL`
+      );
+      if (result.changes > 0) {
+        console.log(`✅ Scrubbed ${result.changes} persisted share link URL(s)`);
+      }
+    } catch (error) {
+      console.error('Migration error (scrubShareLinkUrls):', error.message);
+    }
   }
 }
 

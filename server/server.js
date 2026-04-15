@@ -18,22 +18,25 @@ import { startCacheCleanupService } from './services/maintenance.js';
 import { APP_VERSION } from './version.js';
 
 // --- Security Configuration ---
+const IS_PROD_LIKE = process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging';
+
+function parseCsvEnv(value) {
+  return String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
 
 function getAllowedChromeExtensionIds() {
-  const raw = process.env.CHROME_EXTENSION_IDS || process.env.CHROME_EXTENSION_ID || '';
-  return raw
-    .split(',')
-    .map((id) => id.trim())
-    .filter(Boolean);
+  return parseCsvEnv(process.env.CHROME_EXTENSION_IDS || process.env.CHROME_EXTENSION_ID || '');
 }
 
 function isAllowedChromeExtensionOrigin(origin) {
   if (typeof origin !== 'string') return false;
   if (!origin.startsWith('chrome-extension://')) return false;
 
-  // If no IDs configured, keep backward compatibility (allow any extension origin)
   const allowedIds = getAllowedChromeExtensionIds();
-  if (allowedIds.length === 0) return true;
+  if (allowedIds.length === 0) return !IS_PROD_LIKE;
 
   return allowedIds.some((id) => origin === `chrome-extension://${id}`);
 }
@@ -44,25 +47,13 @@ function isAllowedChromeExtensionOrigin(origin) {
  * Falls back to permissive mode in development only.
  */
 const getAllowedOrigins = () => {
-  // Base origins that are always allowed (keep minimal for production)
-  const baseOrigins = [
-    'https://edrsr-ai-server.fun',
-    'https://www.edrsr-ai-server.fun',
-    'https://app.edrsr-ai-server.fun',
-  ];
-
-  // Add configured origins if present
-  if (process.env.CORS_ALLOWED_ORIGINS) {
-    const configuredOrigins = process.env.CORS_ALLOWED_ORIGINS.split(',').map((origin) =>
-      origin.trim()
-    );
-    return [...new Set([...configuredOrigins, ...baseOrigins])];
+  const configuredOrigins = parseCsvEnv(process.env.CORS_ALLOWED_ORIGINS);
+  if (configuredOrigins.length > 0) {
+    return [...new Set(configuredOrigins)];
   }
 
-  // Development: add localhost
-  if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'staging') {
+  if (!IS_PROD_LIKE) {
     return [
-      ...baseOrigins,
       'http://localhost:3000',
       'http://localhost:4000',
       'http://127.0.0.1:3000',
@@ -70,8 +61,18 @@ const getAllowedOrigins = () => {
     ];
   }
 
-  return baseOrigins;
+  return [];
 };
+
+function assertOriginConfig() {
+  if (!IS_PROD_LIKE) return;
+  if (getAllowedOrigins().length === 0) {
+    throw new Error('CORS_ALLOWED_ORIGINS must be set in production/staging');
+  }
+  if (getAllowedChromeExtensionIds().length === 0) {
+    throw new Error('CHROME_EXTENSION_IDS must be set in production/staging');
+  }
+}
 
 /**
  * CORS configuration with origin validation.
@@ -81,10 +82,11 @@ const corsOptions = {
   origin: (origin, callback) => {
     const allowedOrigins = getAllowedOrigins();
 
-    // Allow requests with no origin (e.g., mobile apps, Postman, server-to-server)
-    // Chrome extensions also may not send origin headers
     if (!origin) {
-      return callback(null, true);
+      if (!IS_PROD_LIKE) {
+        return callback(null, true);
+      }
+      return callback(new Error('Origin required'));
     }
 
     // Allow configured chrome-extension:// origins (browser extensions)
@@ -97,7 +99,6 @@ const corsOptions = {
       return callback(null, true);
     }
 
-    // Reject unknown origins silently
     callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
@@ -110,6 +111,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export function createServer() {
+  assertOriginConfig();
   const app = express();
   const server = http.createServer(app);
 

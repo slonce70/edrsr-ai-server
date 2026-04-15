@@ -434,6 +434,29 @@ function formatDuration(ms) {
   }
 }
 
+async function markJobAsForceTerminated(jobId, reason) {
+  const errorMessage = `Воркер принудительно завершён: ${reason}`;
+
+  try {
+    const updatedJob = await jobWriteService.updateJobStatus(jobId, 'error', {
+      error_message: errorMessage,
+      end_time: new Date().toISOString(),
+    });
+
+    if (updatedJob) {
+      sendUpdateToJobOwner(jobId, {
+        ...updatedJob,
+        error_message: errorMessage,
+      });
+    }
+  } catch (statusError) {
+    logger.error(
+      `[FORCE_TERMINATE] Ошибка обновления статуса задачи ${jobId}:`,
+      statusError.message
+    );
+  }
+}
+
 // Функция для принудительного завершения воркера
 function forceTerminateWorker(jobId, reason = 'Принудительное завершение') {
   const workerInfo = activeWorkers.get(jobId);
@@ -472,13 +495,14 @@ function forceTerminateWorker(jobId, reason = 'Принудительное за
 
         stillActive.status = 'force_terminated';
         activeWorkers.delete(jobId);
-
-        // Освобождаем блокировку в БД
-        queueService.clearJobLock(jobId).catch((err) => {
-          logger.error(
-            `[FORCE_TERMINATE] Ошибка очистки блокировки в БД для ${jobId}:`,
-            err.message
-          );
+        void markJobAsForceTerminated(jobId, reason).finally(() => {
+          // Освобождаем блокировку в БД только после фиксации финального статуса
+          queueService.clearJobLock(jobId).catch((err) => {
+            logger.error(
+              `[FORCE_TERMINATE] Ошибка очистки блокировки в БД для ${jobId}:`,
+              err.message
+            );
+          });
         });
 
         // Освобождаем очередь если этот воркер блокировал её
@@ -495,6 +519,14 @@ function forceTerminateWorker(jobId, reason = 'Принудительное за
 
     // В случае ошибки все равно удаляем из отслеживания
     activeWorkers.delete(jobId);
+    void markJobAsForceTerminated(jobId, reason).finally(() => {
+      queueService.clearJobLock(jobId).catch((lockError) => {
+        logger.error(
+          `[FORCE_TERMINATE] Ошибка очистки блокировки в БД для ${jobId}:`,
+          lockError.message
+        );
+      });
+    });
     return false;
   }
 }

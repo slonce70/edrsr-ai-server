@@ -145,13 +145,21 @@ Environment variables:
 
 ### **5. Building and Installing the Chrome Extension**
 
-Build for production:
+Build unpacked extension for local testing:
 
 ```bash
 npm run build:extension
 ```
 
-This creates a production-ready folder `extension-build/` and a distributable archive `edrsr-ai-extension-v<version>.zip` in the project root.
+This creates/refreshes the unpacked folder `extension-build/` for local loading.
+
+Build a release package explicitly:
+
+```bash
+npm run build:extension:release
+```
+
+This requires production env vars and creates the distributable archive `edrsr-ai-extension-v<version>.zip` in the project root.
 
 Update extension config for auth:
 
@@ -166,7 +174,7 @@ Install locally for testing:
 3. Click "Load unpacked".
 4. Select the `extension-build/` directory.
 
-For Chrome Web Store publishing, use the generated `.zip` archive.
+For Chrome Web Store publishing, use the archive produced by `npm run build:extension:release`.
 
 ## 🚀 **Usage**
 

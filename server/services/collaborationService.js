@@ -1,9 +1,42 @@
 import crypto from 'crypto';
 import { v4 as uuid } from 'uuid';
 
+import {
+  MAX_SHARE_LINK_DAYS,
+  buildShareUrl as buildShareUrlFromPolicy,
+  isValidWorkspaceRole,
+  normalizeWorkspaceRole,
+} from '../collaborationPolicy.js';
 import database from '../database/connection.js';
 
 const hashToken = (token) => crypto.createHash('sha256').update(String(token)).digest('hex');
+const WORKSPACE_ROLE_VALUES = ['owner', 'admin', 'member'];
+export const WORKSPACE_ROLES = Object.freeze([...WORKSPACE_ROLE_VALUES]);
+
+function assertWorkspaceRole(role, { allowOwner = true } = {}) {
+  const normalized = normalizeWorkspaceRole(role);
+  if (!isValidWorkspaceRole(normalized)) {
+    throw new Error('Invalid workspace role');
+  }
+  if (!allowOwner && normalized === 'owner') {
+    throw new Error('Owner role cannot be assigned via this endpoint');
+  }
+  return normalized;
+}
+
+function buildShareUrl(token) {
+  const host = process.env.PUBLIC_SHARE_BASE_URL || process.env.APP_BASE_URL || '';
+  const shareUrl = buildShareUrlFromPolicy(host, token);
+  if (shareUrl) {
+    return shareUrl;
+  }
+
+  if (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging') {
+    throw new Error('PUBLIC_SHARE_BASE_URL or APP_BASE_URL must be configured');
+  }
+
+  return `http://localhost:4000/share/${token}`;
+}
 
 class CollaborationService {
   async ensureWorkspaceForUser(userId, email = null) {
@@ -77,7 +110,14 @@ class CollaborationService {
       `SELECT role FROM workspace_members WHERE workspace_id = $1 AND user_id = $2`,
       [workspaceId, userId]
     );
-    return row?.role || null;
+    return row?.role ? normalizeWorkspaceRole(row.role) : null;
+  }
+
+  async getWorkspaceOwnerId(workspaceId) {
+    const row = await database.get(`SELECT owner_user_id FROM workspaces WHERE id = $1`, [
+      workspaceId,
+    ]);
+    return row?.owner_user_id || null;
   }
 
   async listWorkspaceMembers(workspaceId) {
@@ -92,6 +132,7 @@ class CollaborationService {
   }
 
   async addWorkspaceMember(workspaceId, email, role = 'member', invitedBy = null) {
+    const normalizedRole = assertWorkspaceRole(role, { allowOwner: false });
     const emailLower = String(email || '')
       .trim()
       .toLowerCase();
@@ -109,18 +150,19 @@ class CollaborationService {
        ON CONFLICT (workspace_id, user_id)
        DO UPDATE SET role = EXCLUDED.role, updated_at = CURRENT_TIMESTAMP
        RETURNING workspace_id, user_id, role`,
-      [workspaceId, userRow.user_id, role, invitedBy]
+      [workspaceId, userRow.user_id, normalizedRole, invitedBy]
     );
     return { member: row, email: userRow.email };
   }
 
   async updateWorkspaceMemberRole(workspaceId, userId, role) {
+    const normalizedRole = assertWorkspaceRole(role);
     const row = await database.get(
       `UPDATE workspace_members
        SET role = $1, updated_at = CURRENT_TIMESTAMP
        WHERE workspace_id = $2 AND user_id = $3
        RETURNING workspace_id, user_id, role`,
-      [role, workspaceId, userId]
+      [normalizedRole, workspaceId, userId]
     );
     return row || null;
   }
@@ -239,23 +281,38 @@ class CollaborationService {
   }
 
   async createShareLink(jobId, createdBy, expiresAt) {
+    const expiresAtTime = new Date(expiresAt).getTime();
+    if (!Number.isFinite(expiresAtTime) || expiresAtTime <= Date.now()) {
+      throw new Error('Invalid share link expiration');
+    }
+    const ttlDays = (expiresAtTime - Date.now()) / (24 * 60 * 60 * 1000);
+    if (ttlDays > MAX_SHARE_LINK_DAYS) {
+      throw new Error('Share link expiration exceeds maximum allowed lifetime');
+    }
+
     const token = crypto.randomBytes(24).toString('hex');
     const tokenHash = hashToken(token);
     const id = uuid();
-    const host = process.env.PUBLIC_SHARE_BASE_URL || process.env.APP_BASE_URL || '';
-    const shareUrl = host ? `${host.replace(/\/$/, '')}/share/${token}` : null;
+    const shareUrl = buildShareUrl(token);
     const row = await database.get(
       `INSERT INTO share_links (id, job_id, token_hash, share_url, expires_at, created_by, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+       VALUES ($1, $2, $3, NULL, $4, $5, CURRENT_TIMESTAMP)
        RETURNING id, job_id, share_url, expires_at, created_by, created_at`,
-      [id, jobId, tokenHash, shareUrl, expiresAt, createdBy]
+      [id, jobId, tokenHash, expiresAt, createdBy]
     );
-    return { token, link: row };
+    return {
+      token,
+      url: shareUrl,
+      link: {
+        ...row,
+        share_url: null,
+      },
+    };
   }
 
   async listShareLinksForWorkspace(workspaceId) {
     return await database.all(
-      `SELECT s.id, s.job_id, s.share_url, s.expires_at, s.created_by, s.created_at, s.revoked_at,
+      `SELECT s.id, s.job_id, NULL::TEXT AS share_url, s.expires_at, s.created_by, s.created_at, s.revoked_at,
         j.title
        FROM share_links s
        JOIN jobs j ON j.id = s.job_id
@@ -334,3 +391,4 @@ class CollaborationService {
 }
 
 export default new CollaborationService();
+export { isValidWorkspaceRole, normalizeWorkspaceRole };

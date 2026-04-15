@@ -58,6 +58,7 @@ const serviceContracts = [
       'listWorkspaces',
       'createWorkspace',
       'getWorkspaceRole',
+      'getWorkspaceOwnerId',
       'listWorkspaceMembers',
       'addWorkspaceMember',
       'updateWorkspaceMemberRole',
