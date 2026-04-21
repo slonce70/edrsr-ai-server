@@ -6,10 +6,11 @@ import { logger } from './utils.js';
 import got from 'got';
 import { APP_VERSION } from './version.js';
 
-// Load environment variables from .env file, overriding any existing ones
-dotenv.config({ override: true });
+// Respect runtime overrides from systemd/GitHub Actions and only backfill missing values from .env.
+dotenv.config();
 
 const PORT = process.env.PORT || 4000;
+const HOST = process.env.HOST || (process.env.NODE_ENV === 'production' ? '127.0.0.1' : '0.0.0.0');
 
 async function start() {
   try {
@@ -19,9 +20,9 @@ async function start() {
 
     const server = createServer();
 
-    server.listen(PORT, () => {
+    server.listen(PORT, HOST, () => {
       logger.log(`🚀 ЄДРСР AI Backend Server v${APP_VERSION}`);
-      logger.log(`📡 HTTP та WebSocket сервер запущено на порту ${PORT}`);
+      logger.log(`📡 HTTP та WebSocket сервер запущено на ${HOST}:${PORT}`);
 
       // Keep-alive mechanism for free Render tier
       const RENDER_URL = process.env.RENDER_EXTERNAL_URL;
