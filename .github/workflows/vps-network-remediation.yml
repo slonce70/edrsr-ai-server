@@ -1,0 +1,112 @@
+name: VPS Network Remediation
+
+on:
+  workflow_dispatch:
+    inputs:
+      trusted_ips:
+        description: Trusted admin IPs or CIDRs to whitelist and unban
+        required: true
+        default: "203.0.113.56,203.0.113.44"
+
+jobs:
+  remediate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Remediate fail2ban and UFW via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: 22
+          script: |
+            set -euo pipefail
+
+            TRUSTED_RAW="${{ github.event.inputs.trusted_ips }}"
+            export TRUSTED_RAW
+
+            TRUSTED_IPS="$(python3 - <<'PY'
+            import os
+            raw = os.environ["TRUSTED_RAW"].replace(",", " ")
+            items = []
+            for part in raw.split():
+                if part not in items:
+                    items.append(part)
+            print(" ".join(items))
+            PY
+            )"
+
+            echo "Trusted IPs: ${TRUSTED_IPS}"
+
+            EXISTING_IGNOREIP="$(
+              sudo sh -lc '
+                grep -Rhs "^[[:space:]]*ignoreip[[:space:]]*=" \
+                  /etc/fail2ban/jail.conf \
+                  /etc/fail2ban/jail.local \
+                  /etc/fail2ban/jail.d/*.conf \
+                  /etc/fail2ban/jail.d/*.local 2>/dev/null \
+                | tail -n 1 \
+                | sed "s/.*=//"
+              ' || true
+            )"
+
+            export EXISTING_IGNOREIP
+
+            MERGED_IGNOREIP="$(python3 - <<'PY'
+            import os
+            merged = []
+            for chunk in (os.environ.get("EXISTING_IGNOREIP", ""), "127.0.0.1/8 ::1", os.environ["TRUSTED_RAW"].replace(",", " ")):
+                for item in chunk.split():
+                    if item and item not in merged:
+                        merged.append(item)
+            print(" ".join(merged))
+            PY
+            )"
+
+            TMP_FILE="$(mktemp)"
+            cat > "${TMP_FILE}" <<EOF
+            [DEFAULT]
+            ignoreip = ${MERGED_IGNOREIP}
+
+            [sshd]
+            enabled = true
+
+            [recidive]
+            enabled = true
+            EOF
+
+            sudo install -d -m 0755 /etc/fail2ban/jail.d
+            if sudo test -f /etc/fail2ban/jail.d/99-codex-trusted-admins.local; then
+              sudo cp /etc/fail2ban/jail.d/99-codex-trusted-admins.local \
+                "/etc/fail2ban/jail.d/99-codex-trusted-admins.local.bak.$(date +%s)"
+            fi
+            sudo mv "${TMP_FILE}" /etc/fail2ban/jail.d/99-codex-trusted-admins.local
+            sudo chmod 0644 /etc/fail2ban/jail.d/99-codex-trusted-admins.local
+
+            sudo systemctl restart fail2ban
+
+            for ip in ${TRUSTED_IPS}; do
+              echo "Unbanning ${ip}"
+              sudo fail2ban-client set sshd unbanip "${ip}" || true
+              sudo fail2ban-client set recidive unbanip "${ip}" || true
+              sudo fail2ban-client set nginx-botsearch unbanip "${ip}" || true
+
+              while sudo ufw status | grep -Fq "${ip}"; do
+                sudo ufw --force delete reject from "${ip}" >/dev/null 2>&1 || break
+                sleep 1
+              done
+            done
+
+            echo "== fail2ban status =="
+            sudo fail2ban-client status || true
+            echo "== fail2ban sshd =="
+            sudo fail2ban-client status sshd || true
+            echo "== fail2ban recidive =="
+            sudo fail2ban-client status recidive || true
+            echo "== ufw status numbered =="
+            sudo ufw status numbered || true
+            echo "== listening ports =="
+            ss -lntp | egrep '(:22|:80|:443)\b' || true
+            echo "== local app health =="
+            curl -sS http://127.0.0.1:4000/api/health/light || true
