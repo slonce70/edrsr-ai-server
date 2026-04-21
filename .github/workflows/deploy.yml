@@ -131,7 +131,9 @@ jobs:
             ensure_nginx_upstream_switching
 
             echo "== starting canary on :4001 =="
-            if [[ "${TRAFFIC_ON_PORT}" != "4001" ]]; then
+            if sudo systemctl is-active --quiet edrsr-ai-canary; then
+              echo "Canary instance is already running on :4001; reusing it"
+            elif [[ "${TRAFFIC_ON_PORT}" != "4001" ]]; then
               sudo systemctl stop edrsr-ai-canary || true
               sudo systemctl reset-failed edrsr-ai-canary || true
               sudo systemctl start edrsr-ai-canary
