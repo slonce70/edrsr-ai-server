@@ -111,9 +111,50 @@ async function testCustomPromptFallsBackOnRetryableGeminiError() {
   );
 }
 
+async function testPermissionDeniedKeyIsRemovedFromRotation() {
+  resetKeyManagerState();
+
+  const originalClients = [...config.apiKeyManager.clients];
+  const usedKeys = [];
+
+  config.apiKeyManager.clients = config.apiKeyManager.clients.map((client, index) => ({
+    ...client,
+    models: {
+      ...client.models,
+      async generateContent() {
+        usedKeys.push(index);
+        if (index === 0) {
+          const error = new Error(
+            '{"error":{"code":403,"message":"Your project has been denied access. Please contact support.","status":"PERMISSION_DENIED"}}'
+          );
+          error.status = 403;
+          throw error;
+        }
+        return { text: 'success from healthy key' };
+      },
+    },
+  }));
+
+  let result;
+  try {
+    result = await batchProcessor.generateContent('permission denied regression prompt');
+  } finally {
+    config.apiKeyManager.clients = originalClients;
+  }
+
+  assert.equal(result, 'success from healthy key');
+  assert.equal(config.apiKeyManager.isInvalid(0), true, '403 denied key should be marked invalid');
+  assert.deepEqual(
+    usedKeys.slice(0, 2),
+    [0, 1],
+    'generateContent should skip the denied key and continue with the next one'
+  );
+}
+
 async function run() {
   await testGenerateContentTriesAllKeys();
   await testCustomPromptFallsBackOnRetryableGeminiError();
+  await testPermissionDeniedKeyIsRemovedFromRotation();
   console.log('Gemini retry regressions passed.');
 }
 
