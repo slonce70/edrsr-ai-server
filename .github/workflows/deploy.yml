@@ -67,8 +67,8 @@ jobs:
             Type=simple
             User=edrsr
             WorkingDirectory=/opt/edrsr-ai/server
-            Environment=PORT=4001
             EnvironmentFile=/opt/edrsr-ai/server/.env
+            Environment=PORT=4001
             ExecStart=/usr/bin/node /opt/edrsr-ai/server/start-with-gc.js
             Restart=always
             RestartSec=5
