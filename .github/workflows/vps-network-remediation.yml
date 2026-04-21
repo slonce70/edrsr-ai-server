@@ -22,6 +22,7 @@ jobs:
           port: 22
           script: |
             set -euo pipefail
+            set -x
 
             TRUSTED_RAW="${{ github.event.inputs.trusted_ips }}"
             export TRUSTED_RAW
@@ -84,22 +85,23 @@ jobs:
             sudo mv "${TMP_FILE}" /etc/fail2ban/jail.d/99-codex-trusted-admins.local
             sudo chmod 0644 /etc/fail2ban/jail.d/99-codex-trusted-admins.local
 
-            sudo systemctl restart fail2ban
+            echo "Reloading fail2ban"
+            timeout 30s sudo fail2ban-client reload
 
             for ip in ${TRUSTED_IPS}; do
               echo "Unbanning ${ip}"
-              sudo fail2ban-client set sshd unbanip "${ip}" || true
-              sudo fail2ban-client set recidive unbanip "${ip}" || true
-              sudo fail2ban-client set nginx-botsearch unbanip "${ip}" || true
+              timeout 15s sudo fail2ban-client set sshd unbanip "${ip}" || true
+              timeout 15s sudo fail2ban-client set recidive unbanip "${ip}" || true
+              timeout 15s sudo fail2ban-client set nginx-botsearch unbanip "${ip}" || true
             done
 
             echo "== verification =="
-            sudo fail2ban-client get sshd ignoreip || true
+            timeout 15s sudo fail2ban-client get sshd ignoreip || true
             for ip in ${TRUSTED_IPS}; do
               echo "-- ${ip} in ufw status --"
-              sudo ufw status | grep -F "${ip}" || true
+              timeout 15s sudo ufw status | grep -F "${ip}" || true
               echo "-- ${ip} in iptables-save --"
-              sudo iptables-save | grep -F "${ip}" || true
+              timeout 15s sudo iptables-save | grep -F "${ip}" || true
             done
             echo "== listening ports =="
             ss -lntp | egrep '(:22|:80|:443)\b' || true
