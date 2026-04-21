@@ -68,8 +68,7 @@ jobs:
             User=edrsr
             WorkingDirectory=/opt/edrsr-ai/server
             EnvironmentFile=/opt/edrsr-ai/server/.env
-            Environment=PORT=4001
-            ExecStart=/usr/bin/node /opt/edrsr-ai/server/start-with-gc.js
+            ExecStart=/usr/bin/env PORT=4001 /usr/bin/node /opt/edrsr-ai/server/start-with-gc.js
             Restart=always
             RestartSec=5
             LimitNOFILE=65535
