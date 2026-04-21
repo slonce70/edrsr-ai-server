@@ -21,20 +21,152 @@ jobs:
           port: 22
           script: |
             set -euo pipefail
+
+            wait_for_health() {
+              local port="$1"
+              local attempts="${2:-60}"
+
+              for _ in $(seq 1 "${attempts}"); do
+                if curl -fsS --max-time 2 "http://127.0.0.1:${port}/api/health/light" >/dev/null; then
+                  return 0
+                fi
+                sleep 1
+              done
+
+              return 1
+            }
+
+            get_current_upstream_port() {
+              if [[ -f /etc/nginx/snippets/edrsr-ai-upstream.conf ]]; then
+                grep -oE '127\\.0\\.0\\.1:[0-9]+' /etc/nginx/snippets/edrsr-ai-upstream.conf | head -n1 | cut -d: -f2
+                return 0
+              fi
+
+              echo 4000
+            }
+
+            set_active_upstream() {
+              local port="$1"
+
+              sudo mkdir -p /etc/nginx/snippets
+              sudo tee /etc/nginx/snippets/edrsr-ai-upstream.conf >/dev/null <<EOF
+            set \$edrsr_upstream http://127.0.0.1:${port};
+            EOF
+
+              sudo nginx -t
+              sudo systemctl reload nginx
+            }
+
+            install_canary_unit() {
+              sudo tee /etc/systemd/system/edrsr-ai-canary.service >/dev/null <<'EOF'
+            [Unit]
+            Description=EDRSR-AI Canary Server
+            After=network.target postgresql.service
+
+            [Service]
+            Type=simple
+            User=edrsr
+            WorkingDirectory=/opt/edrsr-ai/server
+            Environment=PORT=4001
+            EnvironmentFile=/opt/edrsr-ai/server/.env
+            ExecStart=/usr/bin/node /opt/edrsr-ai/server/start-with-gc.js
+            Restart=always
+            RestartSec=5
+            LimitNOFILE=65535
+
+            [Install]
+            WantedBy=multi-user.target
+            EOF
+
+              sudo systemctl daemon-reload
+            }
+
+            ensure_nginx_upstream_switching() {
+              sudo python3 - <<'PY'
+            from pathlib import Path
+
+            path = Path('/etc/nginx/sites-available/edrsr-ai')
+            text = path.read_text()
+            include_line = '        include /etc/nginx/snippets/edrsr-ai-upstream.conf;\n'
+            legacy_line = '        proxy_pass http://127.0.0.1:4000;\n'
+            dynamic_line = '        proxy_pass $edrsr_upstream;\n'
+
+            if dynamic_line in text:
+                raise SystemExit(0)
+
+            if legacy_line not in text:
+                raise SystemExit('Unable to find legacy proxy_pass directive in nginx site config')
+
+            path.write_text(text.replace(legacy_line, include_line + dynamic_line, 1))
+            PY
+
+              set_active_upstream 4000
+            }
+
+            cleanup_deploy() {
+              local exit_code="$1"
+
+              if [[ "${TRAFFIC_ON_PORT:-4000}" == "4001" ]]; then
+                echo "Keeping traffic on canary due to deployment failure"
+                return "${exit_code}"
+              fi
+
+              if [[ "${CANARY_STARTED:-0}" == "1" ]]; then
+                sudo systemctl stop edrsr-ai-canary || true
+              fi
+
+              return "${exit_code}"
+            }
+
+            trap 'cleanup_deploy "$?"' EXIT
+            CANARY_STARTED=0
+            TRAFFIC_ON_PORT="$(get_current_upstream_port)"
+
             sudo chown -R edrsr:edrsr /opt/edrsr-ai
             sudo -u edrsr bash -lc 'mkdir -p ~/.ssh && chmod 700 ~/.ssh && ssh-keygen -R github.com -f ~/.ssh/known_hosts || true && ssh-keygen -R 140.82.121.3 -f ~/.ssh/known_hosts || true && ssh-keygen -R 140.82.121.4 -f ~/.ssh/known_hosts || true && ssh-keyscan -t rsa,ecdsa,ed25519 -H github.com >> ~/.ssh/known_hosts && chmod 600 ~/.ssh/known_hosts'
             sudo -u edrsr bash -lc 'cd /opt/edrsr-ai && GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new -o CheckHostIP=no" git fetch --prune && git reset --hard origin/main && npm install && npm --prefix server install && npm --prefix web install && npm --prefix web run build && npm run test:selfcheck && node server/scripts/test-prompts.js'
             sudo mkdir -p /var/www/edrsr-ai-app
             sudo rsync -a --delete /opt/edrsr-ai/web/dist/ /var/www/edrsr-ai-app/
-            systemctl restart edrsr-ai
-            systemctl reload nginx
+
+            install_canary_unit
+            ensure_nginx_upstream_switching
+
+            echo "== starting canary on :4001 =="
+            if [[ "${TRAFFIC_ON_PORT}" != "4001" ]]; then
+              sudo systemctl stop edrsr-ai-canary || true
+              sudo systemctl reset-failed edrsr-ai-canary || true
+              sudo systemctl start edrsr-ai-canary
+            else
+              echo "Canary is already serving traffic; reusing current :4001 instance"
+            fi
+            CANARY_STARTED=1
+            wait_for_health 4001
+
+            echo "== switching nginx to canary =="
+            if [[ "${TRAFFIC_ON_PORT}" != "4001" ]]; then
+              set_active_upstream 4001
+              TRAFFIC_ON_PORT=4001
+            fi
+
+            echo "== restarting primary on :4000 =="
+            sudo systemctl restart edrsr-ai
+            wait_for_health 4000
+
+            echo "== switching nginx back to primary =="
+            set_active_upstream 4000
+            TRAFFIC_ON_PORT=4000
+
+            echo "== stopping canary =="
+            sudo systemctl stop edrsr-ai-canary
+            CANARY_STARTED=0
 
             echo "== systemd =="
             sudo systemctl status edrsr-ai --no-pager || true
+            sudo systemctl status edrsr-ai-canary --no-pager || true
             sudo systemctl status nginx --no-pager || true
 
             echo "== nginx -T (first 200 lines) =="
             sudo nginx -T 2>/dev/null | sed -n '1,200p' || true
 
-            echo "== ports (80/443/4000) =="
-            ss -lntp 2>/dev/null | grep -E ':(80|443|4000)' || true
+            echo "== ports (80/443/4000/4001) =="
+            ss -lntp 2>/dev/null | grep -E ':(80|443|4000|4001)' || true
