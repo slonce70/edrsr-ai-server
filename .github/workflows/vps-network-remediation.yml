@@ -92,9 +92,15 @@ jobs:
               sudo fail2ban-client set recidive unbanip "${ip}" || true
               sudo fail2ban-client set nginx-botsearch unbanip "${ip}" || true
 
-              while sudo ufw status | grep -Fq "${ip}"; do
-                sudo ufw --force delete reject from "${ip}" >/dev/null 2>&1 || break
-                sleep 1
+              RULE_NUMBERS="$(
+                sudo ufw status numbered \
+                  | awk -v ip="${ip}" '$0 ~ ip {gsub(/\\[|\\]/, "", $1); print $1}' \
+                  | sort -nr
+              )"
+
+              for rule in ${RULE_NUMBERS}; do
+                echo "Deleting UFW rule ${rule} for ${ip}"
+                sudo ufw --force delete "${rule}" || true
               done
             done
 
