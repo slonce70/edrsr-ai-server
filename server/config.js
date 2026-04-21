@@ -7,8 +7,8 @@
 import dotenv from 'dotenv';
 import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from '@google/genai';
 
-// Load environment variables first
-dotenv.config({ override: true });
+// Respect runtime overrides and only fill missing values from .env.
+dotenv.config();
 
 // --- API Key Manager для ротації кількох ключів ---
 
