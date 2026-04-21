@@ -1,0 +1,110 @@
+name: VPS Health Audit
+
+on:
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Extended health audit via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: 22
+          script: |
+            set -euo pipefail
+
+            echo "== hostname =="
+            hostnamectl || true
+
+            echo "== uptime =="
+            uptime || true
+
+            echo "== date =="
+            date -Is || true
+
+            echo "== who =="
+            who || true
+
+            echo "== load/memory =="
+            free -h || true
+            vmstat 1 5 || true
+            ps -eo pid,ppid,cmd,%mem,%cpu --sort=-%cpu | head -n 25 || true
+
+            echo "== disk usage =="
+            df -hT || true
+            lsblk -f || true
+            sudo du -xhd1 / /var /opt /home 2>/dev/null | sort -h || true
+
+            echo "== inodes =="
+            df -ih || true
+
+            echo "== swap =="
+            swapon --show || true
+            cat /proc/swaps || true
+
+            echo "== mounts =="
+            mount | head -n 80 || true
+
+            echo "== open listeners =="
+            ss -lntup || true
+
+            echo "== network summary =="
+            ip -s link || true
+            ip route || true
+            ss -s || true
+
+            echo "== systemd failed =="
+            sudo systemctl --failed --no-pager || true
+
+            echo "== services =="
+            sudo systemctl status nginx --no-pager || true
+            sudo systemctl status edrsr-ai --no-pager || true
+            sudo systemctl status postgresql --no-pager || true
+            sudo systemctl status fail2ban --no-pager || true
+
+            echo "== timers =="
+            sudo systemctl list-timers --all --no-pager || true
+
+            echo "== journal app last 200 =="
+            sudo journalctl -u edrsr-ai -n 200 --no-pager || true
+
+            echo "== journal nginx last 100 =="
+            sudo journalctl -u nginx -n 100 --no-pager || true
+
+            echo "== certs =="
+            sudo certbot certificates || true
+            openssl s_client -connect edrsr-ai-server.fun:443 -servername edrsr-ai-server.fun </dev/null 2>/dev/null | openssl x509 -noout -issuer -subject -dates || true
+
+            echo "== package updates =="
+            sudo apt-get update -qq || true
+            apt list --upgradable 2>/dev/null | sed -n '1,80p' || true
+            uname -a || true
+
+            echo "== unattended upgrades =="
+            sudo systemctl status unattended-upgrades --no-pager || true
+            sudo grep -R "Unattended-Upgrade" /etc/apt/apt.conf.d 2>/dev/null || true
+
+            echo "== auth summary =="
+            sudo tail -n 120 /var/log/auth.log || true
+
+            echo "== nginx access tail =="
+            sudo tail -n 80 /var/log/nginx/access.log || true
+            echo "== nginx error tail =="
+            sudo tail -n 80 /var/log/nginx/error.log || true
+
+            echo "== postgres =="
+            sudo -u postgres psql -tAc "select now();" || true
+            sudo -u postgres psql -tAc "select datname, pg_size_pretty(pg_database_size(datname)) from pg_database order by pg_database_size(datname) desc;" || true
+
+            echo "== app filesystem =="
+            sudo du -sh /opt/edrsr-ai 2>/dev/null || true
+            sudo find /opt/edrsr-ai -maxdepth 2 -type f \( -name '*.log' -o -name '*.sqlite' \) -ls 2>/dev/null | head -n 50 || true
+
+            echo "== app health =="
+            curl -sS http://127.0.0.1:4000/api/health/light || true
+            curl -I -sS --max-time 10 https://edrsr-ai-server.fun/api/health/light || true
