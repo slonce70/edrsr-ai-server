@@ -91,27 +91,16 @@ jobs:
               sudo fail2ban-client set sshd unbanip "${ip}" || true
               sudo fail2ban-client set recidive unbanip "${ip}" || true
               sudo fail2ban-client set nginx-botsearch unbanip "${ip}" || true
-
-              RULE_NUMBERS="$(
-                sudo ufw status numbered \
-                  | awk -v ip="${ip}" '$0 ~ ip {gsub(/\\[|\\]/, "", $1); print $1}' \
-                  | sort -nr
-              )"
-
-              for rule in ${RULE_NUMBERS}; do
-                echo "Deleting UFW rule ${rule} for ${ip}"
-                sudo ufw --force delete "${rule}" || true
-              done
             done
 
-            echo "== fail2ban status =="
-            sudo fail2ban-client status || true
-            echo "== fail2ban sshd =="
-            sudo fail2ban-client status sshd || true
-            echo "== fail2ban recidive =="
-            sudo fail2ban-client status recidive || true
-            echo "== ufw status numbered =="
-            sudo ufw status numbered || true
+            echo "== verification =="
+            sudo fail2ban-client get sshd ignoreip || true
+            for ip in ${TRUSTED_IPS}; do
+              echo "-- ${ip} in ufw status --"
+              sudo ufw status | grep -F "${ip}" || true
+              echo "-- ${ip} in iptables-save --"
+              sudo iptables-save | grep -F "${ip}" || true
+            done
             echo "== listening ports =="
             ss -lntp | egrep '(:22|:80|:443)\b' || true
             echo "== local app health =="
