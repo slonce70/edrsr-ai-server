@@ -118,18 +118,23 @@ async function generateContent(prompt, reservedKeyIndex = null) {
         const isOverloadError = message.includes('503') || message.includes('overloaded');
         const isEmptyResponse =
           message.includes('порожню відповідь') || message.toLowerCase().includes('empty response');
+        const isPermissionDenied =
+          String(statusCode) === '403' ||
+          message.includes('PERMISSION_DENIED') ||
+          message.includes('denied access');
         const isInvalidKey =
           message.includes('400') ||
           message.includes('401') ||
           message.includes('API_KEY_INVALID') ||
-          message.includes('INVALID_ARGUMENT');
+          message.includes('INVALID_ARGUMENT') ||
+          isPermissionDenied;
 
         apiKeyManager.markError(keyIndex);
 
         // Невалідний ключ - позначаємо як ПЕРМАНЕНТНО невалідний
         if (isInvalidKey) {
           logger.error(
-            `🚫 [GEMINI] Ключ #${keyIndex + 1} НЕВАЛІДНИЙ! Перевірте ключ в Google AI Studio.`
+            `🚫 [GEMINI] Ключ #${keyIndex + 1} НЕВАЛІДНИЙ або не має доступу! Перевірте ключ/проєкт в Google AI Studio.`
           );
           apiKeyManager.markInvalid(keyIndex); // Permanent ban замість cooldown
           keysFullyTried.add(keyIndex);
