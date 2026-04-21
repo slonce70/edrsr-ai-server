@@ -1,0 +1,66 @@
+name: VPS Network Diagnostics
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnostics:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deep diagnostics via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: 22
+          script: |
+            set -euo pipefail
+            echo "== hostnamectl =="
+            hostnamectl || true
+            echo "== uptime =="
+            uptime || true
+            echo "== ip addr =="
+            ip addr || true
+            echo "== ip route =="
+            ip route || true
+            echo "== ip -s link =="
+            ip -s link || true
+            echo "== ss summary =="
+            ss -s || true
+            echo "== listening ports =="
+            ss -lntp || true
+            echo "== sshd status =="
+            sudo systemctl status ssh --no-pager || sudo systemctl status sshd --no-pager || true
+            echo "== sshd config =="
+            sudo sshd -T 2>/dev/null | egrep '^(port|maxstartups|maxsessions|logingracetime|permitrootlogin|passwordauthentication|pubkeyauthentication|kbdinteractiveauthentication|usepam|allowusers|allowgroups|clientaliveinterval|clientalivecountmax|tcpkeepalive|persourcemaxstartups|persourcenetblocksize|logingracetime)' | sort || true
+            echo "== ufw =="
+            sudo ufw status verbose || true
+            echo "== nft ruleset =="
+            sudo nft list ruleset || true
+            echo "== iptables =="
+            sudo iptables -S || true
+            echo "== fail2ban status =="
+            sudo fail2ban-client status || true
+            echo "== fail2ban sshd =="
+            sudo fail2ban-client status sshd || true
+            echo "== auth.log tail =="
+            sudo tail -n 200 /var/log/auth.log || true
+            echo "== journal ssh last 200 =="
+            sudo journalctl -u ssh -n 200 --no-pager || sudo journalctl -u sshd -n 200 --no-pager || true
+            echo "== journal kernel warnings last 200 =="
+            sudo journalctl -k -n 200 --no-pager || true
+            echo "== dmesg tail =="
+            sudo dmesg -T | tail -n 200 || true
+            echo "== nginx error log tail =="
+            sudo tail -n 200 /var/log/nginx/error.log || true
+            echo "== systemd failed =="
+            sudo systemctl --failed --no-pager || true
+            echo "== limits and sysctl =="
+            sudo sysctl net.core.somaxconn net.ipv4.tcp_max_syn_backlog net.ipv4.tcp_synack_retries net.ipv4.tcp_keepalive_time net.ipv4.ip_local_port_range || true
+            echo "== conntrack count =="
+            sudo sh -lc 'test -r /proc/sys/net/netfilter/nf_conntrack_count && cat /proc/sys/net/netfilter/nf_conntrack_count && cat /proc/sys/net/netfilter/nf_conntrack_max' || true
+            echo "== login history =="
+            last -n 30 || true
+            echo "== app health local =="
+            curl -sS http://127.0.0.1:4000/api/health/light || true
