@@ -1,0 +1,29 @@
+name: Deploy Hotfix Branch
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy current branch via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: 22
+          script: |
+            set -euo pipefail
+            BRANCH="${{ github.ref_name }}"
+            sudo chown -R edrsr:edrsr /opt/edrsr-ai
+            sudo -u edrsr bash -lc 'mkdir -p ~/.ssh && chmod 700 ~/.ssh && ssh-keygen -R github.com -f ~/.ssh/known_hosts || true && ssh-keyscan -t rsa,ecdsa,ed25519 -H github.com >> ~/.ssh/known_hosts && chmod 600 ~/.ssh/known_hosts'
+            sudo -u edrsr bash -lc "cd /opt/edrsr-ai && GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=accept-new -o CheckHostIP=no' git fetch --prune origin && git checkout -B '${BRANCH}' 'origin/${BRANCH}' && npm install && npm --prefix server install && npm --prefix web install && npm --prefix web run build && npm run test:selfcheck && node server/scripts/test-prompts.js && node server/scripts/test-gemini-retry-regression.js"
+            sudo mkdir -p /var/www/edrsr-ai-app
+            sudo rsync -a --delete /opt/edrsr-ai/web/dist/ /var/www/edrsr-ai-app/
+            sudo systemctl restart edrsr-ai
+            sudo systemctl reload nginx
+            echo "== health =="
+            curl -sS http://127.0.0.1:4000/api/health/light
+            echo

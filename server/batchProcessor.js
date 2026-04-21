@@ -16,9 +16,17 @@ import {
 import { PROMPT_TEMPLATES } from './prompts.js';
 import { buildStrictCaseLinkMap, createAnalysisPrompt, logger } from './utils.js';
 
-// MAX_RETRIES should be at least totalKeys * 2 to try all keys with retries
-const MAX_RETRIES = parseInt(process.env.MAX_RETRIES, 10) || 15;
+const CONFIGURED_MAX_RETRIES = parseInt(process.env.MAX_RETRIES, 10) || 15;
 const INITIAL_RETRY_DELAY_MS = 20000; // 20 seconds
+
+function getEffectiveMaxRetries() {
+  const modelsPerKey =
+    FALLBACK_MODEL_NAME && FALLBACK_MODEL_NAME !== modelName
+      ? 2
+      : 1;
+
+  return Math.max(CONFIGURED_MAX_RETRIES, apiKeyManager.totalCount * modelsPerKey);
+}
 
 /**
  * Generate content using Gemini AI with retry, fallback, and API key rotation.
@@ -58,9 +66,10 @@ async function generateContent(prompt, reservedKeyIndex = null) {
 
   // ========== PHASE 2: Офіційні Gemini ключі (FALLBACK) ==========
   let attempt = 0;
+  const maxRetries = getEffectiveMaxRetries();
   const keysFullyTried = new Set(); // Ключі де обидві моделі не спрацювали
 
-  while (attempt < MAX_RETRIES) {
+  while (attempt < maxRetries) {
     attempt++;
 
     // Використати зарезервований ключ або взяти наступний доступний
@@ -77,7 +86,7 @@ async function generateContent(prompt, reservedKeyIndex = null) {
 
     for (const currentModel of modelsToTry) {
       logger.info(
-        `🚀 Gemini (Спроба ${attempt}/${MAX_RETRIES}, Ключ #${keyIndex + 1}/${apiKeyManager.totalCount}, Модель: ${currentModel})`
+        `🚀 Gemini (Спроба ${attempt}/${maxRetries}, Ключ #${keyIndex + 1}/${apiKeyManager.totalCount}, Модель: ${currentModel})`
       );
 
       try {
@@ -148,7 +157,7 @@ async function generateContent(prompt, reservedKeyIndex = null) {
           message.includes('fetch failed') || message.includes('ENET') || message.includes('ECONN');
         const isInternalError = message.includes('500');
 
-        if ((isNetworkError || isInternalError) && attempt < MAX_RETRIES) {
+        if ((isNetworkError || isInternalError) && attempt < maxRetries) {
           const delay = INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt - 1);
           logger.info(`[RETRY] Помилка, повтор через ${Math.round(delay / 1000)} сек...`);
           await new Promise((resolve) => setTimeout(resolve, delay));
@@ -160,7 +169,7 @@ async function generateContent(prompt, reservedKeyIndex = null) {
     }
 
     // Якщо всі ключі вичерпані
-    if (keysFullyTried.size >= apiKeyManager.totalCount) {
+    if (keysFullyTried.size >= apiKeyManager.totalCount && attempt < maxRetries) {
       logger.warn(`⚠️ Всі ${apiKeyManager.totalCount} ключів rate limited, чекаю 60 сек...`);
       keysFullyTried.clear();
       await new Promise((resolve) => setTimeout(resolve, 60000));
@@ -233,9 +242,11 @@ async function getBatchSummary(
   const strictMap = buildStrictCaseLinkMap(batchCases);
   const materialsBlock = `<<<BEGIN MATERIALS>>>\n${corpus}\n<<<END MATERIALS>>>`;
 
+  let prompt;
+
   // Default to a simple factual summary if no specific prompt is provided.
   if (!finalUserPrompt) {
-    const prompt = `
+    prompt = `
 ${PROMPT_TEMPLATES.batch_summary}
 
 # СТРОГИЙ СПИСОК ВІДПОВІДНОСТІ (номер ↔ URL)
@@ -244,12 +255,9 @@ ${strictMap}
 # МАТЕРІАЛИ (НЕДОВІРЕНІ ДАНІ)
 ${materialsBlock}
 `;
-    return generateContent(prompt, reservedKeyIndex);
-  }
-
-  // Special mode: detailed annotations must be final-ready at the batch stage.
-  if (finalUserPrompt === 'detailed_annotation') {
-    const prompt = `
+  } else if (finalUserPrompt === 'detailed_annotation') {
+    // Special mode: detailed annotations must be final-ready at the batch stage.
+    prompt = `
 ${PROMPT_TEMPLATES.detailed_annotation}
 
 # СТРОГИЙ СПИСОК ВІДПОВІДНОСТІ (номер ↔ URL)
@@ -268,13 +276,9 @@ ${strictMap}
 # МАТЕРІАЛИ (НЕДОВІРЕНІ ДАНІ)
 ${materialsBlock}
 `;
-
-    return generateContent(prompt, reservedKeyIndex);
-  }
-
-  // Custom user prompt that is not part of predefined templates.
-  if (!PROMPT_TEMPLATES[finalUserPrompt]) {
-    const prompt = `
+  } else if (!PROMPT_TEMPLATES[finalUserPrompt]) {
+    // Custom user prompt that is not part of predefined templates.
+    prompt = `
 # КОНТЕКСТ:
 Ти допомагаєш юристу виконати індивідуальний запит. Потрібна детальна попередня вижимка по кожній справі, що повністю відповідає користувацьким інструкціям.
 
@@ -311,13 +315,10 @@ ${strictMap}
 # МАТЕРІАЛИ ДЛЯ АНАЛІЗУ:
 ${materialsBlock}
 `;
-
-    return generateContent(prompt, reservedKeyIndex);
-  }
-
-  // For all other prompts from the template set, construct a focused summary request.
-  const taskPrompt = PROMPT_TEMPLATES[finalUserPrompt];
-  const prompt = `
+  } else {
+    // For all other prompts from the template set, construct a focused summary request.
+    const taskPrompt = PROMPT_TEMPLATES[finalUserPrompt];
+    prompt = `
 # КОНТЕКСТ:
 Ти - частина великого аналітичного процесу. Твоя задача - зробити попередню вижимку з групи судових рішень, яка допоможе на фінальному етапі дати відповідь на головний запит.
 
@@ -338,6 +339,7 @@ ${strictMap}
 # МАТЕРІАЛИ:
 ${materialsBlock}
 `;
+  }
 
   try {
     const summary = await generateContent(prompt, reservedKeyIndex);
