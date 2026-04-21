@@ -12,6 +12,7 @@ class CLIProxyClient {
     this.currentKeyIndex = 0;
     this.cooldowns = new Map(); // keyIndex → timestamp
     this.stats = apiKeys.map(() => ({ requests: 0, errors: 0 }));
+    this.providerCooldownUntil = 0; // whole-provider cooldown for auth/backend outages
   }
 
   getNextKey() {
@@ -38,7 +39,25 @@ class CLIProxyClient {
     this.stats[keyIndex].errors++;
   }
 
+  markProviderUnavailable(cooldownMs = 300000) {
+    this.providerCooldownUntil = Date.now() + cooldownMs;
+  }
+
   async generateContent({ model, contents, config }) {
+    const now = Date.now();
+    if (this.providerCooldownUntil > now) {
+      const err = new Error(
+        `CLIProxy provider unavailable for ${Math.ceil((this.providerCooldownUntil - now) / 1000)}s`
+      );
+      err.status = 503;
+      err.providerUnavailable = true;
+      err.allKeysExhausted = true;
+      err.tried = 0;
+      err.total = this.apiKeys.length;
+      err.maxAttemptsPerKey = this.maxAttemptsPerKey;
+      throw err;
+    }
+
     const triedKeys = new Set();
     let lastError = null;
     let tries = 0;
@@ -84,6 +103,17 @@ class CLIProxyClient {
 
         // Rate limit або помилка сервера - спробувати інший ключ
         if (response.status === 429 || response.status === 503 || response.status === 403) {
+          const payload = await response.text();
+          const normalizedPayload = String(payload || '').toLowerCase();
+
+          if (response.status === 503 && normalizedPayload.includes('auth_unavailable')) {
+            this.markProviderUnavailable();
+            lastError = new Error(`CLIProxy auth unavailable: ${payload}`);
+            lastError.status = 503;
+            lastError.providerUnavailable = true;
+            break;
+          }
+
           this.markRateLimited(keyIndex, response.status === 403 ? 30000 : 60000);
           lastError = new Error(`CLIProxy error (${response.status}), ключ #${keyIndex + 1}`);
           lastError.status = response.status;
