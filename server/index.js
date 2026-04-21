@@ -40,7 +40,8 @@ async function start() {
 
       // Keep-alive for CLIProxyAPI (prevents spin-down on free tier)
       const CLI_PROXY_URL = process.env.CLI_PROXY_URL;
-      if (CLI_PROXY_URL) {
+      const ENABLE_CLI_PROXY = process.env.ENABLE_CLI_PROXY === 'true';
+      if (ENABLE_CLI_PROXY && CLI_PROXY_URL) {
         setInterval(
           () => {
             logger.debug('PINGING CLIProxyAPI to prevent sleep...');

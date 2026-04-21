@@ -510,10 +510,16 @@ export const genAI = apiKeyManager.clients[0];
 
 // Model configuration from environment
 export const modelName = process.env.MODEL_NAME || 'gemini-2.5-flash';
-// Fallback модель - якщо основна rate limited, спробувати цю
+// Fallback модель - якщо основна rate limited, спробувати цю.
+// Порожній рядок у env навмисно вимикає fallback, щоб не стукатись у завідомо
+// неробочу/квотовану модель на кожному запиті.
+const rawFallbackModelName = process.env.FALLBACK_MODEL_NAME;
 export const FALLBACK_MODEL_NAME =
-  process.env.FALLBACK_MODEL_NAME ||
-  (modelName === 'gemini-2.5-pro' ? 'gemini-2.5-flash' : 'gemini-2.5-pro');
+  rawFallbackModelName !== undefined
+    ? rawFallbackModelName.trim()
+    : modelName === 'gemini-2.5-pro'
+      ? 'gemini-2.5-flash'
+      : 'gemini-2.5-pro';
 
 // Логування конфігурації моделей при запуску
 console.log(`📋 [CONFIG] Основна модель: ${modelName}`);
