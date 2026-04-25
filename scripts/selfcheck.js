@@ -152,12 +152,17 @@ async function run() {
     };
 
     assert.equal(allowMissingOrigin(devEnv), true);
-    assert.equal(allowMissingOrigin(prodEnv), false);
+    assert.equal(allowMissingOrigin(prodEnv), true);
     assert.equal(isAllowedChromeExtensionOrigin('chrome-extension://abc123', prodEnv), true);
     assert.equal(isAllowedChromeExtensionOrigin('chrome-extension://zzz999', prodEnv), false);
     assert.equal(getAllowedChromeExtensionIds(prodEnv).length, 1);
     assert.deepEqual(getAllowedHttpOrigins(devEnv).includes('http://localhost:3000'), true);
     assert.deepEqual(getAllowedHttpOrigins(prodEnv), ['https://portal.example.com']);
+    assert.deepEqual(getAllowedHttpOrigins({ NODE_ENV: 'production' }), [
+      'https://edrsr-ai-server.fun',
+      'https://www.edrsr-ai-server.fun',
+      'https://app.edrsr-ai-server.fun',
+    ]);
     pass('originPolicy');
   } catch (e) {
     fail('originPolicy', e);

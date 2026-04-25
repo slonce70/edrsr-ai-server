@@ -11,6 +11,12 @@ import { parseDevAuthToken } from './auth/devAuth.js';
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
 const IS_PROD_LIKE = process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging';
+const PROD_WS_ORIGINS = [
+  'https://edrsr-ai-server.fun',
+  'https://www.edrsr-ai-server.fun',
+  'https://app.edrsr-ai-server.fun',
+  'https://reyestr.court.gov.ua',
+];
 let supabase;
 function getSupabase() {
   if (!supabase && SUPABASE_URL && SUPABASE_ANON_KEY) {
@@ -104,7 +110,7 @@ const getAllowedWsOrigins = () => {
   }
 
   if (IS_PROD_LIKE) {
-    return [];
+    return [...PROD_WS_ORIGINS];
   }
 
   return [
@@ -119,9 +125,6 @@ function assertWsOriginConfig() {
   if (!IS_PROD_LIKE) return;
   if (getAllowedWsOrigins().length === 0) {
     throw new Error('WS_ALLOWED_ORIGINS must be set in production/staging');
-  }
-  if (getAllowedChromeExtensionIds().length === 0) {
-    throw new Error('CHROME_EXTENSION_IDS must be set in production/staging');
   }
 }
 

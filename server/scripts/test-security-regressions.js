@@ -67,6 +67,13 @@ const expectations = [
     ok: adminSource.includes('database.withClientTransaction'),
   },
   {
+    label: 'delete user preserves roles delegated to other users',
+    ok:
+      adminSource.includes('UPDATE user_roles SET granted_by = NULL WHERE granted_by = $1') &&
+      adminSource.includes('DELETE FROM user_roles WHERE user_id = $1') &&
+      !adminSource.includes('DELETE FROM user_roles WHERE user_id = $1 OR granted_by = $1'),
+  },
+  {
     label: 'delete user blocks workspace owners with 409',
     ok:
       adminSource.includes('DELETE_USER_PREFLIGHT_BLOCKED') &&
