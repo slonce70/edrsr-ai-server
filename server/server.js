@@ -19,6 +19,11 @@ import { APP_VERSION } from './version.js';
 
 // --- Security Configuration ---
 const IS_PROD_LIKE = process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging';
+const PROD_APP_ORIGINS = [
+  'https://edrsr-ai-server.fun',
+  'https://www.edrsr-ai-server.fun',
+  'https://app.edrsr-ai-server.fun',
+];
 
 function parseCsvEnv(value) {
   return String(value || '')
@@ -52,6 +57,10 @@ const getAllowedOrigins = () => {
     return [...new Set(configuredOrigins)];
   }
 
+  if (IS_PROD_LIKE) {
+    return [...PROD_APP_ORIGINS];
+  }
+
   if (!IS_PROD_LIKE) {
     return [
       'http://localhost:3000',
@@ -69,9 +78,6 @@ function assertOriginConfig() {
   if (getAllowedOrigins().length === 0) {
     throw new Error('CORS_ALLOWED_ORIGINS must be set in production/staging');
   }
-  if (getAllowedChromeExtensionIds().length === 0) {
-    throw new Error('CHROME_EXTENSION_IDS must be set in production/staging');
-  }
 }
 
 /**
@@ -83,10 +89,7 @@ const corsOptions = {
     const allowedOrigins = getAllowedOrigins();
 
     if (!origin) {
-      if (!IS_PROD_LIKE) {
-        return callback(null, true);
-      }
-      return callback(new Error('Origin required'));
+      return callback(null, true);
     }
 
     // Allow configured chrome-extension:// origins (browser extensions)

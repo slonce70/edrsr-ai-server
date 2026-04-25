@@ -80,7 +80,8 @@ async function buildDeleteUserPreflight(userId) {
     database.get(
       `SELECT
         (SELECT COUNT(*)::INT FROM workspace_members WHERE user_id = $1) AS workspace_memberships,
-        (SELECT COUNT(*)::INT FROM user_roles WHERE user_id = $1 OR granted_by = $1) AS user_roles,
+        (SELECT COUNT(*)::INT FROM user_roles WHERE user_id = $1) AS user_roles,
+        (SELECT COUNT(*)::INT FROM user_roles WHERE granted_by = $1 AND user_id <> $1) AS delegated_user_roles,
         (SELECT COUNT(*)::INT FROM jobs WHERE user_id = $1) AS jobs,
         (SELECT COUNT(*)::INT FROM chat_messages WHERE user_id = $1) AS chat_messages,
         (SELECT COUNT(*)::INT FROM parsed_cases WHERE user_id = $1) AS parsed_cases,
@@ -102,6 +103,7 @@ async function buildDeleteUserPreflight(userId) {
         share_links_created_by: counts?.share_links_authored ?? 0,
         prompt_audit_log_user_id: counts?.prompt_audit_rows ?? 0,
         workspace_prompts_updated_by: counts?.workspace_prompt_updates ?? 0,
+        user_roles_granted_by: counts?.delegated_user_roles ?? 0,
       },
       delete: {
         workspace_members: counts?.workspace_memberships ?? 0,
@@ -126,8 +128,9 @@ async function cleanupDeletedUserLocally(client, userId) {
   await client.query('UPDATE workspace_prompts SET updated_by = NULL WHERE updated_by = $1', [
     userId,
   ]);
+  await client.query('UPDATE user_roles SET granted_by = NULL WHERE granted_by = $1', [userId]);
   await client.query('DELETE FROM workspace_members WHERE user_id = $1', [userId]);
-  await client.query('DELETE FROM user_roles WHERE user_id = $1 OR granted_by = $1', [userId]);
+  await client.query('DELETE FROM user_roles WHERE user_id = $1', [userId]);
   await client.query('DELETE FROM jobs WHERE user_id = $1', [userId]);
   await client.query('DELETE FROM chat_messages WHERE user_id = $1', [userId]);
   await client.query('DELETE FROM parsed_cases WHERE user_id = $1', [userId]);
@@ -463,6 +466,8 @@ router.delete('/users/:userId', async (req, res) => {
         },
       });
     }
+
+    await database.run('UPDATE user_roles SET granted_by = NULL WHERE granted_by = $1', [userId]);
 
     const { error: supabaseDeleteError } = await supabaseAdmin.auth.admin.deleteUser(userId);
     if (supabaseDeleteError) {

@@ -31,11 +31,7 @@ function buildShareUrl(token) {
     return shareUrl;
   }
 
-  if (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging') {
-    throw new Error('PUBLIC_SHARE_BASE_URL or APP_BASE_URL must be configured');
-  }
-
-  return `http://localhost:4000/share/${token}`;
+  return null;
 }
 
 class CollaborationService {
