@@ -51,7 +51,7 @@ Prohibited content/behavior (комплаенс):
 
 Release checklist:
 1) Увеличьте версию в extension/manifest.json.
-2) Запустите сборку: `node scripts/build-extension.js`.
+2) Запустите release-сборку: `npm run build:extension:release`.
 3) Загрузите ZIP `edrsr-ai-extension-vX.Y.Z.zip` в Chrome Web Store (Unlisted).
 4) Укажите URL Privacy Policy и заполните Data Safety.
 5) В описании перечислите и обоснуйте permissions/host_permissions.

@@ -6,7 +6,7 @@ on:
       trusted_ips:
         description: Trusted admin IPs or CIDRs to whitelist and unban
         required: true
-        default: "203.0.113.56,203.0.113.44"
+        default: '203.0.113.56,203.0.113.44'
 
 jobs:
   remediate:

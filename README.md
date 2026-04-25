@@ -4,7 +4,7 @@
 
 [![Status](https://img.shields.io/badge/Status-Production%20Ready-brightgreen)]()
 [![Version](https://img.shields.io/badge/Version-2.0.3-blue)]()
-[![AI](https://img.shields.io/badge/AI-Gemini%203%20Pro%20%2B%202.5%20Flash-orange)]()
+[![AI](https://img.shields.io/badge/AI-Gemini%202.5%20Flash-orange)]()
 [![Database](https://img.shields.io/badge/Database-PostgreSQL-blue)]()
 
 This is a comprehensive system for automatically collecting court decisions from the Unified State Register of Court Decisions (ЄДРСР) with intelligent analysis via Gemini AI. It includes a professional Chrome extension, a React web portal, an admin UI, and a backend with asynchronous job processing.
@@ -22,7 +22,7 @@ The system is production‑ready and deployed on a VPS with a local PostgreSQL d
   - **Context-Aware Summaries**: For custom queries, the AI first understands the end goal, then creates highly relevant, detailed summaries from each case.
   - **Detailed Annotation**: A special mode to generate deep, structured annotations for each individual case in a large batch.
   - **Enriched Reports**: Final reports now include the decision date next to each case link (e.g., `[Case №...](URL) (Date)`), providing critical context at a glance.
-  - **Primary + Fallback Models**: CLI proxy can use Gemini 3 Pro as primary with configurable Gemini 2.5 fallback (Pro/Flash).
+  - **Production AI Profile**: Gemini 2.5 Flash is the default model; fallback is disabled unless explicitly configured to avoid quota churn on the VPS.
 - **🔐 Supabase Auth**: Email/password login and registration in the extension; per‑user data isolation (optionally enforced with RLS).
 - **💬 AI Chat**: Interactive Q&A on the analysis results.
 - **📄 Flexible Report Export**: Choose between compact text files (TXT) or high-quality PDF images for report downloads.
@@ -50,7 +50,7 @@ Backend source-of-truth layers:
 ## ⚙️ **Installation and Setup**
 
 ### **1. System Requirements**
-- **Node.js**: 16+ (20.x recommended)
+- **Node.js**: 20+ recommended
 - **PostgreSQL**: 12+
 - **Browser**: Chrome or Edge
 - **API Key**: Gemini AI API key
@@ -67,7 +67,7 @@ npm --prefix web install
 createdb edrsr_ai
 
 # Create and configure .env file
-cp server/.env.example server/.env
+cp server/env.example server/.env
 # Then edit server/.env with your configuration:
 # - GEMINI_API_KEY
 # - DATABASE_URL (local Postgres recommended)
@@ -137,7 +137,9 @@ npm run web:build
 
 Environment variables:
 
-- `BATCH_SIZE` — number of links per batch (default: 10).
+- `DOWNLOAD_BATCH_SIZE` — scraping batch size (default: 10).
+- `AI_BATCH_SIZE` — AI batch size (production VPS default: 5).
+- `MAX_CONCURRENT_BATCHES` — concurrent AI batches (production VPS default: 1).
 - `OVERALL_REQUEST_TIMEOUT_MS` — overall timeout per URL (default: 60000).
 - `GOT_REQUEST_TIMEOUT_MS` — per‑attempt HTTP timeout (default: 45000).
 - `MEMORY_LIMIT_MB` — soft limit for logging warnings.
@@ -199,7 +201,7 @@ For Chrome Web Store publishing, use the archive produced by `npm run build:exte
 ### **Production Deployment**
 - Use `npm run start:gc` for production with manual GC and heap cap
 - Heap limit configured via `MAX_OLD_SPACE_MB`
-- Batches of 10 by default (`BATCH_SIZE`), with forced `global.gc()` between batches (when available)
+- Keep AI pressure conservative on the VPS: `AI_BATCH_SIZE=5`, `MAX_CONCURRENT_BATCHES=1`
 - Structured memory metrics in logs: batch progress with heap and rss, warnings at `MEMORY_WARNING_MB`
 
 ## 📞 **Support & Feedback**
@@ -214,7 +216,6 @@ For Chrome Web Store publishing, use the archive produced by `npm run build:exte
   - [ADMIN_SCRIPTS.md](./docs/ADMIN_SCRIPTS.md) - **🛠️ Админские скрипты**
   - [ADMIN_SETUP.md](./docs/ADMIN_SETUP.md) - **Настройка админки**
   - [MEMORY_OPTIMIZATION.md](./docs/MEMORY_OPTIMIZATION.md) - **🧠 Оптимизация памяти**
-  - [SECURITY_AUDIT_REPORT.md](./docs/SECURITY_AUDIT_REPORT.md) - **🔐 Аудит безопасности**
 
 ## 📝 **License**
 

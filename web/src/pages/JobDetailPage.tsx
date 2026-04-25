@@ -156,8 +156,8 @@ export function JobDetailPage() {
   }, [accessToken, activeWorkspaceId, job?.matter_id]);
 
   useEffect(() => {
-    if (jobId) subscribe(jobId);
-  }, [jobId, subscribe]);
+    if (jobId) subscribe(jobId, activeWorkspaceId);
+  }, [activeWorkspaceId, jobId, subscribe]);
 
   useEffect(() => {
     return onJobUpdate((payload: JobUpdatePayload) => {

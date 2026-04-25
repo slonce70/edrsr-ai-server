@@ -9,12 +9,14 @@
 
 | Змінна | Значення | Коментар |
 |---|---|---|
-| `BATCH_SIZE` | `10` | Розмір batch для завантаження та AI‑аналізу |
-| `MAX_CONCURRENT_BATCHES` | `7` | Паралельні AI‑батчі (рекомендовано: `min(keys, 7)`) |
-| `MEMORY_WARNING_MB` | `700` | Поріг для попереджень та GC |
-| `MAX_MEMORY_MB` | `1200` | Ліміт пам'яті перед жорстким перериванням |
-| `CRITICAL_MEMORY_MB` | `1400` | Критичний ліміт пам'яті |
-| `MEMORY_LIMIT_MB` | `1200` | Поріг для скрейпера/тестів |
+| `DOWNLOAD_BATCH_SIZE` | `10` | Розмір batch для завантаження/парсингу |
+| `AI_BATCH_SIZE` | `5` | Розмір AI batch для production VPS |
+| `BATCH_SIZE` | `10` | Legacy fallback, якщо окремі batch vars не задані |
+| `MAX_CONCURRENT_BATCHES` | `1` | Паралельні AI‑батчі; тримати 1, доки live batch-probe не підтвердить запас quota |
+| `MEMORY_WARNING_MB` | `200` | Поріг для попереджень та GC |
+| `MAX_MEMORY_MB` | `400` | Ліміт пам'яті перед жорстким перериванням |
+| `CRITICAL_MEMORY_MB` | `420` | Критичний ліміт пам'яті |
+| `MEMORY_LIMIT_MB` | `500` | Поріг для скрейпера/тестів |
 | `MAX_OLD_SPACE_MB` | `1200` | Heap cap для `start:gc` |
 
 ---
@@ -22,7 +24,8 @@
 ## Ключові оптимізації, які вже працюють
 
 1. **Контроль розміру batch**
-   - `BATCH_SIZE=10` знижує пікове навантаження на heap.
+   - `DOWNLOAD_BATCH_SIZE=10` тримає парсинг передбачуваним.
+   - `AI_BATCH_SIZE=5` знижує пікове навантаження і тиск на Gemini quota.
 
 2. **Паралельність AI‑батчів**
    - `MAX_CONCURRENT_BATCHES` обмежує одночасні AI‑запити.
@@ -43,15 +46,18 @@
 ## Рекомендований профіль для VPS (2GB)
 
 ```env
+DOWNLOAD_BATCH_SIZE=10
+AI_BATCH_SIZE=5
 BATCH_SIZE=10
-MAX_CONCURRENT_BATCHES=7
-MEMORY_WARNING_MB=700
-MAX_MEMORY_MB=1200
-CRITICAL_MEMORY_MB=1400
+MAX_CONCURRENT_BATCHES=1
+MEMORY_WARNING_MB=200
+MAX_MEMORY_MB=400
+CRITICAL_MEMORY_MB=420
+MEMORY_LIMIT_MB=500
 MAX_OLD_SPACE_MB=1200
 ```
 
-> Примітка: якщо ключів Gemini менше — знижуйте `MAX_CONCURRENT_BATCHES`.
+> Примітка: збільшуйте `AI_BATCH_SIZE` або `MAX_CONCURRENT_BATCHES` тільки після live batch-probe на поточному quota profile.
 
 ---
 

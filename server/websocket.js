@@ -2,6 +2,9 @@ import { WebSocketServer } from 'ws';
 import { v4 as uuid } from 'uuid';
 import { logger, getClientIp } from './utils.js';
 import dbService from './services/dbService.js';
+import collaborationService from './services/collaborationService.js';
+import jobQueryService from './services/jobQueryService.js';
+import { canSubscribeToJob } from './services/wsSubscriptionService.js';
 import { createClient } from '@supabase/supabase-js';
 import { parseDevAuthToken } from './auth/devAuth.js';
 
@@ -244,15 +247,29 @@ function initWebSocket(server) {
           const clientData = clients.get(clientId);
           if (!clientData?.userId) return; // require auth for subscriptions
           if (clientData && data.jobId) {
-            // Verify this job belongs to the authenticated user before subscribing
+            const workspaceId =
+              typeof data.workspaceId === 'string' && data.workspaceId.trim()
+                ? data.workspaceId.trim()
+                : null;
             try {
-              const job = await dbService.getJob(data.jobId, clientData.userId);
-              if (job) {
+              const allowed = await canSubscribeToJob({
+                jobId: data.jobId,
+                userId: clientData.userId,
+                workspaceId,
+                deps: {
+                  getJob: (jobId, userId) => dbService.getJob(jobId, userId),
+                  getWorkspaceRole: (userId, workspaceId) =>
+                    collaborationService.getWorkspaceRole(userId, workspaceId),
+                  getJobLightForWorkspace: (jobId, workspaceId) =>
+                    jobQueryService.getJobLightForWorkspace(jobId, workspaceId),
+                },
+              });
+              if (allowed) {
                 clientData.jobs.add(data.jobId);
                 logger.debug(`[WS] Client ${clientId} subscribed to job ${data.jobId}`);
               } else {
                 logger.warn(
-                  `[WS] Client ${clientId} attempted to subscribe to foreign job ${data.jobId}`
+                  `[WS] Client ${clientId} attempted to subscribe to unauthorized job ${data.jobId}`
                 );
               }
             } catch (e) {

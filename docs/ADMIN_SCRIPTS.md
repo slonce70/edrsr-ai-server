@@ -73,8 +73,10 @@ npm run test:memory
 ### Тест конкурентных запросов
 
 ```bash
-node server/scripts/test-race-condition-fix.js
+EDRSR_DB_INTEGRATION_ALLOW_LIVE=true node server/scripts/run-db-integration.js server/scripts/test-race-condition-fix.js
 ```
+
+`run-db-integration.js` по умолчанию читает `server/.env`, поэтому без явного `EDRSR_DB_INTEGRATION_ALLOW_LIVE=true` он не запускает тесты против настроенной базы. Используйте только безопасную тестовую БД или заранее подготовленное окружение.
 
 ### Скрейпер: тесты парсинга
 

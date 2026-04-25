@@ -17,8 +17,8 @@ const targetArg = process.argv[2] || 'server/scripts/test-race-condition-fix.js'
 const repoRoot = path.resolve(__dirname, '../..');
 const targetPath = path.resolve(repoRoot, targetArg);
 
-function skip(message) {
-  console.log(`SKIPPED env-blocked: ${message}`);
+function skip(message, kind = 'env-blocked') {
+  console.log(`SKIPPED ${kind}: ${message}`);
   process.exit(0);
 }
 
@@ -49,6 +49,13 @@ function checkTcp(host, port, timeoutMs = 1500) {
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
   skip('DATABASE_URL is not set');
+}
+
+if (process.env.EDRSR_DB_INTEGRATION_ALLOW_LIVE !== 'true') {
+  skip(
+    'set EDRSR_DB_INTEGRATION_ALLOW_LIVE=true to run this script against the configured database',
+    'live-db-guard'
+  );
 }
 
 let url;

@@ -23,7 +23,7 @@ GEMINI_API_KEY=your_gemini_key
 GEMINI_API_KEYS=key1,key2,key3
 ```
 
-> Если включен CLI Proxy (см. ниже), Gemini ключи используются как fallback.
+> Production default uses official Gemini keys directly. CLI Proxy is optional and disabled by default.
 
 ## **⚙️ Server Configuration**
 
@@ -37,7 +37,8 @@ LOG_LEVEL=info
 
 ```env
 MODEL_NAME=gemini-2.5-flash
-FALLBACK_MODEL_NAME=gemini-2.5-pro
+# Порожнє значення вимикає fallback; production VPS default.
+FALLBACK_MODEL_NAME=
 TEMPERATURE=0.3
 TOP_K=40
 TOP_P=0.8
@@ -45,21 +46,24 @@ MAX_TOKENS=65536
 MAX_TOKENS_PER_BATCH=60000
 ```
 
-## **🚀 CLI Proxy (PRIMARY)**
+## **🚀 CLI Proxy (optional)**
 
 ```env
 ENABLE_CLI_PROXY=false
-CLI_PROXY_URL=https://cli-proxy-tokens.onrender.com
+CLI_PROXY_URL=
 CLI_PROXY_MODEL=gemini-3-pro-preview
 CLI_PROXY_API_KEYS=your-api-key-1, your-api-key-2
-CLI_PROXY_MAX_ATTEMPTS_PER_KEY=5
+CLI_PROXY_MAX_ATTEMPTS_PER_KEY=1
 ```
 
 ## **📦 Batch Processing & Parallelism**
 
 ```env
-# Размер batch (используется и в скрейпере, и в AI‑батчах)
+# Размер batch (legacy fallback для скрейпера и AI)
 BATCH_SIZE=10
+
+# AI batch size для production VPS
+AI_BATCH_SIZE=5
 
 # Минимальный размер для batch‑обработки (ниже = последовательная обработка)
 BATCH_THRESHOLD=15
@@ -68,7 +72,7 @@ BATCH_THRESHOLD=15
 BATCH_DELAY=1000
 
 # Максимум параллельных AI‑батчей
-MAX_CONCURRENT_BATCHES=7
+MAX_CONCURRENT_BATCHES=1
 ```
 
 ## **🕸️ Scraper & Parsing**
@@ -220,10 +224,12 @@ DATABASE_URL=postgresql://postgres:<password>@127.0.0.1:5432/edrsr_ai
 
 GEMINI_API_KEY=<your-gemini-api-key>
 MODEL_NAME=gemini-2.5-flash
-FALLBACK_MODEL_NAME=gemini-2.5-pro
+FALLBACK_MODEL_NAME=
 
+DOWNLOAD_BATCH_SIZE=10
+AI_BATCH_SIZE=5
 BATCH_SIZE=10
-MAX_CONCURRENT_BATCHES=7
+MAX_CONCURRENT_BATCHES=1
 REQUEST_DELAY_MS=1000
 MAX_CONCURRENT_REQUESTS=2
 

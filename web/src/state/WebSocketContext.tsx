@@ -16,7 +16,7 @@ type JobUpdatePayload = Record<string, unknown> & { id?: string; type?: string }
 type WebSocketContextValue = {
   clientId: string | null;
   status: 'disconnected' | 'connecting' | 'connected';
-  subscribe: (jobId: string) => void;
+  subscribe: (jobId: string, workspaceId?: string | null) => void;
   onJobUpdate: (handler: (payload: JobUpdatePayload) => void) => () => void;
 };
 
@@ -121,10 +121,10 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
     };
   }, [accessToken, connect, cleanupSocket]);
 
-  const subscribe = useCallback((jobId: string) => {
+  const subscribe = useCallback((jobId: string, workspaceId?: string | null) => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify({ type: 'subscribe', jobId }));
+    ws.send(JSON.stringify({ type: 'subscribe', jobId, workspaceId: workspaceId || undefined }));
   }, []);
 
   const onJobUpdate = useCallback((handler: (payload: JobUpdatePayload) => void) => {

@@ -29,12 +29,35 @@ Rate limit: 5 попыток/15 минут.
 ### **Проверка здоровья системы**
 
 #### GET `/api/health/light`
-Быстрая проверка доступности сервера.
+Быстрая публичная проверка доступности сервера, базы данных и upstream `reyestr.court.gov.ua`. Ответ кэшируется на `HEALTH_LIGHT_TTL_MS`.
 
 **Response (200):**
 ```json
 {
-  "status": "ok"
+  "status": "ok",
+  "version": "2.0.3",
+  "checks": {
+    "server": { "status": "ok" },
+    "db": { "status": "ok", "latencyMs": 8 },
+    "upstream": { "status": "ok", "statusCode": 200, "latencyMs": 120 }
+  },
+  "cachedAt": "2026-04-25T10:30:00.000Z",
+  "ttlMs": 15000
+}
+```
+
+**Response (503):**
+```json
+{
+  "status": "degraded",
+  "version": "2.0.3",
+  "checks": {
+    "server": { "status": "ok" },
+    "db": { "status": "down", "error": "ECONNREFUSED" },
+    "upstream": { "status": "ok", "statusCode": 200, "latencyMs": 120 }
+  },
+  "cachedAt": "2026-04-25T10:30:00.000Z",
+  "ttlMs": 15000
 }
 ```
 
