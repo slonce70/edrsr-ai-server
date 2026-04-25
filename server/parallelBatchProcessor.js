@@ -9,8 +9,9 @@ import { apiKeyManager } from './config.js';
 import { sleep } from './utils.js';
 import { logger } from './utils.js';
 
-// Максимальна кількість паралельних батчів (обмеження через пам'ять на Render.com 512MB)
-const MAX_SAFE_CONCURRENT = parseInt(process.env.MAX_CONCURRENT_BATCHES, 10) || 7;
+// Максимальна кількість паралельних батчів. Production VPS default is conservative
+// to avoid quota churn; raise only after a live batch probe confirms capacity.
+const MAX_SAFE_CONCURRENT = parseInt(process.env.MAX_CONCURRENT_BATCHES, 10) || 1;
 
 /**
  * Розрахувати оптимальну кількість паралельних батчів

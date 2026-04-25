@@ -51,7 +51,7 @@ MAX_TOKENS_PER_BATCH=60000
 ```env
 ENABLE_CLI_PROXY=false
 CLI_PROXY_URL=
-CLI_PROXY_MODEL=gemini-3-pro-preview
+CLI_PROXY_MODEL=gemini-3.1-pro-high
 CLI_PROXY_API_KEYS=your-api-key-1, your-api-key-2
 CLI_PROXY_MAX_ATTEMPTS_PER_KEY=1
 ```
