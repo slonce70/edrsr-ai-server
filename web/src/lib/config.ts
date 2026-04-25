@@ -1,8 +1,8 @@
 const env = import.meta.env;
 
-const DEV_LOCALHOST_SUPABASE_URL = 'https://dhgqmkhkptbzlwskktte.supabase.co';
+const DEV_LOCALHOST_SUPABASE_URL = 'https://hosvrzhfdotstghdoycv.supabase.co';
 const DEV_LOCALHOST_SUPABASE_ANON_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRoZ3Fta2hrcHRiemx3c2trdHRlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTE0NDkyNjgsImV4cCI6MjA2NzAyNTI2OH0.CHMYGthrxj1-6uNAB29O5M0-8aA1Vaocmh86KAm3W98';
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhvc3ZyemhmZG90c3RnaGRveWN2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgyMDc2ODQsImV4cCI6MjA4Mzc4MzY4NH0.7duRICE5bhuJP-amqapCPJfngGYBfN9EgPBSfi4ewhw';
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
 function isLocalhostRuntime() {

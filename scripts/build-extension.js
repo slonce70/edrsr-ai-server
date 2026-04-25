@@ -28,10 +28,10 @@ const SHOULD_PACKAGE_ZIP = ['1', 'true', 'yes'].includes(
 const DEV_DEFAULTS = Object.freeze({
   apiBaseUrl: process.env.EXT_DEV_API_URL || 'http://localhost:4000/api',
   wsUrl: process.env.EXT_DEV_WS_URL || 'ws://localhost:4000',
-  supabaseUrl: process.env.EXT_DEV_SUPABASE_URL || 'https://dhgqmkhkptbzlwskktte.supabase.co',
+  supabaseUrl: process.env.EXT_DEV_SUPABASE_URL || 'https://hosvrzhfdotstghdoycv.supabase.co',
   supabaseAnonKey:
     process.env.EXT_DEV_SUPABASE_ANON_KEY ||
-    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2RoZ3Fta2hrcHRiemx3c2trdHRlLnN1cGFiYXNlLmNvL2F1dGgvdjEiLCJyZWYiOiJkaGdxbWtoa3B0Ynpsd3Nra3R0ZSIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNzUxNDQ5MjY4LCJleHAiOjIwNjcwMjUyNjh9.CHMYGthrxj1-6uNAB29O5M0-8aA1Vaocmh86KAm3W98',
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhvc3ZyemhmZG90c3RnaGRveWN2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgyMDc2ODQsImV4cCI6MjA4Mzc4MzY4NH0.7duRICE5bhuJP-amqapCPJfngGYBfN9EgPBSfi4ewhw',
   supabaseRedirectTo:
     process.env.EXT_DEV_SUPABASE_REDIRECT_TO || 'http://localhost:4000/auth/callback',
   devAuthEnabled: ['1', 'true', 'yes'].includes(

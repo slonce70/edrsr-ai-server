@@ -1,13 +1,13 @@
 // --- EDRSR-AI Extension Configuration ---
 
-const BUILD_ENV = 'development';
+const BUILD_ENV = 'production';
 
-export const API_BASE_URL = 'http://localhost:4000/api';
-export const WS_URL = 'ws://localhost:4000';
-export const SUPABASE_URL = 'https://dhgqmkhkptbzlwskktte.supabase.co';
+export const API_BASE_URL = 'https://edrsr-ai-server.fun/api';
+export const WS_URL = 'wss://edrsr-ai-server.fun';
+export const SUPABASE_URL = 'https://hosvrzhfdotstghdoycv.supabase.co';
 export const SUPABASE_ANON_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2RoZ3Fta2hrcHRiemx3c2trdHRlLnN1cGFiYXNlLmNvL2F1dGgvdjEiLCJyZWYiOiJkaGdxbWtoa3B0Ynpsd3Nra3R0ZSIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNzUxNDQ5MjY4LCJleHAiOjIwNjcwMjUyNjh9.CHMYGthrxj1-6uNAB29O5M0-8aA1Vaocmh86KAm3W98';
-export const SUPABASE_REDIRECT_TO = 'http://localhost:4000/auth/callback';
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhvc3ZyemhmZG90c3RnaGRveWN2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgyMDc2ODQsImV4cCI6MjA4Mzc4MzY4NH0.7duRICE5bhuJP-amqapCPJfngGYBfN9EgPBSfi4ewhw';
+export const SUPABASE_REDIRECT_TO = 'https://edrsr-ai-server.fun/auth/callback';
 export const DEV_AUTH_ENABLED = false;
 
 function assertConfigured(name, value) {

@@ -77,6 +77,32 @@ function testBlankFallbackDisablesFallback() {
   assert.equal(parsed.fallback, '', 'blank FALLBACK_MODEL_NAME should disable fallback');
 }
 
+function testMissingFallbackStaysDisabled() {
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+  const cleanEnv = { ...process.env };
+  delete cleanEnv.FALLBACK_MODEL_NAME;
+  const probe = [
+    "process.env.GEMINI_API_KEY='AIzaSyRegressionFallbackabcdefghijklmnopqrstu';",
+    "process.env.MODEL_NAME='gemini-2.5-flash';",
+    'delete process.env.FALLBACK_MODEL_NAME;',
+    "const config = await import('./server/config.js');",
+    'console.log(JSON.stringify({ fallback: config.FALLBACK_MODEL_NAME }));',
+  ].join('');
+
+  const output = execFileSync(process.execPath, ['--input-type=module', '-e', probe], {
+    cwd: repoRoot,
+    env: cleanEnv,
+  })
+    .toString()
+    .trim()
+    .split('\n')
+    .pop();
+
+  const parsed = JSON.parse(output);
+  assert.equal(parsed.fallback, '', 'missing FALLBACK_MODEL_NAME should keep fallback disabled');
+}
+
 await testCliProxyAuthUnavailableCooldown();
 testBlankFallbackDisablesFallback();
+testMissingFallbackStaysDisabled();
 console.log('Provider failover regressions passed.');
