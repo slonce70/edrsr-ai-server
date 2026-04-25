@@ -23,6 +23,8 @@ export const translations = {
       prompts: 'Промпти',
       shareLinks: 'Посилання',
       settings: 'Налаштування',
+      openMenu: 'Відкрити меню',
+      closeMenu: 'Закрити меню',
     },
     common: {
       loading: 'Завантаження...',
@@ -58,9 +60,12 @@ export const translations = {
     },
     status: {
       queued: 'У черзі',
+      retrying: 'Повтор',
+      processing: 'Обробка',
       downloading: 'Завантаження',
       analyzing: 'Аналіз',
       completed: 'Завершено',
+      error: 'Помилка',
       failed: 'Помилка',
       cancelled: 'Скасовано',
       pending: 'Очікує',
@@ -87,6 +92,7 @@ export const translations = {
       signUp: 'Створити акаунт',
       footer: 'Потрібен доступ? Попросіть адміністратора активувати ваш акаунт.',
       magicSent: 'Магічне посилання надіслано. Перевірте пошту.',
+      signupSent: 'Лист для підтвердження надіслано. Перевірте пошту.',
       resetSent: 'Лист для відновлення надіслано. Перевірте пошту.',
     },
     reset: {
@@ -194,7 +200,8 @@ export const translations = {
       ctaButton: 'Створити акаунт',
       manageTitle: 'Посилання до звітів',
       manageSubtitle: 'Переглядайте створені посилання та закривайте доступ.',
-      manageNote: 'Скопіюйте посилання або відкличте доступ у будь-який момент.',
+      manageNote:
+        'Секретне посилання показується лише під час створення. Тут доступні статус і відкликання.',
       manageEmptyTitle: 'Посилань поки немає',
       manageEmptyMessage: 'Створіть посилання у звіті, щоб поділитись із клієнтом.',
       revoke: 'Відкликати',
@@ -203,7 +210,8 @@ export const translations = {
       createdBy: 'Створив: {{id}}',
       workspaceTitle: 'Немає активного простору',
       workspaceMessage: 'Оберіть робочий простір, щоб переглянути посилання.',
-      urlMissing: 'Посилання було створене раніше і URL не збережений.',
+      urlMissing:
+        'URL секрету більше не зберігається. Тут доступні лише метадані та керування доступом.',
       status: {
         active: 'Активне',
         expired: 'Термін минув',
@@ -295,6 +303,9 @@ export const translations = {
     errors: {
       invalidCredentials: 'Невірний email або пароль.',
       emailNotConfirmed: 'Email не підтверджено.',
+      invalidEmail: 'Невірна email-адреса.',
+      weakPassword: 'Пароль закороткий. Мінімум 6 символів.',
+      userAlreadyExists: 'Цей email вже зареєстрований. Спробуйте увійти.',
       rateLimited: 'Забагато спроб. Спробуйте пізніше.',
       passwordMismatch: 'Паролі не збігаються.',
       generic: 'Сталася помилка. Спробуйте ще раз.',
@@ -312,6 +323,8 @@ export const translations = {
       prompts: 'Промпты',
       shareLinks: 'Ссылки',
       settings: 'Настройки',
+      openMenu: 'Открыть меню',
+      closeMenu: 'Закрыть меню',
     },
     common: {
       loading: 'Загрузка...',
@@ -347,9 +360,12 @@ export const translations = {
     },
     status: {
       queued: 'В очереди',
+      retrying: 'Повтор',
+      processing: 'Обработка',
       downloading: 'Загрузка',
       analyzing: 'Анализ',
       completed: 'Завершено',
+      error: 'Ошибка',
       failed: 'Ошибка',
       cancelled: 'Отменено',
       pending: 'Ожидает',
@@ -376,6 +392,7 @@ export const translations = {
       signUp: 'Создать аккаунт',
       footer: 'Нужен доступ? Попросите администратора активировать аккаунт.',
       magicSent: 'Ссылка отправлена. Проверьте почту.',
+      signupSent: 'Письмо для подтверждения отправлено. Проверьте почту.',
       resetSent: 'Письмо для восстановления отправлено. Проверьте почту.',
     },
     reset: {
@@ -483,7 +500,8 @@ export const translations = {
       ctaButton: 'Создать аккаунт',
       manageTitle: 'Ссылки на отчеты',
       manageSubtitle: 'Просматривайте созданные ссылки и закрывайте доступ.',
-      manageNote: 'Скопируйте ссылку или отзовите доступ в любой момент.',
+      manageNote:
+        'Секретная ссылка показывается только при создании. Здесь доступны статус и отзыв.',
       manageEmptyTitle: 'Ссылок пока нет',
       manageEmptyMessage: 'Создайте ссылку в отчете, чтобы поделиться с клиентом.',
       revoke: 'Отозвать',
@@ -492,7 +510,8 @@ export const translations = {
       createdBy: 'Создал: {{id}}',
       workspaceTitle: 'Нет активного пространства',
       workspaceMessage: 'Выберите рабочее пространство, чтобы просмотреть ссылки.',
-      urlMissing: 'Ссылка была создана раньше, и URL не сохранен.',
+      urlMissing:
+        'URL секрета больше не хранится. Здесь доступны только метаданные и управление доступом.',
       status: {
         active: 'Активна',
         expired: 'Срок истек',
@@ -584,6 +603,9 @@ export const translations = {
     errors: {
       invalidCredentials: 'Неверный email или пароль.',
       emailNotConfirmed: 'Email не подтвержден.',
+      invalidEmail: 'Некорректный email.',
+      weakPassword: 'Слишком короткий пароль. Минимум 6 символов.',
+      userAlreadyExists: 'Этот email уже зарегистрирован. Попробуйте войти.',
       rateLimited: 'Слишком много попыток. Попробуйте позже.',
       passwordMismatch: 'Пароли не совпадают.',
       generic: 'Произошла ошибка. Попробуйте еще раз.',

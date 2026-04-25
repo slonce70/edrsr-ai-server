@@ -29,7 +29,10 @@ https://edrsr-ai-server.fun/admin
 ### **Сборка расширения**
 ```bash
 npm run build:extension
-# Результат: папка extension-build/ + ZIP файл
+# Результат: папка extension-build/
+
+npm run build:extension:release
+# Результат: папка extension-build/ + ZIP файл для публикации
 ```
 
 ## **Административные команды**

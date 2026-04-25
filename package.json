@@ -1,6 +1,6 @@
 {
   "name": "edrsr-ai-monorepo",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "type": "module",
   "private": true,
   "description": "Project root for EDRSR AI Server and Extension",
@@ -9,6 +9,7 @@
     "start:gc": "node server/start-with-gc.js",
     "test:memory": "node --expose-gc server/scripts/memory-load-test.js",
     "build:extension": "node scripts/build-extension.js",
+    "build:extension:release": "EXTENSION_BUILD_ENV=production PACKAGE_EXTENSION_ZIP=true node scripts/build-extension.js",
     "web:dev": "npm --prefix web run dev",
     "web:build": "npm --prefix web run build",
     "web:lint": "npm --prefix web run lint",

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "EDRSR AI Помощник",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "description": "Помощник на базе ИИ для анализа судебных решений из ЄДРСР",
   "icons": {
     "16": "icon16.png",
@@ -9,7 +9,12 @@
     "128": "icon128.png"
   },
   "permissions": ["storage", "activeTab", "notifications"],
-  "host_permissions": ["https://reyestr.court.gov.ua/*", "https://*.supabase.co/*"],
+  "host_permissions": [
+    "https://reyestr.court.gov.ua/*",
+    "http://localhost:4000/*",
+    "http://127.0.0.1:4000/*",
+    "https://*.supabase.co/*"
+  ],
   "background": {
     "service_worker": "bg.js",
     "type": "module"

@@ -10,9 +10,12 @@ export function StatusBadge({ status }: StatusBadgeProps) {
   const safeStatus = status || 'unknown';
   const label = formatStatus(safeStatus, {
     queued: t('status.queued'),
+    retrying: t('status.retrying'),
+    processing: t('status.processing'),
     downloading: t('status.downloading'),
     analyzing: t('status.analyzing'),
     completed: t('status.completed'),
+    error: t('status.error'),
     failed: t('status.failed'),
     cancelled: t('status.cancelled'),
     pending: t('status.pending'),

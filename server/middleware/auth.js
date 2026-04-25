@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { isDevAuthEnabled, parseDevAuthToken } from '../auth/devAuth.js';
 import database from '../database/connection.js';
 import { logger, getClientIp } from '../utils.js';
 
@@ -39,44 +40,54 @@ export async function attachUser(req, _res, next) {
       return next();
     }
 
-    const supa = getClient();
-    if (!supa) {
-      req.user = null;
-      logger.warn('[AUTH] Supabase client not configured - authentication disabled');
-      return next();
+    const devUser = parseDevAuthToken(token);
+    if (devUser) {
+      req.user = { id: devUser.id, email: devUser.email };
+      logger.debug(`[AUTH] Dev auth accepted for ${devUser.email} from ${ip}`);
+    } else {
+      const supa = getClient();
+      if (!supa) {
+        req.user = null;
+        if (isDevAuthEnabled()) {
+          logger.warn('[AUTH] Dev auth enabled, but received a non-dev token');
+        } else {
+          logger.warn('[AUTH] Supabase client not configured - authentication disabled');
+        }
+        return next();
+      }
+
+      const { data, error } = await supa.auth.getUser(token);
+
+      if (error) {
+        // Log authentication failure with details for monitoring
+        logger.warn('[AUTH] Token validation failed:', {
+          ip,
+          path: req.path,
+          error: error.message,
+          userAgent: userAgent.substring(0, 100), // Truncate long user agents
+        });
+        req.user = null;
+        return next();
+      }
+
+      if (!data?.user) {
+        logger.warn('[AUTH] Token valid but no user data returned:', {
+          ip,
+          path: req.path,
+        });
+        req.user = null;
+        return next();
+      }
+
+      // Successful authentication
+      req.user = { id: data.user.id, email: data.user.email };
+      logger.debug(`[AUTH] User authenticated: ${data.user.email} from ${ip}`);
     }
-
-    const { data, error } = await supa.auth.getUser(token);
-
-    if (error) {
-      // Log authentication failure with details for monitoring
-      logger.warn('[AUTH] Token validation failed:', {
-        ip,
-        path: req.path,
-        error: error.message,
-        userAgent: userAgent.substring(0, 100), // Truncate long user agents
-      });
-      req.user = null;
-      return next();
-    }
-
-    if (!data?.user) {
-      logger.warn('[AUTH] Token valid but no user data returned:', {
-        ip,
-        path: req.path,
-      });
-      req.user = null;
-      return next();
-    }
-
-    // Successful authentication
-    req.user = { id: data.user.id, email: data.user.email };
-    logger.debug(`[AUTH] User authenticated: ${data.user.email} from ${ip}`);
 
     // Best-effort local user cache for admin filtering/stats
-    if (data.user.id && data.user.email) {
+    if (req.user?.id && req.user?.email) {
       try {
-        const emailLower = String(data.user.email).toLowerCase();
+        const emailLower = String(req.user.email).toLowerCase();
         await database.run(
           `INSERT INTO app_users (user_id, email, email_lower, first_seen_at, last_seen_at)
            VALUES ($1, $2, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
@@ -85,7 +96,7 @@ export async function attachUser(req, _res, next) {
              email_lower = EXCLUDED.email_lower,
              last_seen_at = CURRENT_TIMESTAMP,
              first_seen_at = COALESCE(app_users.first_seen_at, EXCLUDED.first_seen_at)`,
-          [data.user.id, data.user.email, emailLower]
+          [req.user.id, req.user.email, emailLower]
         );
       } catch (dbErr) {
         logger.warn('[AUTH] Failed to upsert app_users cache:', dbErr.message);

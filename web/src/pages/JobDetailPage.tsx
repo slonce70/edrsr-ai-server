@@ -57,7 +57,14 @@ type JobUpdatePayload = {
   payload?: ChatMessage[];
 };
 
-const ACTIVE_STATUSES = new Set(['queued', 'downloading', 'analyzing', 'pending']);
+const ACTIVE_STATUSES = new Set([
+  'queued',
+  'retrying',
+  'processing',
+  'downloading',
+  'analyzing',
+  'pending',
+]);
 
 export function JobDetailPage() {
   const { jobId } = useParams();
@@ -149,8 +156,8 @@ export function JobDetailPage() {
   }, [accessToken, activeWorkspaceId, job?.matter_id]);
 
   useEffect(() => {
-    if (jobId) subscribe(jobId);
-  }, [jobId, subscribe]);
+    if (jobId) subscribe(jobId, activeWorkspaceId);
+  }, [activeWorkspaceId, jobId, subscribe]);
 
   useEffect(() => {
     return onJobUpdate((payload: JobUpdatePayload) => {
@@ -229,24 +236,52 @@ export function JobDetailPage() {
     }
   };
 
-  const handlePrint = () => {
+  const handlePrint = async () => {
     const content = analysis || '';
-    const html = renderMarkdown(content);
     const printWindow = window.open('', '_blank', 'width=960,height=720');
     if (!printWindow) return;
-    printWindow.document.write(
-      `<!doctype html><html><head><title>${
-        job?.title || t('job.report')
-      }</title><style>body{font-family:Arial, sans-serif; padding:32px;} h1{margin-bottom:16px;} .meta{color:#555; font-size:12px; margin-bottom:24px;} pre,code{white-space:pre-wrap;} a{color:#0f766e;}</style></head><body>`
-    );
-    printWindow.document.write(`<h1>${job?.title || t('job.report')}</h1>`);
+
+    let html = '';
+    try {
+      html = await renderMarkdown(content);
+    } catch {
+      html = '';
+    }
+
+    const printDocument = printWindow.document;
+    printDocument.open();
+    printDocument.close();
+    printDocument.title = job?.title || t('job.report');
+
+    while (printDocument.head.firstChild) {
+      printDocument.head.removeChild(printDocument.head.firstChild);
+    }
+
+    const style = printDocument.createElement('style');
+    style.textContent =
+      'body{font-family:Arial, sans-serif; padding:32px;} h1{margin-bottom:16px;} .meta{color:#555; font-size:12px; margin-bottom:24px;} pre,code{white-space:pre-wrap;} a{color:#0f766e;}';
+    printDocument.head.appendChild(style);
+
+    while (printDocument.body.firstChild) {
+      printDocument.body.removeChild(printDocument.body.firstChild);
+    }
+
+    const heading = printDocument.createElement('h1');
+    heading.textContent = job?.title || t('job.report');
+    printDocument.body.appendChild(heading);
+
     const meta = `${t('job.created', {
       date: formatDate(job?.created_at, dateLocale),
     })} | ${progressLabel}`;
-    printWindow.document.write(`<div class="meta">${meta}</div>`);
-    printWindow.document.write(html);
-    printWindow.document.write('</body></html>');
-    printWindow.document.close();
+    const metaElement = printDocument.createElement('div');
+    metaElement.className = 'meta';
+    metaElement.textContent = meta;
+    printDocument.body.appendChild(metaElement);
+
+    const reportBody = printDocument.createElement('div');
+    reportBody.innerHTML = html;
+    printDocument.body.appendChild(reportBody);
+
     printWindow.focus();
     printWindow.print();
   };
@@ -401,30 +436,37 @@ export function JobDetailPage() {
             {links.length === 0 ? (
               <div className="muted">{t('job.linksEmpty')}</div>
             ) : (
-              links.map((link) => (
-                <div key={link.url} className="list__row">
-                  <div>
-                    <a href={link.url} target="_blank" rel="noreferrer" className="link">
-                      {link.url}
-                    </a>
-                    <div className="meta">
-                      {formatDateShort(link.decision_date || null, dateLocale)}
+              links.map((link) => {
+                const normalizedStatus = link.status === 'processed' ? 'completed' : link.status;
+
+                return (
+                  <div key={link.url} className="list__row">
+                    <div>
+                      <a href={link.url} target="_blank" rel="noreferrer" className="link">
+                        {link.url}
+                      </a>
+                      <div className="meta">
+                        {formatDateShort(link.decision_date || null, dateLocale)}
+                      </div>
                     </div>
+                    <span className={`badge badge-${normalizedStatus}`}>
+                      {formatStatus(normalizedStatus, {
+                        queued: t('status.queued'),
+                        retrying: t('status.retrying'),
+                        processing: t('status.processing'),
+                        downloading: t('status.downloading'),
+                        analyzing: t('status.analyzing'),
+                        completed: t('status.completed'),
+                        error: t('status.error'),
+                        failed: t('status.failed'),
+                        cancelled: t('status.cancelled'),
+                        pending: t('status.pending'),
+                        unknown: t('status.unknown'),
+                      })}
+                    </span>
                   </div>
-                  <span className={`badge badge-${link.status}`}>
-                    {formatStatus(link.status, {
-                      queued: t('status.queued'),
-                      downloading: t('status.downloading'),
-                      analyzing: t('status.analyzing'),
-                      completed: t('status.completed'),
-                      failed: t('status.failed'),
-                      cancelled: t('status.cancelled'),
-                      pending: t('status.pending'),
-                      unknown: t('status.unknown'),
-                    })}
-                  </span>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>

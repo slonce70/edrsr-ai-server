@@ -131,6 +131,7 @@ document.addEventListener('DOMContentLoaded', () => {
     ignoreSessionToggle: document.getElementById('ignoreSessionToggle'),
     uniqueCountHistory: document.getElementById('uniqueCountHistory'),
     uniqueCountSession: document.getElementById('uniqueCountSession'),
+    historyCountHint: document.getElementById('historyCountHint'),
     // Auth UI
     authEmail: document.getElementById('authEmail'),
     authPassword: document.getElementById('authPassword'),
@@ -252,7 +253,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Проверяем, не зависла ли задача (активна больше 10 минут)
     const isStuck =
-      ['downloading', 'analyzing', 'queued', 'pending'].includes(jobData.status) &&
+      ['downloading', 'analyzing', 'processing', 'retrying', 'queued', 'pending'].includes(
+        jobData.status
+      ) &&
       jobData.created_at &&
       Date.now() - new Date(jobData.created_at).getTime() > 10 * 60 * 1000; // 10 минут
 
@@ -269,6 +272,8 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
       switch (jobData.status) {
         case 'queued':
+        case 'retrying':
+        case 'processing':
         case 'pending':
           statusText = getStatusText(jobData.status);
           break;
@@ -301,7 +306,14 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.jobStartTime.textContent = formatUiDate(jobData.created_at);
 
     const canRetry = isCompleted || isError || isStuck || isWarning;
-    const isActive = ['downloading', 'analyzing', 'queued', 'pending'].includes(jobData.status);
+    const isActive = [
+      'downloading',
+      'analyzing',
+      'processing',
+      'retrying',
+      'queued',
+      'pending',
+    ].includes(jobData.status);
     const canForceRetry = isActive && !isStuck; // Показываем принудительный перезапуск для активных, но не зависших
     const hasAnalysis = isCompleted && jobData.analysis;
 
@@ -712,16 +724,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const urls = (decisions || []).map((d) => d.url).filter(Boolean);
         elements.linksCount.textContent = String(urls.length);
 
-        let processedSet = new Set();
-        try {
-          const res = await chrome.runtime.sendMessage({
-            type: 'API_CHECK_PROCESSED',
-            urls,
-          });
-          if (res?.success && Array.isArray(res.urls)) processedSet = new Set(res.urls);
-        } catch {
-          // ignore processed URLs retrieval failure
-          void 0;
+        const useUnique = !!elements.uniqueOnlyToggle?.checked;
+        const useSession = !!elements.ignoreSessionToggle?.checked;
+
+        if (elements.uniqueCountHistory) {
+          elements.uniqueCountHistory.textContent = useUnique
+            ? t('popup.collect.countDeferred')
+            : t('common.na');
+        }
+        if (elements.historyCountHint) {
+          elements.historyCountHint.classList.toggle('hidden', !useUnique);
         }
 
         let sessionSet = new Set();
@@ -733,28 +745,21 @@ document.addEventListener('DOMContentLoaded', () => {
           void 0;
         }
 
-        const uniqueHistory = urls.filter((u) => !processedSet.has(u));
-        const uniqueSession = uniqueHistory.filter((u) => !sessionSet.has(u));
-        elements.uniqueCountHistory &&
-          (elements.uniqueCountHistory.textContent = String(uniqueHistory.length));
+        const uniqueSession = urls.filter((u) => !sessionSet.has(u));
         elements.uniqueCountSession &&
           (elements.uniqueCountSession.textContent = String(uniqueSession.length));
 
-        const useUnique = !!elements.uniqueOnlyToggle?.checked;
-        const useSession = !!elements.ignoreSessionToggle?.checked;
         let finalCount = urls.length;
-        if (useUnique) finalCount = uniqueHistory.length;
-        if (useSession)
-          finalCount = useUnique
-            ? uniqueSession.length
-            : urls.filter((u) => !sessionSet.has(u)).length;
-        elements.collectBtn.innerHTML = `<span>${t('popup.collect.collectBtnWithCount', {
-          count: finalCount,
-        })}</span>`;
+        if (useSession) finalCount = uniqueSession.length;
+        elements.collectBtn.innerHTML = `<span>${t(
+          useUnique ? 'popup.collect.collectBtnDeferred' : 'popup.collect.collectBtnWithCount',
+          useUnique ? {} : { count: finalCount }
+        )}</span>`;
         if (elements.copyUrlsBtn) {
-          elements.copyUrlsBtn.innerHTML = `<span>${t('popup.collect.copyUrlsBtnWithCount', {
-            count: finalCount,
-          })}</span>`;
+          elements.copyUrlsBtn.innerHTML = `<span>${t(
+            useUnique ? 'popup.collect.copyUrlsBtnDeferred' : 'popup.collect.copyUrlsBtnWithCount',
+            useUnique ? {} : { count: finalCount }
+          )}</span>`;
           elements.copyUrlsBtn.disabled = finalCount === 0;
         }
         elements.collectInfo.style.display = 'block';
@@ -999,7 +1004,9 @@ document.addEventListener('DOMContentLoaded', () => {
   elements.retryJobBtn.addEventListener('click', () => {
     if (currentJobData?.id && clientId) {
       const isStuck =
-        ['downloading', 'analyzing', 'queued', 'pending'].includes(currentJobData.status) &&
+        ['downloading', 'analyzing', 'processing', 'retrying', 'queued', 'pending'].includes(
+          currentJobData.status
+        ) &&
         currentJobData.created_at &&
         Date.now() - new Date(currentJobData.created_at).getTime() > 10 * 60 * 1000;
 

@@ -24,9 +24,10 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 let socket = null;
 let popupPort = null;
-let resultsPort = null;
 let heartbeatInterval = null;
 const jobToTabMap = new Map();
+const resultsPorts = new Map();
+let nextResultsPortId = 1;
 let reconnectAttempts = 0;
 let clientId = null;
 const CURRENT_VERSION = '2.2'; // Версия, которую мы ожидаем от content.js
@@ -213,6 +214,40 @@ async function removePromptFromCache(promptId, etag = null) {
   return list;
 }
 
+function registerResultsPort(port) {
+  const tabId = port.sender?.tab?.id ?? null;
+  const registryKey = tabId === null ? `results:${nextResultsPortId++}` : `results:${tabId}`;
+  port.registryKey = registryKey;
+  port.tabId = tabId;
+  port.jobId = null;
+  resultsPorts.set(registryKey, port);
+  return port;
+}
+
+function unregisterResultsPort(port) {
+  if (!port?.registryKey) return;
+  resultsPorts.delete(port.registryKey);
+}
+
+function broadcastToResultsPorts(jobId, message) {
+  for (const port of resultsPorts.values()) {
+    if (port.jobId !== jobId) continue;
+    try {
+      port.postMessage(message);
+    } catch (error) {
+      console.warn('[PORT] Failed to post message to results page:', error);
+    }
+  }
+}
+
+function redirectResultsPortsForJob(jobId, nextJobId) {
+  const resultsPageUrl = chrome.runtime.getURL(`results.html?jobId=${nextJobId}`);
+  broadcastToResultsPorts(jobId, {
+    type: 'REDIRECT',
+    payload: { url: resultsPageUrl },
+  });
+}
+
 // --- WebSocket Connection Management ---
 
 function startHeartbeat() {
@@ -296,9 +331,7 @@ function connectWebSocket() {
         if (popupPort) {
           popupPort.postMessage({ type: 'JOB_UPDATE', payload: jobData });
         }
-        if (resultsPort && resultsPort.jobId === jobData.id) {
-          resultsPort.postMessage({ type: 'JOB_UPDATE', payload: jobData });
-        }
+        broadcastToResultsPorts(jobData.id, { type: 'JOB_UPDATE', payload: jobData });
         updateBadge(jobData, oldStatus); // Pass old status
       } else if (message.type === 'clientId') {
         clientId = message.payload;
@@ -318,9 +351,7 @@ function connectWebSocket() {
         if (popupPort) {
           popupPort.postMessage(updateMessage);
         }
-        if (resultsPort && resultsPort.jobId === jobData.id) {
-          resultsPort.postMessage(updateMessage);
-        }
+        broadcastToResultsPorts(jobData.id, updateMessage);
 
         // Also update the badge
         updateBadge(jobData);
@@ -375,6 +406,8 @@ async function updateBadge(job, oldStatus = null) {
 
   const statusColors = {
     queued: '#9E9E9E',
+    retrying: '#FF9800',
+    processing: '#FF9800',
     downloading: '#2196F3',
     analyzing: '#9C27B0',
     completed: '#4CAF50',
@@ -450,13 +483,13 @@ chrome.runtime.onConnect.addListener((port) => {
       popupPort = null;
     });
   } else if (port.name === 'results') {
-    resultsPort = port;
+    registerResultsPort(port);
     console.log('[PORT] Results page connected.');
     port.onMessage.addListener(portHandler);
     port.onDisconnect.addListener(() => {
       console.log('[PORT] Results page disconnected.');
       port.onMessage.removeListener(portHandler);
-      resultsPort = null;
+      unregisterResultsPort(port);
     });
   }
 });
@@ -625,7 +658,7 @@ async function handlePortMessage(message, port, sendResponse) {
       case 'GET_JOB_FOR_RESULTS_PAGE': {
         const { jobId } = payload;
         if (port.name === 'results') {
-          port.jobId = jobId; // Associate port with a job ID
+          port.jobId = jobId;
         }
 
         // Subscribe to future updates
@@ -726,15 +759,7 @@ async function handlePortMessage(message, port, sendResponse) {
             popupPort.postMessage({ type: 'JOB_UPDATE', payload: result.job });
           }
         }
-        // If the results page is still open for the OLD job, we need to redirect it.
-        // Or, more simply, we can just update its view to the new job's status.
-        if (resultsPort && resultsPort.jobId === jobId) {
-          // The results page is still looking at the old, failed job.
-          // Let's redirect the user to the new job's results page.
-          const newJobId = result.jobId;
-          const resultsPageUrl = chrome.runtime.getURL(`results.html?jobId=${newJobId}`);
-          port.postMessage({ type: 'REDIRECT', payload: { url: resultsPageUrl } });
-        }
+        redirectResultsPortsForJob(jobId, result.jobId);
         break;
       }
       case 'UPDATE_JOB_TITLE': {
@@ -774,9 +799,7 @@ async function handlePortMessage(message, port, sendResponse) {
           if (popupPort) {
             popupPort.postMessage(updateMessage);
           }
-          if (resultsPort && resultsPort.jobId === jobId) {
-            resultsPort.postMessage(updateMessage);
-          }
+          broadcastToResultsPorts(jobId, updateMessage);
 
           updateBadge(result.job, oldStatus);
 
@@ -1091,6 +1114,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     (async () => {
       try {
         const urls = Array.isArray(message.urls) ? message.urls.filter(Boolean) : [];
+        if (urls.length === 0) {
+          sendResponse({ success: true, urls: [] });
+          return;
+        }
         const res = await apiFetch(`${API_BASE_URL}/urls/processed-check`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1101,7 +1128,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // Backward-compatible shape: return as { urls }
         sendResponse({ success: true, urls: data.processed || [] });
       } catch (e) {
-        sendResponse({ success: false, error: e.message });
+        if (String(e?.message || '') === t('bg.authRequired')) {
+          sendResponse({ success: true, urls: [], skipped: true, authRequired: true });
+        } else {
+          sendResponse({ success: false, error: e.message });
+        }
       }
     })();
     return true;

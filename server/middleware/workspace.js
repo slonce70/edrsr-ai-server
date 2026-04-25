@@ -1,4 +1,4 @@
-import dbService from '../services/dbService.js';
+import collaborationService from '../services/collaborationService.js';
 
 export async function attachWorkspace(req, res, next) {
   try {
@@ -14,13 +14,16 @@ export async function attachWorkspace(req, res, next) {
           : req.headers['x-workspace-id'];
 
     if (requestedId) {
-      const role = await dbService.getWorkspaceRole(userId, requestedId);
+      const role = await collaborationService.getWorkspaceRole(userId, requestedId);
       if (!role) return res.status(403).json({ error: 'Недостаточно прав доступа' });
       req.workspace = { id: requestedId, role };
       return next();
     }
 
-    const workspace = await dbService.ensureWorkspaceForUser(userId, req.user?.email || null);
+    const workspace = await collaborationService.ensureWorkspaceForUser(
+      userId,
+      req.user?.email || null
+    );
     req.workspace = { id: workspace.id, role: workspace.role };
     return next();
   } catch (error) {

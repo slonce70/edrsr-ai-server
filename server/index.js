@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 import { createServer } from './server.js';
 import database from './database/connection.js';
-import dbService from './services/dbService.js';
+import promptService from './services/promptService.js';
 import { logger } from './utils.js';
 import got from 'got';
 import { APP_VERSION } from './version.js';
@@ -10,13 +10,13 @@ import { APP_VERSION } from './version.js';
 dotenv.config();
 
 const PORT = process.env.PORT || 4000;
-const HOST = process.env.HOST || (process.env.NODE_ENV === 'production' ? '127.0.0.1' : '0.0.0.0');
+const HOST = process.env.HOST || '0.0.0.0';
 
 async function start() {
   try {
     await database.initializeTables();
     logger.log('🗄️ База даних успішно ініціалізована.');
-    await dbService.ensurePromptDefinitionsSeeded();
+    await promptService.ensurePromptDefinitionsSeeded();
 
     const server = createServer();
 
