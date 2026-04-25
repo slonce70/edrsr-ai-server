@@ -219,7 +219,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   let currentJobData = null;
 
   if (!jobId) {
-    document.body.innerHTML = `<h1>${t('results.errorNoJobId')}</h1>`;
+    document.body.replaceChildren();
+    const heading = document.createElement('h1');
+    heading.textContent = t('results.errorNoJobId');
+    document.body.appendChild(heading);
     return;
   }
 
@@ -250,6 +253,37 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // --- UI Rendering ---
+  function renderErrorState(job) {
+    const container = document.createElement('div');
+    container.className = 'error-container';
+
+    const message = document.createElement('p');
+    message.className = 'error-message';
+
+    const label = document.createElement('strong');
+    label.textContent = `${t('common.errorLabel')}: `;
+    message.appendChild(label);
+    message.append(document.createTextNode(job.error_message || t('results.errorUnknown')));
+
+    const retryBtn = document.createElement('button');
+    retryBtn.id = 'retryBtn';
+    retryBtn.className = 'button button-primary';
+    retryBtn.dataset.jobId = job.id;
+    retryBtn.textContent = `↻ ${t('results.retryBtn')}`;
+    retryBtn.addEventListener('click', handleRetry);
+
+    container.appendChild(message);
+    container.appendChild(retryBtn);
+
+    elements.analysisResult.replaceChildren(container);
+  }
+
+  function renderPendingState(messageText = t('results.analysisPending')) {
+    const message = document.createElement('p');
+    message.textContent = messageText;
+    elements.analysisResult.replaceChildren(message);
+  }
+
   function renderPage(job) {
     if (!job) {
       elements.jobTitle.textContent = t('results.jobTitleFallback', { id: jobId.substring(0, 8) });
@@ -294,25 +328,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       reportRendered = true;
       checkEnablePdfButton();
     } else if (job.status === 'error') {
-      elements.analysisResult.innerHTML = `
-        <div class="error-container">
-          <p class="error-message"><strong>${t('common.errorLabel')}:</strong> ${
-            job.error_message || t('results.errorUnknown')
-          }</p>
-          <button id="retryBtn" class="button button-primary" data-job-id="${job.id}">&#x21BB; ${t(
-            'results.retryBtn'
-          )}</button>
-        </div>
-      `;
+      renderErrorState(job);
       elements.downloadBtn.style.display = 'none';
-
-      // Attach event listener for the new button
-      const retryBtn = document.getElementById('retryBtn');
-      if (retryBtn) {
-        retryBtn.addEventListener('click', handleRetry);
-      }
     } else {
-      elements.analysisResult.innerHTML = `<p>${t('results.analysisPending')}</p>`;
+      renderPendingState();
       elements.downloadBtn.style.display = 'none';
     }
 
@@ -412,9 +431,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       console.log(`[RESULTS] Retrying job: ${jobIdToRetry}`);
       port.postMessage({ type: 'RETRY_JOB', payload: { jobId: jobIdToRetry } });
       // Optionally, update UI to show it's retrying
-      elements.analysisResult.innerHTML = `<p>${t('results.retryingJob')}</p>`;
-      elements.statusBadge.textContent = getStatusLabel('queued');
-      elements.statusBadge.className = 'status-badge status-queued';
+      renderPendingState(t('results.retryingJob'));
+      elements.statusBadge.textContent = getStatusLabel('retrying');
+      elements.statusBadge.className = 'status-badge status-retrying';
     }
   }
 

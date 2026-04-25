@@ -1,11 +1,13 @@
 {
   "name": "edrsr-gemini-backend",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "type": "module",
   "description": "Backend server for ЄДРСР AI analysis with Gemini",
   "main": "index.js",
   "scripts": {
     "dev": "node index.js",
+    "lint": "eslint . --ext .js",
+    "format": "prettier --ignore-path ../.prettierignore --write .",
     "start": "node --max-old-space-size=448 --expose-gc --trace-warnings --enable-source-maps index.js",
     "start:optimized": "node start-optimized.js",
     "start:basic": "node index.js",
@@ -31,7 +33,7 @@
     "p-limit": "^5.0.0",
     "pg": "^8.16.3",
     "turndown": "^7.2.2",
-    "uuid": "^9.0.1",
+    "uuid": "^14.0.0",
     "ws": "^8.18.0"
   },
   "keywords": [

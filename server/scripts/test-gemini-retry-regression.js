@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 
-process.env.GEMINI_API_KEYS = Array.from({ length: 17 }, (_, index) =>
-  `AIzaSyRegressionKey${String(index).padStart(2, '0')}abcdefghijklmnopqrstu`
+process.env.GEMINI_API_KEYS = Array.from(
+  { length: 17 },
+  (_, index) => `AIzaSyRegressionKey${String(index).padStart(2, '0')}abcdefghijklmnopqrstu`
 ).join(',');
 process.env.MODEL_NAME = 'gemini-2.5-flash';
 process.env.FALLBACK_MODEL_NAME = 'gemini-2.5-flash';

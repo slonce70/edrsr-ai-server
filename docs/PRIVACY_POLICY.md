@@ -1,6 +1,6 @@
 EDRSR‑AI Browser Extension — Privacy Policy
 
-Effective date: 2025‑01‑01 (template)
+Effective date: 2026‑04‑25
 
 1. Summary
 - Purpose: Help users collect and analyze public court decisions from reyestr.court.gov.ua.
@@ -45,8 +45,7 @@ Effective date: 2025‑01‑01 (template)
 - Not intended for children under 16. We do not knowingly collect children’s personal information.
 
 10. Contact
-- Email: privacy@example.com (replace with your contact)
+- Use the repository issue tracker or the contact configured in the Chrome Web Store listing.
 
 11. Changes
 - We may update this policy. Updated versions will be published in the repository and referenced in the store listing.
-

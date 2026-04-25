@@ -2,10 +2,21 @@ import { WebSocketServer } from 'ws';
 import { v4 as uuid } from 'uuid';
 import { logger, getClientIp } from './utils.js';
 import dbService from './services/dbService.js';
+import collaborationService from './services/collaborationService.js';
+import jobQueryService from './services/jobQueryService.js';
+import { canSubscribeToJob } from './services/wsSubscriptionService.js';
 import { createClient } from '@supabase/supabase-js';
+import { parseDevAuthToken } from './auth/devAuth.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+const IS_PROD_LIKE = process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging';
+const PROD_WS_ORIGINS = [
+  'https://edrsr-ai-server.fun',
+  'https://www.edrsr-ai-server.fun',
+  'https://app.edrsr-ai-server.fun',
+  'https://reyestr.court.gov.ua',
+];
 let supabase;
 function getSupabase() {
   if (!supabase && SUPABASE_URL && SUPABASE_ANON_KEY) {
@@ -17,9 +28,10 @@ function getSupabase() {
 // --- WebSocket Security Configuration ---
 
 const WS_AUTH_TIMEOUT_MS = Number.parseInt(process.env.WS_AUTH_TIMEOUT_MS || '10000', 10);
-// Disabled by default to avoid breaking existing clients that keep a WS open before auth.
-// Enable explicitly in prod if you want to aggressively drop unauthenticated connections.
-const ENABLE_WS_AUTH_TIMEOUT = process.env.ENABLE_WS_AUTH_TIMEOUT === 'true';
+const ENABLE_WS_AUTH_TIMEOUT =
+  typeof process.env.ENABLE_WS_AUTH_TIMEOUT === 'string'
+    ? process.env.ENABLE_WS_AUTH_TIMEOUT === 'true'
+    : IS_PROD_LIKE;
 const ENABLE_WS_CONN_RATE_LIMIT = process.env.ENABLE_WS_CONN_RATE_LIMIT !== 'false';
 const WS_CONN_RATE_WINDOW_MS = Number.parseInt(
   process.env.WS_CONN_RATE_WINDOW_MS || String(60 * 1000),
@@ -66,21 +78,23 @@ setInterval(() => {
   }
 }, WS_CONN_RATE_WINDOW_MS).unref?.();
 
-function getAllowedChromeExtensionIds() {
-  const raw = process.env.CHROME_EXTENSION_IDS || process.env.CHROME_EXTENSION_ID || '';
-  return raw
+function parseCsvEnv(value) {
+  return String(value || '')
     .split(',')
-    .map((id) => id.trim())
+    .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function getAllowedChromeExtensionIds() {
+  return parseCsvEnv(process.env.CHROME_EXTENSION_IDS || process.env.CHROME_EXTENSION_ID || '');
 }
 
 function isAllowedChromeExtensionOrigin(origin) {
   if (typeof origin !== 'string') return false;
   if (!origin.startsWith('chrome-extension://')) return false;
 
-  // If no IDs configured, keep backward compatibility (allow any extension origin)
   const allowedIds = getAllowedChromeExtensionIds();
-  if (allowedIds.length === 0) return true;
+  if (allowedIds.length === 0) return !IS_PROD_LIKE;
 
   return allowedIds.some((id) => origin === `chrome-extension://${id}`);
 }
@@ -90,30 +104,29 @@ function isAllowedChromeExtensionOrigin(origin) {
  * Configure via WS_ALLOWED_ORIGINS env var (comma-separated list).
  */
 const getAllowedWsOrigins = () => {
-  const baseOrigins = [
-    'https://edrsr-ai-server.fun',
-    'https://www.edrsr-ai-server.fun',
-    'https://app.edrsr-ai-server.fun',
-  ];
-  if (process.env.WS_ALLOWED_ORIGINS) {
-    const configured = process.env.WS_ALLOWED_ORIGINS.split(',').map((origin) => origin.trim());
-    return [...new Set([...configured, ...baseOrigins])];
+  const configured = parseCsvEnv(process.env.WS_ALLOWED_ORIGINS);
+  if (configured.length > 0) {
+    return [...new Set(configured)];
   }
 
-  // Production/staging: use restrictive defaults
-  if (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging') {
-    return [...baseOrigins, 'https://reyestr.court.gov.ua'];
+  if (IS_PROD_LIKE) {
+    return [...PROD_WS_ORIGINS];
   }
 
-  // Development: allow localhost
   return [
-    ...baseOrigins,
     'http://localhost:3000',
     'http://localhost:4000',
     'http://127.0.0.1:3000',
     'http://127.0.0.1:4000',
   ];
 };
+
+function assertWsOriginConfig() {
+  if (!IS_PROD_LIKE) return;
+  if (getAllowedWsOrigins().length === 0) {
+    throw new Error('WS_ALLOWED_ORIGINS must be set in production/staging');
+  }
+}
 
 /**
  * Verify WebSocket connection origin.
@@ -129,9 +142,8 @@ const verifyClient = (info) => {
     return false;
   }
 
-  // Allow connections without origin (server-to-server, some clients)
   if (!origin) {
-    return true;
+    return !IS_PROD_LIKE;
   }
 
   // Allow chrome extensions
@@ -155,6 +167,7 @@ let wssInstance;
 
 function initWebSocket(server) {
   if (wssInstance) return { wss: wssInstance, clients: clientsInstance };
+  assertWsOriginConfig();
 
   const clients = new Map();
   const wss = new WebSocketServer({
@@ -208,10 +221,21 @@ function initWebSocket(server) {
         }
 
         if (data.type === 'auth') {
-          const s = getSupabase();
-          if (!s) return; // If Supabase not configured, skip
           const token = data.token;
           if (typeof token !== 'string' || token.length < 10) return;
+          const devUser = parseDevAuthToken(token);
+          if (devUser) {
+            const clientData = clients.get(clientId);
+            if (clientData) clientData.userId = devUser.id;
+            if (ws.authTimeout) {
+              clearTimeout(ws.authTimeout);
+              ws.authTimeout = null;
+            }
+            logger.debug(`[WS] Client ${clientId} authenticated via dev auth as ${devUser.id}`);
+            return;
+          }
+          const s = getSupabase();
+          if (!s) return; // If Supabase not configured, skip
           const { data: userData, error } = await s.auth.getUser(token);
           if (!error && userData?.user) {
             const clientData = clients.get(clientId);
@@ -226,15 +250,29 @@ function initWebSocket(server) {
           const clientData = clients.get(clientId);
           if (!clientData?.userId) return; // require auth for subscriptions
           if (clientData && data.jobId) {
-            // Verify this job belongs to the authenticated user before subscribing
+            const workspaceId =
+              typeof data.workspaceId === 'string' && data.workspaceId.trim()
+                ? data.workspaceId.trim()
+                : null;
             try {
-              const job = await dbService.getJob(data.jobId, clientData.userId);
-              if (job) {
+              const allowed = await canSubscribeToJob({
+                jobId: data.jobId,
+                userId: clientData.userId,
+                workspaceId,
+                deps: {
+                  getJob: (jobId, userId) => dbService.getJob(jobId, userId),
+                  getWorkspaceRole: (userId, workspaceId) =>
+                    collaborationService.getWorkspaceRole(userId, workspaceId),
+                  getJobLightForWorkspace: (jobId, workspaceId) =>
+                    jobQueryService.getJobLightForWorkspace(jobId, workspaceId),
+                },
+              });
+              if (allowed) {
                 clientData.jobs.add(data.jobId);
                 logger.debug(`[WS] Client ${clientId} subscribed to job ${data.jobId}`);
               } else {
                 logger.warn(
-                  `[WS] Client ${clientId} attempted to subscribe to foreign job ${data.jobId}`
+                  `[WS] Client ${clientId} attempted to subscribe to unauthorized job ${data.jobId}`
                 );
               }
             } catch (e) {

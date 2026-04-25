@@ -515,11 +515,7 @@ export const modelName = process.env.MODEL_NAME || 'gemini-2.5-flash';
 // неробочу/квотовану модель на кожному запиті.
 const rawFallbackModelName = process.env.FALLBACK_MODEL_NAME;
 export const FALLBACK_MODEL_NAME =
-  rawFallbackModelName !== undefined
-    ? rawFallbackModelName.trim()
-    : modelName === 'gemini-2.5-pro'
-      ? 'gemini-2.5-flash'
-      : 'gemini-2.5-pro';
+  rawFallbackModelName !== undefined ? rawFallbackModelName.trim() : '';
 
 // Логування конфігурації моделей при запуску
 console.log(`📋 [CONFIG] Основна модель: ${modelName}`);
@@ -555,7 +551,7 @@ export const SAFETY_SETTINGS = [
 
 // Batching configuration from environment
 export const AI_BATCH_SIZE =
-  parseInt(process.env.AI_BATCH_SIZE, 10) || parseInt(process.env.BATCH_SIZE, 10) || 10;
+  parseInt(process.env.AI_BATCH_SIZE, 10) || parseInt(process.env.BATCH_SIZE, 10) || 5;
 export const OPTIMAL_BATCH_SIZE = AI_BATCH_SIZE;
 export const DELAY_BETWEEN_BATCHES = parseInt(process.env.BATCH_DELAY) || 1500;
 export const BATCH_THRESHOLD = parseInt(process.env.BATCH_THRESHOLD) || 15;

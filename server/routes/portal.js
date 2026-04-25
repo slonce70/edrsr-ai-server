@@ -1,18 +1,23 @@
 import express from 'express';
-import dbService from '../services/dbService.js';
+import { parseShareLinkDays } from '../collaborationPolicy.js';
 import { attachUser, requireAuth } from '../middleware/auth.js';
 import { validatePromptCreate, validatePromptUpdate } from '../middleware/validators.js';
 import { attachWorkspace, requireWorkspaceRole } from '../middleware/workspace.js';
+import collaborationService, {
+  isValidWorkspaceRole,
+  normalizeWorkspaceRole,
+} from '../services/collaborationService.js';
+import jobQueryService from '../services/jobQueryService.js';
+import promptService from '../services/promptService.js';
 
 const router = express.Router();
-
 // Attach user for all portal routes
 router.use(attachUser);
 
 // Public share view (token + expiry)
 router.get('/share/:token', async (req, res, next) => {
   try {
-    const payload = await dbService.getSharePayloadByToken(req.params.token);
+    const payload = await collaborationService.getSharePayloadByToken(req.params.token);
     if (!payload) return res.status(404).json({ error: 'Share link not found' });
 
     const expiresAt = payload.link?.expires_at ? new Date(payload.link.expires_at) : null;
@@ -46,7 +51,7 @@ router.use(attachWorkspace);
 // Shared prompts (workspace)
 router.get('/prompts/shared', async (req, res, next) => {
   try {
-    const prompts = await dbService.listWorkspacePrompts(req.workspace.id);
+    const prompts = await promptService.listWorkspacePrompts(req.workspace.id);
     res.json({ success: true, workspace_id: req.workspace.id, prompts });
   } catch (error) {
     next(error);
@@ -60,7 +65,7 @@ router.post(
   async (req, res, next) => {
     try {
       const { name, content } = req.body || {};
-      const result = await dbService.createWorkspacePrompt(
+      const result = await promptService.createWorkspacePrompt(
         req.workspace.id,
         req.user.id,
         name,
@@ -79,7 +84,7 @@ router.patch(
   validatePromptUpdate,
   async (req, res, next) => {
     try {
-      const result = await dbService.updateWorkspacePrompt(
+      const result = await promptService.updateWorkspacePrompt(
         req.workspace.id,
         req.params.id,
         req.body || {},
@@ -100,7 +105,7 @@ router.delete(
   requireWorkspaceRole(['owner', 'admin']),
   async (req, res, next) => {
     try {
-      const ok = await dbService.deleteWorkspacePrompt(
+      const ok = await promptService.deleteWorkspacePrompt(
         req.workspace.id,
         req.params.id,
         req.user.id
@@ -122,7 +127,7 @@ router.post(
     try {
       const promptId = typeof req.body?.promptId === 'string' ? req.body.promptId : '';
       if (!promptId) return res.status(400).json({ error: 'promptId is required' });
-      const result = await dbService.shareUserPromptToWorkspace(
+      const result = await promptService.shareUserPromptToWorkspace(
         req.workspace.id,
         req.user.id,
         promptId
@@ -140,7 +145,7 @@ router.post(
 // Workspaces
 router.get('/workspaces', async (req, res, next) => {
   try {
-    const workspaces = await dbService.listWorkspaces(req.user.id);
+    const workspaces = await collaborationService.listWorkspaces(req.user.id);
     res.json({ success: true, workspaces, active_workspace_id: req.workspace?.id || null });
   } catch (error) {
     next(error);
@@ -151,7 +156,7 @@ router.post('/workspaces', async (req, res, next) => {
   try {
     const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
     if (!name) return res.status(400).json({ error: 'Workspace name is required' });
-    const workspace = await dbService.createWorkspace(req.user.id, name);
+    const workspace = await collaborationService.createWorkspace(req.user.id, name);
     res.json({ success: true, workspace });
   } catch (error) {
     next(error);
@@ -160,7 +165,7 @@ router.post('/workspaces', async (req, res, next) => {
 
 router.get('/workspaces/:workspaceId/members', async (req, res, next) => {
   try {
-    const members = await dbService.listWorkspaceMembers(req.workspace.id);
+    const members = await collaborationService.listWorkspaceMembers(req.workspace.id);
     res.json({ success: true, workspace_id: req.workspace.id, members });
   } catch (error) {
     next(error);
@@ -173,10 +178,19 @@ router.post(
   async (req, res, next) => {
     try {
       const email = typeof req.body?.email === 'string' ? req.body.email.trim() : '';
-      const role = typeof req.body?.role === 'string' ? req.body.role : 'member';
+      const role = normalizeWorkspaceRole(req.body?.role || 'member');
       if (!email) return res.status(400).json({ error: 'Email is required' });
+      if (!isValidWorkspaceRole(role)) return res.status(400).json({ error: 'Invalid role' });
+      if (role === 'owner') {
+        return res.status(400).json({ error: 'Cannot assign owner role through member invite' });
+      }
 
-      const result = await dbService.addWorkspaceMember(req.workspace.id, email, role, req.user.id);
+      const result = await collaborationService.addWorkspaceMember(
+        req.workspace.id,
+        email,
+        role,
+        req.user.id
+      );
       if (result.error === 'user_not_found') {
         return res.status(404).json({ error: 'User not found' });
       }
@@ -192,17 +206,26 @@ router.patch(
   requireWorkspaceRole(['owner', 'admin']),
   async (req, res, next) => {
     try {
-      const role = typeof req.body?.role === 'string' ? req.body.role : '';
+      const role = normalizeWorkspaceRole(req.body?.role || '');
       if (!role) return res.status(400).json({ error: 'Role is required' });
+      if (!isValidWorkspaceRole(role)) return res.status(400).json({ error: 'Invalid role' });
       const targetId = req.params.memberId;
+      const ownerUserId = await collaborationService.getWorkspaceOwnerId(req.workspace.id);
 
-      const existingRole = await dbService.getWorkspaceRole(targetId, req.workspace.id);
+      const existingRole = await collaborationService.getWorkspaceRole(targetId, req.workspace.id);
       if (!existingRole) return res.status(404).json({ error: 'Member not found' });
       if (existingRole === 'owner' && role !== 'owner') {
         return res.status(400).json({ error: 'Cannot change owner role' });
       }
+      if (role === 'owner' && ownerUserId && targetId !== ownerUserId) {
+        return res.status(400).json({ error: 'Cannot promote a second workspace owner' });
+      }
 
-      const updated = await dbService.updateWorkspaceMemberRole(req.workspace.id, targetId, role);
+      const updated = await collaborationService.updateWorkspaceMemberRole(
+        req.workspace.id,
+        targetId,
+        role
+      );
       if (!updated) return res.status(404).json({ error: 'Member not found' });
       return res.json({ success: true, member: updated });
     } catch (error) {
@@ -217,12 +240,13 @@ router.delete(
   async (req, res, next) => {
     try {
       const targetId = req.params.memberId;
-      const existingRole = await dbService.getWorkspaceRole(targetId, req.workspace.id);
+      const ownerUserId = await collaborationService.getWorkspaceOwnerId(req.workspace.id);
+      const existingRole = await collaborationService.getWorkspaceRole(targetId, req.workspace.id);
       if (!existingRole) return res.status(404).json({ error: 'Member not found' });
-      if (existingRole === 'owner') {
+      if (existingRole === 'owner' || (ownerUserId && targetId === ownerUserId)) {
         return res.status(400).json({ error: 'Cannot remove workspace owner' });
       }
-      const removed = await dbService.removeWorkspaceMember(req.workspace.id, targetId);
+      const removed = await collaborationService.removeWorkspaceMember(req.workspace.id, targetId);
       return res.json({ success: true, removed });
     } catch (error) {
       next(error);
@@ -233,18 +257,18 @@ router.delete(
 // Matters
 router.get('/matters', async (req, res, next) => {
   try {
-    const matters = await dbService.listMatters(req.workspace.id);
+    const matters = await collaborationService.listMatters(req.workspace.id);
     res.json({ success: true, workspace_id: req.workspace.id, matters });
   } catch (error) {
     next(error);
   }
 });
 
-router.post('/matters', async (req, res, next) => {
+router.post('/matters', requireWorkspaceRole(['owner', 'admin']), async (req, res, next) => {
   try {
     const title = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
     if (!title) return res.status(400).json({ error: 'Title is required' });
-    const matter = await dbService.createMatter(
+    const matter = await collaborationService.createMatter(
       {
         workspaceId: req.workspace.id,
         title,
@@ -262,97 +286,123 @@ router.post('/matters', async (req, res, next) => {
 
 router.get('/matters/:matterId', async (req, res, next) => {
   try {
-    const matter = await dbService.getMatter(req.params.matterId, req.workspace.id);
+    const matter = await collaborationService.getMatter(req.params.matterId, req.workspace.id);
     if (!matter) return res.status(404).json({ error: 'Matter not found' });
-    const jobs = await dbService.listMatterJobs(req.params.matterId, req.workspace.id);
+    const jobs = await collaborationService.listMatterJobs(req.params.matterId, req.workspace.id);
     res.json({ success: true, matter, jobs });
   } catch (error) {
     next(error);
   }
 });
 
-router.patch('/matters/:matterId', async (req, res, next) => {
-  try {
-    const updated = await dbService.updateMatter(req.params.matterId, req.workspace.id, {
-      title: req.body?.title,
-      description: req.body?.description,
-      clientName: req.body?.clientName,
-      tags: req.body?.tags,
-    });
-    if (!updated) return res.status(404).json({ error: 'Matter not found' });
-    res.json({ success: true, matter: updated });
-  } catch (error) {
-    next(error);
+router.patch(
+  '/matters/:matterId',
+  requireWorkspaceRole(['owner', 'admin']),
+  async (req, res, next) => {
+    try {
+      const updated = await collaborationService.updateMatter(
+        req.params.matterId,
+        req.workspace.id,
+        {
+          title: req.body?.title,
+          description: req.body?.description,
+          clientName: req.body?.clientName,
+          tags: req.body?.tags,
+        }
+      );
+      if (!updated) return res.status(404).json({ error: 'Matter not found' });
+      res.json({ success: true, matter: updated });
+    } catch (error) {
+      next(error);
+    }
   }
-});
+);
 
-router.delete('/matters/:matterId', async (req, res, next) => {
-  try {
-    const deleted = await dbService.deleteMatter(req.params.matterId, req.workspace.id);
-    res.json({ success: true, deleted });
-  } catch (error) {
-    next(error);
+router.delete(
+  '/matters/:matterId',
+  requireWorkspaceRole(['owner', 'admin']),
+  async (req, res, next) => {
+    try {
+      const deleted = await collaborationService.deleteMatter(
+        req.params.matterId,
+        req.workspace.id
+      );
+      res.json({ success: true, deleted });
+    } catch (error) {
+      next(error);
+    }
   }
-});
+);
 
-router.post('/matters/:matterId/jobs', async (req, res, next) => {
-  try {
-    const jobId = typeof req.body?.jobId === 'string' ? req.body.jobId : '';
-    if (!jobId) return res.status(400).json({ error: 'jobId is required' });
-    const assigned = await dbService.assignJobToMatter(
-      jobId,
-      req.params.matterId,
-      req.workspace.id
-    );
-    if (!assigned) return res.status(404).json({ error: 'Job not found' });
-    res.json({ success: true, job: assigned });
-  } catch (error) {
-    next(error);
+router.post(
+  '/matters/:matterId/jobs',
+  requireWorkspaceRole(['owner', 'admin']),
+  async (req, res, next) => {
+    try {
+      const jobId = typeof req.body?.jobId === 'string' ? req.body.jobId : '';
+      if (!jobId) return res.status(400).json({ error: 'jobId is required' });
+      const assigned = await collaborationService.assignJobToMatter(
+        jobId,
+        req.params.matterId,
+        req.workspace.id
+      );
+      if (!assigned) return res.status(404).json({ error: 'Job not found' });
+      res.json({ success: true, job: assigned });
+    } catch (error) {
+      next(error);
+    }
   }
-});
+);
 
-router.delete('/matters/:matterId/jobs/:jobId', async (req, res, next) => {
-  try {
-    const removed = await dbService.removeJobFromMatter(
-      req.params.jobId,
-      req.params.matterId,
-      req.workspace.id
-    );
-    res.json({ success: true, removed });
-  } catch (error) {
-    next(error);
+router.delete(
+  '/matters/:matterId/jobs/:jobId',
+  requireWorkspaceRole(['owner', 'admin']),
+  async (req, res, next) => {
+    try {
+      const removed = await collaborationService.removeJobFromMatter(
+        req.params.jobId,
+        req.params.matterId,
+        req.workspace.id
+      );
+      res.json({ success: true, removed });
+    } catch (error) {
+      next(error);
+    }
   }
-});
+);
 
 // Share links
 router.get('/share-links', async (req, res, next) => {
   try {
-    const links = await dbService.listShareLinksForWorkspace(req.workspace.id);
+    const links = await collaborationService.listShareLinksForWorkspace(req.workspace.id);
     res.json({ success: true, links });
   } catch (error) {
     next(error);
   }
 });
 
-router.post('/share-links', async (req, res, next) => {
+router.post('/share-links', requireWorkspaceRole(['owner', 'admin']), async (req, res, next) => {
   try {
     const jobId = typeof req.body?.jobId === 'string' ? req.body.jobId : '';
     if (!jobId) return res.status(400).json({ error: 'jobId is required' });
 
-    const daysRaw = Number.parseInt(req.body?.expiresInDays, 10);
-    const days = Number.isFinite(daysRaw) && daysRaw > 0 ? daysRaw : 14;
+    const daysResult = parseShareLinkDays(req.body?.expiresInDays);
+    if (!daysResult.ok) {
+      return res.status(400).json({ error: daysResult.error });
+    }
+    const days = daysResult.value;
     const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
 
-    const job = await dbService.getJobLightForWorkspace(jobId, req.workspace.id);
+    const job = await jobQueryService.getJobLightForWorkspace(jobId, req.workspace.id);
     if (!job) return res.status(404).json({ error: 'Job not found' });
 
-    const result = await dbService.createShareLink(jobId, req.user.id, expiresAt);
+    const result = await collaborationService.createShareLink(jobId, req.user.id, expiresAt);
 
     res.json({
       success: true,
       share: {
         ...result.link,
-        url: result.link?.share_url || null,
+        url: result.url || null,
       },
       token: result.token,
     });
@@ -361,13 +411,20 @@ router.post('/share-links', async (req, res, next) => {
   }
 });
 
-router.post('/share-links/:id/revoke', async (req, res, next) => {
-  try {
-    const revoked = await dbService.revokeShareLink(req.params.id, req.workspace?.id || null);
-    res.json({ success: true, revoked });
-  } catch (error) {
-    next(error);
+router.post(
+  '/share-links/:id/revoke',
+  requireWorkspaceRole(['owner', 'admin']),
+  async (req, res, next) => {
+    try {
+      const revoked = await collaborationService.revokeShareLink(
+        req.params.id,
+        req.workspace?.id || null
+      );
+      res.json({ success: true, revoked });
+    } catch (error) {
+      next(error);
+    }
   }
-});
+);
 
 export default router;

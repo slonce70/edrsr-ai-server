@@ -14,8 +14,9 @@ import {
   logSuspiciousActivity,
   getSecurityStats,
 } from '../middleware/security.js';
+import jobWriteService from '../services/jobWriteService.js';
 import { logger } from '../utils.js';
-import dbService from '../services/dbService.js';
+import queueService from '../services/queueService.js';
 
 const router = express.Router();
 
@@ -64,6 +65,77 @@ function isSuperAdmin(user) {
   if (SUPER_ADMIN_USER_IDS.size > 0 && SUPER_ADMIN_USER_IDS.has(user.id)) return true;
   if (user.email && SUPER_ADMIN_EMAILS.has(String(user.email).toLowerCase())) return true;
   return false;
+}
+
+async function buildDeleteUserPreflight(userId) {
+  const [ownedWorkspace, counts] = await Promise.all([
+    database.get(
+      `SELECT id, name
+       FROM workspaces
+       WHERE owner_user_id = $1
+       ORDER BY created_at ASC
+       LIMIT 1`,
+      [userId]
+    ),
+    database.get(
+      `SELECT
+        (SELECT COUNT(*)::INT FROM workspace_members WHERE user_id = $1) AS workspace_memberships,
+        (SELECT COUNT(*)::INT FROM user_roles WHERE user_id = $1) AS user_roles,
+        (SELECT COUNT(*)::INT FROM user_roles WHERE granted_by = $1 AND user_id <> $1) AS delegated_user_roles,
+        (SELECT COUNT(*)::INT FROM jobs WHERE user_id = $1) AS jobs,
+        (SELECT COUNT(*)::INT FROM chat_messages WHERE user_id = $1) AS chat_messages,
+        (SELECT COUNT(*)::INT FROM parsed_cases WHERE user_id = $1) AS parsed_cases,
+        (SELECT COUNT(*)::INT FROM user_prompts WHERE user_id = $1) AS user_prompts,
+        (SELECT COUNT(*)::INT FROM matters WHERE created_by = $1) AS matters_authored,
+        (SELECT COUNT(*)::INT FROM share_links WHERE created_by = $1) AS share_links_authored,
+        (SELECT COUNT(*)::INT FROM prompt_audit_log WHERE user_id = $1) AS prompt_audit_rows,
+        (SELECT COUNT(*)::INT FROM workspace_prompts WHERE updated_by = $1) AS workspace_prompt_updates`,
+      [userId]
+    ),
+  ]);
+
+  return {
+    ownedWorkspace: ownedWorkspace || null,
+    cleanupPlan: {
+      nullify: {
+        workspace_members_invited_by: counts?.workspace_memberships ?? 0,
+        matters_created_by: counts?.matters_authored ?? 0,
+        share_links_created_by: counts?.share_links_authored ?? 0,
+        prompt_audit_log_user_id: counts?.prompt_audit_rows ?? 0,
+        workspace_prompts_updated_by: counts?.workspace_prompt_updates ?? 0,
+        user_roles_granted_by: counts?.delegated_user_roles ?? 0,
+      },
+      delete: {
+        workspace_members: counts?.workspace_memberships ?? 0,
+        user_roles: counts?.user_roles ?? 0,
+        jobs: counts?.jobs ?? 0,
+        chat_messages: counts?.chat_messages ?? 0,
+        parsed_cases: counts?.parsed_cases ?? 0,
+        user_prompts: counts?.user_prompts ?? 0,
+        app_user: 1,
+      },
+    },
+  };
+}
+
+async function cleanupDeletedUserLocally(client, userId) {
+  await client.query('UPDATE workspace_members SET invited_by = NULL WHERE invited_by = $1', [
+    userId,
+  ]);
+  await client.query('UPDATE matters SET created_by = NULL WHERE created_by = $1', [userId]);
+  await client.query('UPDATE share_links SET created_by = NULL WHERE created_by = $1', [userId]);
+  await client.query('UPDATE prompt_audit_log SET user_id = NULL WHERE user_id = $1', [userId]);
+  await client.query('UPDATE workspace_prompts SET updated_by = NULL WHERE updated_by = $1', [
+    userId,
+  ]);
+  await client.query('UPDATE user_roles SET granted_by = NULL WHERE granted_by = $1', [userId]);
+  await client.query('DELETE FROM workspace_members WHERE user_id = $1', [userId]);
+  await client.query('DELETE FROM user_roles WHERE user_id = $1', [userId]);
+  await client.query('DELETE FROM jobs WHERE user_id = $1', [userId]);
+  await client.query('DELETE FROM chat_messages WHERE user_id = $1', [userId]);
+  await client.query('DELETE FROM parsed_cases WHERE user_id = $1', [userId]);
+  await client.query('DELETE FROM user_prompts WHERE user_id = $1', [userId]);
+  await client.query('DELETE FROM app_users WHERE user_id = $1', [userId]);
 }
 
 function getCachedEmail(userId) {
@@ -351,33 +423,92 @@ router.delete('/users/:userId', async (req, res) => {
       return res.status(400).json({ error: 'Нельзя удалить самого себя' });
     }
 
-    // Получаем информацию о пользователе для логирования
-    let userEmail = 'unknown';
-    if (supabaseAdmin) {
-      try {
-        const { data: user } = await supabaseAdmin.auth.admin.getUserById(userId);
-        userEmail = user?.user?.email || 'unknown';
-      } catch (e) {
-        logger.warn('Could not get user email for deletion log:', e.message);
-      }
+    if (!supabaseAdmin) {
+      return res.status(503).json({ error: 'Supabase admin client is not configured' });
     }
 
-    // Удаляем все данные пользователя из нашей базы
-    await database.run('DELETE FROM user_roles WHERE user_id = $1', [userId]);
-    await database.run('DELETE FROM jobs WHERE user_id = $1', [userId]);
-    await database.run('DELETE FROM chat_messages WHERE user_id = $1', [userId]);
-    await database.run('DELETE FROM parsed_cases WHERE user_id = $1', [userId]);
-    await database.run('DELETE FROM user_prompts WHERE user_id = $1', [userId]);
-    await database.run('DELETE FROM app_users WHERE user_id = $1', [userId]);
+    const localUser = await database.get('SELECT email FROM app_users WHERE user_id = $1', [
+      userId,
+    ]);
+    let userEmail = localUser?.email || 'unknown';
+    try {
+      const { data: user, error } = await supabaseAdmin.auth.admin.getUserById(userId);
+      if (error) throw error;
+      userEmail = user?.user?.email || userEmail;
+    } catch (e) {
+      logger.warn('Could not get user email for deletion log:', e.message);
+    }
 
-    // Удаляем пользователя из Supabase Auth
-    if (supabaseAdmin) {
-      try {
-        await supabaseAdmin.auth.admin.deleteUser(userId);
-      } catch (error) {
-        logger.warn('Could not delete user from Supabase Auth:', error.message);
-        // Продолжаем выполнение даже если удаление из Supabase не удалось
-      }
+    const preflight = await buildDeleteUserPreflight(userId);
+    if (preflight.ownedWorkspace) {
+      await logAdminAction(
+        req.user.id,
+        'DELETE_USER_PREFLIGHT_BLOCKED',
+        'user',
+        userId,
+        {
+          user_email: userEmail,
+          blocker: {
+            type: 'workspace_owner',
+            workspace_id: preflight.ownedWorkspace.id,
+            workspace_name: preflight.ownedWorkspace.name,
+          },
+        },
+        req
+      );
+      return res.status(409).json({
+        success: false,
+        error: 'Нельзя удалить владельца workspace без предварительной передачи владения',
+        blocker: {
+          type: 'workspace_owner',
+          workspace_id: preflight.ownedWorkspace.id,
+          workspace_name: preflight.ownedWorkspace.name,
+        },
+      });
+    }
+
+    await database.run('UPDATE user_roles SET granted_by = NULL WHERE granted_by = $1', [userId]);
+
+    const { error: supabaseDeleteError } = await supabaseAdmin.auth.admin.deleteUser(userId);
+    if (supabaseDeleteError) {
+      return res.status(502).json({
+        success: false,
+        error: 'Failed to delete user from Supabase Auth',
+      });
+    }
+
+    try {
+      await database.withClientTransaction(async (client) => {
+        await cleanupDeletedUserLocally(client, userId);
+      });
+    } catch (cleanupError) {
+      await logAdminAction(
+        req.user.id,
+        'DELETE_USER_PARTIAL_FAILURE',
+        'user',
+        userId,
+        {
+          user_email: userEmail,
+          partial_failure: true,
+          cleanup_plan: preflight.cleanupPlan,
+          recovery: {
+            auth_user_deleted: true,
+            local_cleanup_pending: true,
+          },
+          error: cleanupError.message,
+        },
+        req
+      );
+      return res.status(502).json({
+        success: false,
+        error: 'User deleted from Supabase Auth, but local cleanup failed',
+        partial_failure: true,
+        recovery: {
+          auth_user_deleted: true,
+          local_cleanup_pending: true,
+        },
+        cleanup_plan: preflight.cleanupPlan,
+      });
     }
 
     await logAdminAction(
@@ -387,6 +518,7 @@ router.delete('/users/:userId', async (req, res) => {
       userId,
       {
         user_email: userEmail,
+        cleanup_plan: preflight.cleanupPlan,
       },
       req
     );
@@ -394,6 +526,9 @@ router.delete('/users/:userId', async (req, res) => {
     res.json({ success: true, message: 'Пользователь удален' });
   } catch (error) {
     logger.error('Delete user error:', error);
+    if (error?.statusCode && error?.payload) {
+      return res.status(error.statusCode).json(error.payload);
+    }
     res.status(500).json({ error: 'Ошибка удаления пользователя' });
   }
 });
@@ -408,7 +543,7 @@ router.post('/jobs/:id/requeue', async (req, res) => {
     const { id } = req.params;
     const { reset_links = false } = req.body || {};
 
-    const ok = await dbService.requeueJob(id, { resetLinks: !!reset_links });
+    const ok = await queueService.requeueJob(id, { resetLinks: !!reset_links });
     if (!ok) {
       return res.status(404).json({ success: false, error: 'Задание не найдено' });
     }
@@ -716,8 +851,7 @@ router.delete('/jobs/:jobId', async (req, res) => {
       return res.status(404).json({ error: 'Задание не найдено' });
     }
 
-    // Удаляем задание (каскадно удалятся связанные записи)
-    await database.run('DELETE FROM jobs WHERE id = $1', [jobId]);
+    await jobWriteService.deleteJob(jobId);
 
     await logAdminAction(
       req.user.id,
@@ -746,7 +880,7 @@ router.delete('/jobs/:jobId', async (req, res) => {
 router.get('/jobs/errors', async (req, res) => {
   try {
     const { limit = 20 } = req.query;
-    const errorJobs = await dbService.getJobsWithErrors(parseInt(limit));
+    const errorJobs = await queueService.getJobsWithErrors(parseInt(limit));
 
     await logAdminAction(req.user.id, 'VIEW_ERROR_JOBS', 'system', 'N/A', { limit }, req);
 
@@ -778,7 +912,7 @@ router.post('/jobs/:jobId/retry', async (req, res) => {
         .json({ error: `Задание не в статусе ошибки (текущий статус: ${job.status})` });
     }
 
-    const success = await dbService.manualRetryJob(jobId);
+    const success = await queueService.manualRetryJob(jobId);
 
     if (success) {
       await logAdminAction(
@@ -817,7 +951,7 @@ router.post('/jobs/:jobId/retry', async (req, res) => {
 // Автоматическое восстановление заданий с временными ошибками
 router.post('/jobs/retry-failed', async (req, res) => {
   try {
-    const retriedCount = await dbService.retryFailedJobs();
+    const retriedCount = await queueService.retryFailedJobs();
 
     await logAdminAction(
       req.user.id,
@@ -859,7 +993,7 @@ router.post('/jobs/recover-stuck', async (req, res) => {
     const { grace_minutes = 5 } = req.body || {};
     const minutes = Math.max(1, parseInt(grace_minutes, 10) || 5);
 
-    const recovered = await dbService.recoverJobsWithStaleHeartbeat(minutes);
+    const recovered = await queueService.recoverJobsWithStaleHeartbeat(minutes);
 
     await logAdminAction(
       req.user.id,

@@ -2,8 +2,25 @@
 // Run with: node scripts/selfcheck.js
 
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { isValidEDRSRUrl } from '../server/utils.js';
+import {
+  buildShareUrl,
+  isValidWorkspaceRole,
+  parseShareLinkDays,
+} from '../server/collaborationPolicy.js';
 import { validateCollectRequest, validateChatMessage } from '../server/middleware/validators.js';
+import {
+  allowMissingOrigin,
+  getAllowedChromeExtensionIds,
+  getAllowedHttpOrigins,
+  isAllowedChromeExtensionOrigin,
+} from '../server/originPolicy.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 function mockRes() {
   const res = { statusCode: 200 };
@@ -99,6 +116,107 @@ async function run() {
     pass('validateChatMessage');
   } catch (e) {
     fail('validateChatMessage', e);
+  }
+
+  // --- collaboration policy tests ---
+  try {
+    assert.equal(isValidWorkspaceRole('owner'), true);
+    assert.equal(isValidWorkspaceRole('admin'), true);
+    assert.equal(isValidWorkspaceRole('member'), true);
+    assert.equal(isValidWorkspaceRole('viewer'), false);
+
+    assert.deepEqual(parseShareLinkDays(undefined), { ok: true, value: 14 });
+    assert.deepEqual(parseShareLinkDays('7'), { ok: true, value: 7 });
+    assert.equal(parseShareLinkDays('31').ok, false);
+    assert.equal(parseShareLinkDays('0').ok, false);
+
+    assert.equal(
+      buildShareUrl('https://example.com/', 'token123'),
+      'https://example.com/share/token123'
+    );
+    assert.equal(buildShareUrl('', 'token123'), null);
+    pass('collaborationPolicy');
+  } catch (e) {
+    fail('collaborationPolicy', e);
+  }
+
+  // --- origin policy tests ---
+  try {
+    const prodEnv = {
+      NODE_ENV: 'production',
+      CORS_ALLOWED_ORIGINS: 'https://portal.example.com',
+      CHROME_EXTENSION_IDS: 'abc123',
+    };
+    const devEnv = {
+      NODE_ENV: 'development',
+    };
+
+    assert.equal(allowMissingOrigin(devEnv), true);
+    assert.equal(allowMissingOrigin(prodEnv), true);
+    assert.equal(isAllowedChromeExtensionOrigin('chrome-extension://abc123', prodEnv), true);
+    assert.equal(isAllowedChromeExtensionOrigin('chrome-extension://zzz999', prodEnv), false);
+    assert.equal(getAllowedChromeExtensionIds(prodEnv).length, 1);
+    assert.deepEqual(getAllowedHttpOrigins(devEnv).includes('http://localhost:3000'), true);
+    assert.deepEqual(getAllowedHttpOrigins(prodEnv), ['https://portal.example.com']);
+    assert.deepEqual(getAllowedHttpOrigins({ NODE_ENV: 'production' }), [
+      'https://edrsr-ai-server.fun',
+      'https://www.edrsr-ai-server.fun',
+      'https://app.edrsr-ai-server.fun',
+    ]);
+    pass('originPolicy');
+  } catch (e) {
+    fail('originPolicy', e);
+  }
+
+  // --- extension/web contract tests ---
+  try {
+    const popupSource = fs.readFileSync(path.resolve(__dirname, '../extension/popup.js'), 'utf8');
+    const resultsSource = fs.readFileSync(
+      path.resolve(__dirname, '../extension/results.js'),
+      'utf8'
+    );
+    const bgSource = fs.readFileSync(path.resolve(__dirname, '../extension/bg.js'), 'utf8');
+    const shareLinksSource = fs.readFileSync(
+      path.resolve(__dirname, '../web/src/pages/ShareLinksPage.tsx'),
+      'utf8'
+    );
+
+    assert.equal((popupSource.match(/API_CHECK_PROCESSED/g) || []).length, 1);
+    assert.match(resultsSource, /document\.createTextNode\(job\.error_message/);
+    assert.doesNotMatch(resultsSource, /innerHTML\s*=\s*.*error_message/s);
+    assert.match(bgSource, /const resultsPorts = new Map\(\);/);
+    assert.match(bgSource, /broadcastToResultsPorts\(jobData\.id/);
+    assert.match(bgSource, /redirectResultsPortsForJob\(jobId, result\.jobId\)/);
+    assert.match(bgSource, /port\.jobId = jobId;/);
+    assert.doesNotMatch(shareLinksSource, /navigator\.clipboard\.writeText\(link\.share_url\)/);
+    pass('extensionWebContracts');
+  } catch (e) {
+    fail('extensionWebContracts', e);
+  }
+
+  // --- extension build policy tests ---
+  try {
+    const rootPackage = JSON.parse(
+      fs.readFileSync(path.resolve(__dirname, '../package.json'), 'utf8')
+    );
+    const buildScriptSource = fs.readFileSync(
+      path.resolve(__dirname, '../scripts/build-extension.js'),
+      'utf8'
+    );
+
+    assert.equal(
+      rootPackage.scripts['build:extension:release'],
+      'EXTENSION_BUILD_ENV=production PACKAGE_EXTENSION_ZIP=true node scripts/build-extension.js'
+    );
+    assert.match(buildScriptSource, /const SHOULD_PACKAGE_ZIP =/);
+    assert.match(buildScriptSource, /Skipping zip packaging for non-release build/);
+    assert.match(
+      buildScriptSource,
+      /Release zip packaging is only allowed for production\/staging builds/
+    );
+    pass('extensionBuildPolicy');
+  } catch (e) {
+    fail('extensionBuildPolicy', e);
   }
 
   // Report
