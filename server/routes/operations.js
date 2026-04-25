@@ -1,5 +1,7 @@
 import express from 'express';
+import got from 'got';
 
+import database from '../database/connection.js';
 import dbService from '../services/dbService.js';
 import { requireAdmin } from '../middleware/adminAuth.js';
 import { limitHealthLight } from '../middleware/rateLimit.js';
@@ -18,7 +20,67 @@ export default function createOperationsRouter({
 }) {
   const router = express.Router();
   const HEALTH_TTL = parseInt(process.env.HEALTH_FULL_TTL_MS || '60000', 10);
+  const HEALTH_LIGHT_TTL = parseInt(process.env.HEALTH_LIGHT_TTL_MS || '15000', 10);
+  const HEALTH_LIGHT_TIMEOUT_MS = parseInt(process.env.HEALTH_LIGHT_TIMEOUT_MS || '5000', 10);
+  const HEALTH_LIGHT_UPSTREAM_URL =
+    process.env.HEALTH_LIGHT_UPSTREAM_URL || 'https://reyestr.court.gov.ua/';
   let healthCache = { data: null, ts: 0 };
+  let healthLightCache = { data: null, ts: 0, statusCode: 503 };
+  let healthLightInflight = null;
+
+  async function buildHealthLightPayload() {
+    const checks = {
+      server: { status: 'ok' },
+      db: { status: 'down' },
+      upstream: { status: 'down' },
+    };
+
+    const dbStartedAt = Date.now();
+    try {
+      await database.query('SELECT 1');
+      checks.db = { status: 'ok', latencyMs: Date.now() - dbStartedAt };
+    } catch (error) {
+      checks.db = {
+        status: 'down',
+        error: error?.code || error?.name || 'query_failed',
+      };
+    }
+
+    const upstreamStartedAt = Date.now();
+    try {
+      const response = await got(HEALTH_LIGHT_UPSTREAM_URL, {
+        retry: { limit: 0 },
+        throwHttpErrors: false,
+        timeout: { request: HEALTH_LIGHT_TIMEOUT_MS },
+        headers: {
+          'User-Agent': 'EDRSR-AI Healthcheck',
+        },
+      });
+      const upstreamOk = response.statusCode >= 200 && response.statusCode < 400;
+      checks.upstream = {
+        status: upstreamOk ? 'ok' : 'down',
+        statusCode: response.statusCode,
+        latencyMs: Date.now() - upstreamStartedAt,
+      };
+    } catch (error) {
+      checks.upstream = {
+        status: 'down',
+        error: error?.code || error?.name || 'request_failed',
+      };
+    }
+
+    const isHealthy = checks.db.status === 'ok' && checks.upstream.status === 'ok';
+    return {
+      statusCode: isHealthy ? 200 : 503,
+      payload: {
+        status: isHealthy ? 'ok' : 'degraded',
+        version: APP_VERSION,
+        checks,
+        cachedAt: new Date().toISOString(),
+        ttlMs: HEALTH_LIGHT_TTL,
+      },
+    };
+  }
 
   router.get('/workers/active', requireAdmin, (req, res) => {
     try {
@@ -208,8 +270,25 @@ export default function createOperationsRouter({
     }
   });
 
-  router.get('/health/light', limitHealthLight, (req, res) => {
-    res.status(200).json({ status: 'ok' });
+  router.get('/health/light', limitHealthLight, async (req, res, next) => {
+    try {
+      const now = Date.now();
+      if (healthLightCache.data && now - healthLightCache.ts < HEALTH_LIGHT_TTL) {
+        return res.status(healthLightCache.statusCode).json(healthLightCache.data);
+      }
+
+      if (!healthLightInflight) {
+        healthLightInflight = buildHealthLightPayload().finally(() => {
+          healthLightInflight = null;
+        });
+      }
+
+      const result = await healthLightInflight;
+      healthLightCache = { data: result.payload, ts: now, statusCode: result.statusCode };
+      return res.status(result.statusCode).json(result.payload);
+    } catch (error) {
+      return next(error);
+    }
   });
 
   router.get('/health/full', requireAdmin, async (req, res, next) => {

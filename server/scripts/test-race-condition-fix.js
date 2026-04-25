@@ -13,6 +13,7 @@ import dbService from '../services/dbService.js';
 
 async function testRaceConditionFix() {
   console.log('🧪 Запуск теста для исправления race condition...\n');
+  const createdJobIds = [];
 
   try {
     // Инициализируем таблицы
@@ -30,6 +31,7 @@ async function testRaceConditionFix() {
       totalLinks: 1,
       prompt: 'Test prompt',
     });
+    createdJobIds.push(testJobId);
 
     console.log(`   ✅ Создана тестовая задача: ${testJobId}`);
 
@@ -69,37 +71,52 @@ async function testRaceConditionFix() {
       totalLinks: 1,
       prompt: 'Race test prompt',
     });
+    createdJobIds.push(raceJobId);
     console.log(`   ✅ Создана задача для теста race condition: ${raceJobId}`);
 
     // Имитируем параллельные операции
     const saveResultPromise = dbService.saveJobResult(raceJobId, 'Анализ до удаления');
 
     // Небольшая задержка, затем удаляем задачу
-    setTimeout(async () => {
-      try {
-        await dbService.deleteJob(raceJobId);
-        console.log('   🗑️ Задача удалена во время сохранения результата');
-      } catch (error) {
-        console.log('   ⚠️ Ошибка при удалении задачи:', error.message);
-      }
-    }, 10);
+    const deleteDuringSavePromise = new Promise((resolve) => {
+      setTimeout(async () => {
+        try {
+          await dbService.deleteJob(raceJobId);
+          console.log('   🗑️ Задача удалена во время сохранения результата');
+        } catch (error) {
+          console.log('   ⚠️ Ошибка при удалении задачи:', error.message);
+        } finally {
+          resolve();
+        }
+      }, 10);
+    });
 
-    await saveResultPromise;
+    await Promise.all([saveResultPromise, deleteDuringSavePromise]);
     console.log('   ✅ saveJobResult завершился без критических ошибок');
 
-    // Очистка: удаляем тестовую задачу
-    try {
-      await dbService.deleteJob(testJobId);
-      console.log(`\n🧹 Очистка: удалена тестовая задача ${testJobId}`);
-    } catch (error) {
-      console.log(`⚠️ Ошибка при очистке: ${error.message}`);
+    for (const jobId of createdJobIds) {
+      try {
+        await dbService.deleteJob(jobId);
+        console.log(`\n🧹 Очистка: удалена тестовая задача ${jobId}`);
+      } catch (error) {
+        console.log(`⚠️ Ошибка при очистке ${jobId}: ${error.message}`);
+      }
     }
+    createdJobIds.length = 0;
 
     console.log('\n✅ Все тесты пройдены успешно! Race condition исправлена.');
   } catch (error) {
     console.error('\n❌ Тест провален:', error.message);
     console.error('Stack trace:', error.stack);
     process.exit(1);
+  } finally {
+    for (const jobId of createdJobIds) {
+      try {
+        await dbService.deleteJob(jobId);
+      } catch {
+        // best-effort cleanup
+      }
+    }
   }
 }
 

@@ -20,10 +20,7 @@ const CONFIGURED_MAX_RETRIES = parseInt(process.env.MAX_RETRIES, 10) || 15;
 const INITIAL_RETRY_DELAY_MS = 20000; // 20 seconds
 
 function getEffectiveMaxRetries() {
-  const modelsPerKey =
-    FALLBACK_MODEL_NAME && FALLBACK_MODEL_NAME !== modelName
-      ? 2
-      : 1;
+  const modelsPerKey = FALLBACK_MODEL_NAME && FALLBACK_MODEL_NAME !== modelName ? 2 : 1;
 
   return Math.max(CONFIGURED_MAX_RETRIES, apiKeyManager.totalCount * modelsPerKey);
 }

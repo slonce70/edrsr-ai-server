@@ -84,8 +84,8 @@ export function AnalysesPage() {
   }, [fetchJobs]);
 
   useEffect(() => {
-    jobs.forEach((job) => subscribe(job.id));
-  }, [jobs, subscribe]);
+    jobs.forEach((job) => subscribe(job.id, activeWorkspaceId));
+  }, [activeWorkspaceId, jobs, subscribe]);
 
   useEffect(() => {
     return onJobUpdate((payload) => {

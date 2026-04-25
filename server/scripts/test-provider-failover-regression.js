@@ -61,7 +61,7 @@ function testBlankFallbackDisablesFallback() {
     "process.env.MODEL_NAME='gemini-2.5-flash';",
     "process.env.FALLBACK_MODEL_NAME='';",
     "const config = await import('./config.js');",
-    "console.log(JSON.stringify({ fallback: config.FALLBACK_MODEL_NAME }));",
+    'console.log(JSON.stringify({ fallback: config.FALLBACK_MODEL_NAME }));',
   ].join('');
 
   const output = execFileSync(process.execPath, ['--input-type=module', '-e', probe], {
