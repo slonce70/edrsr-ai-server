@@ -416,35 +416,23 @@ export function isValidEDRSRUrl(url) {
 }
 
 /**
- * Best-effort client IP extraction supporting common proxy headers.
- * Falls back to Express/Node addresses when headers are absent.
+ * Best-effort client IP extraction.
+ * Express owns trusted proxy header parsing through app.set('trust proxy', ...).
  * @param {import('express').Request} req
  * @returns {string|null}
  */
 export function getClientIp(req) {
   try {
-    const headers = req?.headers || {};
-    const xff = headers['x-forwarded-for'];
-    // x-forwarded-for may contain a comma-separated list; take the first public IP
-    let ip = Array.isArray(xff)
-      ? xff[0]
-      : typeof xff === 'string'
-        ? xff.split(',')[0].trim()
-        : null;
+    let ip = req?.ip || req?.connection?.remoteAddress || req?.socket?.remoteAddress || null;
 
-    ip =
-      ip ||
-      headers['x-real-ip'] ||
-      headers['cf-connecting-ip'] ||
-      headers['true-client-ip'] ||
-      headers['x-client-ip'] ||
-      headers['fastly-client-ip'] ||
-      headers['x-cluster-client-ip'] ||
-      req?.ip ||
-      req?.connection?.remoteAddress ||
-      req?.socket?.remoteAddress ||
-      req?.connection?.socket?.remoteAddress ||
-      null;
+    if (isProxyTrustEnabled()) {
+      ip =
+        req?.ip ||
+        req?.connection?.remoteAddress ||
+        req?.socket?.remoteAddress ||
+        req?.connection?.socket?.remoteAddress ||
+        null;
+    }
 
     if (typeof ip === 'string' && ip.startsWith('::ffff:')) {
       ip = ip.substring(7);
@@ -453,4 +441,17 @@ export function getClientIp(req) {
   } catch {
     return null;
   }
+}
+
+export function getTrustProxySetting() {
+  const hopValue = Number.parseInt(process.env.TRUST_PROXY_HOPS || '', 10);
+  if (Number.isFinite(hopValue) && hopValue > 0) return hopValue;
+  if (process.env.TRUST_PROXY_CIDRS && process.env.TRUST_PROXY_CIDRS.trim()) {
+    return process.env.TRUST_PROXY_CIDRS.trim();
+  }
+  return false;
+}
+
+function isProxyTrustEnabled() {
+  return getTrustProxySetting() !== false;
 }

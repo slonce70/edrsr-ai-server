@@ -15,6 +15,8 @@ const [
   { default: chatService },
   { default: jobQueryService },
   { default: jobWriteService },
+  jobTitleService,
+  workerLifecycleService,
   { default: queueService },
   { default: cacheService },
 ] = await Promise.all([
@@ -24,6 +26,8 @@ const [
   import('../services/chatService.js'),
   import('../services/jobQueryService.js'),
   import('../services/jobWriteService.js'),
+  import('../services/jobTitleService.js'),
+  import('../services/workerLifecycleService.js'),
   import('../services/queueService.js'),
   import('../services/cacheService.js'),
 ]);
@@ -120,6 +124,8 @@ const serviceContracts = [
       'deleteJobForWorkspace',
     ],
   ],
+  ['jobTitleService', jobTitleService, ['generateInitialTitle', 'refreshHeuristicTitle']],
+  ['workerLifecycleService', workerLifecycleService, ['createWorkerLifecycleService']],
   [
     'queueService',
     queueService,

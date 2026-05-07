@@ -8,6 +8,10 @@ const LAST_ACTIVITY_KEY = 'admin_last_activity';
 const ADMIN_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 let idleTimerId = null;
 let eventsInitialized = false;
+let activeModal = null;
+let lastFocusedBeforeModal = null;
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 const adminI18n = window.AdminI18n || {
   t: (key) => key,
   applyTranslations: () => {},
@@ -215,6 +219,11 @@ function setupEventListeners() {
   document.getElementById('job-details-close')?.addEventListener('click', closeJobDetailsModal);
   document.getElementById('job-details-modal')?.addEventListener('click', (e) => {
     if (e.target?.id === 'job-details-modal') closeJobDetailsModal();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && activeModal?.id === 'job-details-modal') {
+      closeJobDetailsModal();
+    }
   });
 
   setupTableActionHandlers();
@@ -553,7 +562,7 @@ async function loadJobs(page = 1, status = '', search = '', email = '') {
             <td>
                 <div class="job-title-cell">
                     <span id="title-${escapeHtml(job.id)}">${escapeHtml(job.title) || t('common.untitled')}</span>
-                    <button class="btn btn-link btn-sm" data-action="edit-job-title" data-job-id="${escapeHtml(job.id)}" data-job-title="${encodeURIComponent(job.title || '')}" aria-label="Редактировать название">
+                    <button class="btn btn-link btn-sm" data-action="edit-job-title" data-job-id="${escapeHtml(job.id)}" data-job-title="${encodeURIComponent(job.title || '')}" aria-label="${t('common.editTitle')}">
                         <i class="fas fa-edit"></i>
                     </button>
                 </div>
@@ -996,11 +1005,63 @@ async function showJobDetails(jobId) {
 }
 
 function openJobDetailsModal() {
-  document.getElementById('job-details-modal')?.classList.add('active');
+  openModal(document.getElementById('job-details-modal'), '#job-details-close');
 }
 
 function closeJobDetailsModal() {
-  document.getElementById('job-details-modal')?.classList.remove('active');
+  closeModal(document.getElementById('job-details-modal'));
+}
+
+function getFocusableElements(modal) {
+  return Array.from(modal?.querySelectorAll(FOCUSABLE_SELECTOR) || []).filter(
+    (element) => element.offsetParent !== null || element === document.activeElement
+  );
+}
+
+function trapFocusInModal(e) {
+  if (!activeModal || e.key !== 'Tab') return;
+  const focusable = getFocusableElements(activeModal);
+  if (focusable.length === 0) {
+    e.preventDefault();
+    activeModal.querySelector('.modal-content')?.focus();
+    return;
+  }
+
+  e.preventDefault();
+  const activeIndex = focusable.indexOf(document.activeElement);
+  const fallbackIndex = e.shiftKey ? focusable.length - 1 : 0;
+  const nextIndex =
+    activeIndex === -1
+      ? fallbackIndex
+      : (activeIndex + (e.shiftKey ? -1 : 1) + focusable.length) % focusable.length;
+  focusable[nextIndex].focus();
+}
+
+function openModal(modal, initialFocusSelector = null) {
+  if (!modal) return;
+  lastFocusedBeforeModal = document.activeElement;
+  activeModal = modal;
+  modal.classList.add('active');
+  modal.addEventListener('keydown', trapFocusInModal);
+
+  window.setTimeout(() => {
+    const initialFocus =
+      (initialFocusSelector && modal.querySelector(initialFocusSelector)) ||
+      getFocusableElements(modal)[0] ||
+      modal.querySelector('.modal-content');
+    initialFocus?.focus();
+  }, 0);
+}
+
+function closeModal(modal) {
+  if (!modal) return;
+  modal.classList.remove('active');
+  modal.removeEventListener('keydown', trapFocusInModal);
+  if (activeModal === modal) activeModal = null;
+  if (lastFocusedBeforeModal && document.contains(lastFocusedBeforeModal)) {
+    lastFocusedBeforeModal.focus();
+  }
+  lastFocusedBeforeModal = null;
 }
 
 function setupTableActionHandlers() {
@@ -1400,19 +1461,19 @@ function updatePagination(type, pagination) {
   let html = '';
 
   // Previous button
-  html += `<button ${page <= 1 ? 'disabled' : ''} data-page="${page - 1}" aria-label="Предыдущая страница">
+  html += `<button ${page <= 1 ? 'disabled' : ''} data-page="${page - 1}" aria-label="${t('common.previousPage')}">
                 <i class="fas fa-chevron-left"></i>
              </button>`;
 
   // Page numbers
   for (let i = Math.max(1, page - 2); i <= Math.min(totalPages, page + 2); i++) {
-    html += `<button class="${i === page ? 'active' : ''}" data-page="${i}" aria-label="Страница ${i}" ${i === page ? 'aria-current="page"' : ''}>
+    html += `<button class="${i === page ? 'active' : ''}" data-page="${i}" aria-label="${t('common.pageLabel', { page: i })}" ${i === page ? 'aria-current="page"' : ''}>
                     ${i}
                  </button>`;
   }
 
   // Next button
-  html += `<button ${page >= totalPages ? 'disabled' : ''} data-page="${page + 1}" aria-label="Следующая страница">
+  html += `<button ${page >= totalPages ? 'disabled' : ''} data-page="${page + 1}" aria-label="${t('common.nextPage')}">
                 <i class="fas fa-chevron-right"></i>
              </button>`;
 
@@ -1446,11 +1507,11 @@ async function changePage(type, page) {
 
 // UI utility functions
 function showLoginModal() {
-  document.getElementById('login-modal').classList.add('active');
+  openModal(document.getElementById('login-modal'), '#email');
 }
 
 function hideLoginModal() {
-  document.getElementById('login-modal').classList.remove('active');
+  closeModal(document.getElementById('login-modal'));
 }
 
 function showLoading() {

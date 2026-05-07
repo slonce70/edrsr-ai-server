@@ -15,7 +15,14 @@ function read(relativePath) {
 const portalSource = read('routes/portal.js');
 const adminSource = read('routes/admin.js');
 const indexSource = read('routes/index.js');
+const authMiddlewareSource = read('middleware/auth.js');
+const workerLifecycleSource = read('services/workerLifecycleService.js');
 const dbSource = read('database/connection.js');
+const envExampleSource = read('env.example');
+const envDocsSource = fs.readFileSync(
+  path.resolve(serverRoot, '../docs/ENVIRONMENT_VARIABLES.md'),
+  'utf8'
+);
 
 const expectations = [
   {
@@ -59,8 +66,32 @@ const expectations = [
   {
     label: 'force terminate marks job as force terminated',
     ok:
-      indexSource.includes('markJobAsForceTerminated') &&
-      indexSource.includes("updateJobStatus(jobId, 'error'"),
+      indexSource.includes('createWorkerLifecycleService') &&
+      workerLifecycleSource.includes('markJobAsForceTerminated') &&
+      workerLifecycleSource.includes("updateJobStatus(jobId, 'error'"),
+  },
+  {
+    label: 'worker cleanup has no hardcoded top-level 30 minute killer',
+    ok:
+      !indexSource.includes('MAX_WORKER_AGE_MS') &&
+      !indexSource.includes('Exceeded active worker tracking TTL'),
+  },
+  {
+    label: 'worker healthcheck failure respects auto-terminate config',
+    ok:
+      indexSource.includes('ENABLE_WORKER_AUTO_TERMINATE') &&
+      indexSource.includes('Auto‑terminate disabled') &&
+      !/catch \(error\) \{[\s\S]{0,220}forceTerminateWorker\(jobId, 'Воркер не отвечает на health check'\)/m.test(
+        indexSource
+      ),
+  },
+  {
+    label: 'postgres SSL examples verify certificates by default',
+    ok:
+      envExampleSource.includes('PG_SSL_REJECT_UNAUTHORIZED=true') &&
+      envDocsSource.includes('PG_SSL_REJECT_UNAUTHORIZED=true') &&
+      envExampleSource.includes('false only for explicit') &&
+      envDocsSource.includes('false only for explicit'),
   },
   {
     label: 'delete user uses DB transaction helper',
@@ -97,6 +128,17 @@ const expectations = [
   {
     label: 'workspace role check constraint exists',
     ok: dbSource.includes('workspace_members_role_valid'),
+  },
+  {
+    label: 'extension processed-url bypass stays origin-scoped',
+    ok:
+      authMiddlewareSource.includes('shouldBypassProcessedUrlAuth') &&
+      authMiddlewareSource.includes(
+        "process.env.DISABLE_EXTENSION_PROCESSED_URL_FILTER !== 'true'"
+      ) &&
+      authMiddlewareSource.includes("origin.startsWith('chrome-extension://')") &&
+      authMiddlewareSource.includes("req.path === '/processed-urls'") &&
+      authMiddlewareSource.includes("req.path === '/urls/processed-check'"),
   },
 ];
 

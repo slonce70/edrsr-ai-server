@@ -25,6 +25,19 @@ const checks = [
     mustExclude: ["from '../services/dbService.js'"],
   },
   {
+    file: 'routes/job-collection.js',
+    mustInclude: [
+      "from '../services/collaborationService.js'",
+      "from '../services/dbService.js'",
+      "from '../services/jobTitleService.js'",
+      "from '../services/jobWriteService.js'",
+    ],
+  },
+  {
+    file: 'routes/job-mutations.js',
+    mustInclude: ["from '../services/jobQueryService.js'", "from '../services/jobWriteService.js'"],
+  },
+  {
     file: 'routes/portal.js',
     mustInclude: [
       "from '../services/collaborationService.js'",
@@ -59,8 +72,14 @@ const checks = [
       "from '../services/collaborationService.js'",
       "from '../services/jobQueryService.js'",
       "from '../services/jobWriteService.js'",
+      "from '../services/jobTitleService.js'",
+      "from '../services/workerLifecycleService.js'",
       "from '../services/queueService.js'",
     ],
+  },
+  {
+    file: 'services/workerLifecycleService.js',
+    mustInclude: ["from './jobWriteService.js'", "from './queueService.js'"],
   },
 ];
 

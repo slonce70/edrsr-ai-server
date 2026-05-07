@@ -1,6 +1,6 @@
 {
   "name": "edrsr-ai-monorepo",
-  "version": "2.0.3",
+  "version": "2.0.5",
   "type": "module",
   "private": true,
   "description": "Project root for EDRSR AI Server and Extension",
@@ -20,6 +20,7 @@
     "lint:server": "npm --prefix server run lint",
     "format:server": "npm --prefix server run format",
     "quality:check": "npm run lint && npm run format:check",
+    "quality:local": "node scripts/run-local-quality.js",
     "quality:fix": "npm run lint:fix && npm run format",
     "apply:rls": "node scripts/apply-rls.js",
     "admin:create": "node server/scripts/create-admin.js",

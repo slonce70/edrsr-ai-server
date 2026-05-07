@@ -16,7 +16,7 @@ DATABASE_URL=postgresql://postgres.username:password@host:port/database_name
 
 ### **Gemini API**
 ```env
-# Один ключ (backward compatible)
+# Один ключ
 GEMINI_API_KEY=your_gemini_key
 
 # Или несколько ключей (через запятую/пробел/переносы)
@@ -59,10 +59,10 @@ CLI_PROXY_MAX_ATTEMPTS_PER_KEY=1
 ## **📦 Batch Processing & Parallelism**
 
 ```env
-# Размер batch (legacy fallback для скрейпера и AI)
+# Fallback batch size when DOWNLOAD_BATCH_SIZE/AI_BATCH_SIZE are not set
 BATCH_SIZE=10
 
-# AI batch size для production VPS
+DOWNLOAD_BATCH_SIZE=10
 AI_BATCH_SIZE=5
 
 # Минимальный размер для batch‑обработки (ниже = последовательная обработка)
@@ -90,12 +90,9 @@ MAX_SCRIPT_TAGS=200
 MAX_HTML_LINE_LENGTH=200000
 MAX_JS_KEYWORDS=3000
 
-# Blacklist для кейсів (IDs через кому)
-BLACKLISTED_CASE_IDS=
-
 # Экспериментальная обработка HTML
 USE_MARKDOWN_EXTRACTION=false
-ENABLE_TEXT_DEDUP=false
+ENABLE_TEXT_DEDUP=true
 ENABLE_TEXT_STRUCTURING=false
 ENABLE_TECHNICAL_STRIP=false
 
@@ -163,9 +160,15 @@ PROMPT_AUDIT_CLEANUP_INTERVAL_MS=21600000
 ## **🌐 CORS / WebSocket Origins**
 
 ```env
-CORS_ALLOWED_ORIGINS=https://edrsr-ai-server.fun,https://www.edrsr-ai-server.fun,https://app.edrsr-ai-server.fun
-WS_ALLOWED_ORIGINS=https://edrsr-ai-server.fun,https://www.edrsr-ai-server.fun,https://app.edrsr-ai-server.fun
+CORS_ALLOWED_ORIGINS=https://edrsr-ai-server.fun,https://www.edrsr-ai-server.fun,https://app.edrsr-ai-server.fun,chrome-extension://__CHROME_STORE_EXTENSION_ID__
+WS_ALLOWED_ORIGINS=https://edrsr-ai-server.fun,https://www.edrsr-ai-server.fun,https://app.edrsr-ai-server.fun,chrome-extension://__CHROME_STORE_EXTENSION_ID__
+CHROME_EXTENSION_IDS=__CHROME_STORE_EXTENSION_ID__
 ```
+
+For the Chrome Web Store build, replace `__CHROME_STORE_EXTENSION_ID__` with the
+real extension ID shown in `chrome://extensions` or the Web Store URL. Without
+that origin, production CORS and WebSocket handshakes from the extension are
+rejected even when the API itself is healthy.
 
 ## **🔗 Public URLs (share links)**
 
@@ -194,20 +197,14 @@ MAX_CHAT_MESSAGE_LENGTH=4000
 MAX_PROMPTS_IMPORT=200
 ```
 
-## **🔒 Security / Rate Limits**
-
-```env
-ADMIN_LOGIN_RATE_LIMIT=5
-ADMIN_LOGIN_BLOCK_TIME=900000
-ADMIN_API_RATE_LIMIT=100
-```
-
 ## **🧩 Postgres Tuning (optional)**
 
 ```env
 PGSSL=false
 PGSSLMODE=require
-PG_SSL_REJECT_UNAUTHORIZED=false
+# Keep certificate verification enabled by default in production.
+# Set false only for explicit local/provider exceptions after verifying TLS requirements.
+PG_SSL_REJECT_UNAUTHORIZED=true
 PG_POOL_MAX=10
 PG_IDLE_TIMEOUT_MS=30000
 PG_CONN_TIMEOUT_MS=10000
