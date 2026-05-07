@@ -1,6 +1,6 @@
 EDRSR‑AI Browser Extension — Privacy Policy
 
-Effective date: 2026‑04‑25
+Effective date: 2026-05-07
 
 1. Summary
 - Purpose: Help users collect and analyze public court decisions from reyestr.court.gov.ua.
@@ -29,7 +29,7 @@ Effective date: 2026‑04‑25
 
 6. Sharing and Disclosure
 - No sale of personal data. No advertising partners.
-- Third parties: Supabase (authentication) and our hosting provider for the API/database. Data is used strictly to deliver the service.
+- Third parties: Supabase (authentication), the configured Gemini provider for analysis, and our hosting/database infrastructure. Data is used strictly to deliver the service.
 - Legal: We may disclose if required by applicable law.
 
 7. Security
@@ -38,7 +38,7 @@ Effective date: 2026‑04‑25
 
 8. Your Choices
 - Export/download your reports via the UI.
-- Delete specific jobs in History (server will delete corresponding records).
+- Delete specific jobs in History or the web portal (server will delete corresponding records).
 - Sign out at any time to remove the session from your browser.
 
 9. Children’s Privacy

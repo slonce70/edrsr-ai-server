@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { APP_NAME } from '../lib/config';
 import { useAuth } from '../state/AuthContext';
@@ -10,6 +11,7 @@ export function AppLayout() {
   const { status } = useWebSocket();
   const { t, locale, setLocale, labels } = useLocale();
   const { workspaces, activeWorkspaceId, setActiveWorkspaceId } = useWorkspace();
+  const [isSidebarOpen, setSidebarOpen] = useState(false);
 
   const navItems = [
     { to: '/analyses', label: t('nav.analyses') },
@@ -29,13 +31,29 @@ export function AppLayout() {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <div className="brand__mark">EA</div>
-          <div>
-            <div className="brand__name">{APP_NAME}</div>
-            <div className="brand__tag">{t('app.sidebarTagline')}</div>
+      <button
+        type="button"
+        className={`drawer-backdrop${isSidebarOpen ? ' drawer-backdrop--open' : ''}`}
+        aria-label={t('nav.closeMenu')}
+        onClick={() => setSidebarOpen(false)}
+      />
+      <aside className={`sidebar${isSidebarOpen ? ' sidebar--open' : ''}`}>
+        <div className="sidebar__header">
+          <div className="brand">
+            <div className="brand__mark">EA</div>
+            <div>
+              <div className="brand__name">{APP_NAME}</div>
+              <div className="brand__tag">{t('app.sidebarTagline')}</div>
+            </div>
           </div>
+          <button
+            type="button"
+            className="icon-button sidebar__close"
+            aria-label={t('nav.closeMenu')}
+            onClick={() => setSidebarOpen(false)}
+          >
+            ×
+          </button>
         </div>
         <div className="workspace-switch">
           <label className="workspace-switch__label">{t('settings.workspaceLabel')}</label>
@@ -61,6 +79,7 @@ export function AppLayout() {
               key={item.to}
               to={item.to}
               className={({ isActive }) => `nav__link${isActive ? ' nav__link--active' : ''}`}
+              onClick={() => setSidebarOpen(false)}
             >
               {item.label}
             </NavLink>
@@ -81,7 +100,17 @@ export function AppLayout() {
       </aside>
       <div className="app-main">
         <header className="topbar">
-          <div className="topbar__title">{APP_NAME}</div>
+          <div className="topbar__left">
+            <button
+              type="button"
+              className="icon-button topbar__menu"
+              aria-label={t('nav.openMenu')}
+              onClick={() => setSidebarOpen(true)}
+            >
+              ☰
+            </button>
+            <div className="topbar__title">{APP_NAME}</div>
+          </div>
           <div className="topbar__actions">
             <span className={`pill pill-${status}`}>{statusLabel}</span>
             <select

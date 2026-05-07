@@ -13,7 +13,7 @@ import portalRoutes from './routes/portal.js';
 import { initWebSocket } from './websocket.js';
 import errorHandler from './middleware/errorHandler.js';
 import { securityHeaders } from './middleware/security.js';
-import { logger } from './utils.js';
+import { getTrustProxySetting, logger } from './utils.js';
 import { startCacheCleanupService } from './services/maintenance.js';
 import { APP_VERSION } from './version.js';
 
@@ -102,7 +102,9 @@ const corsOptions = {
       return callback(null, true);
     }
 
-    callback(new Error('Not allowed by CORS'));
+    const error = new Error('Not allowed by CORS');
+    error.status = 403;
+    callback(error);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
@@ -119,8 +121,8 @@ export function createServer() {
   const server = http.createServer(app);
 
   // Middleware
-  // If behind a reverse proxy (e.g., Nginx/Render/Heroku), trust proxy to get real client IPs
-  app.set('trust proxy', true);
+  // Trust reverse proxy headers only when the deployment explicitly configures the boundary.
+  app.set('trust proxy', getTrustProxySetting());
   // Hide Express signature
   app.disable('x-powered-by');
   app.use(securityHeaders); // Add security headers first

@@ -9,51 +9,113 @@ process.env.FALLBACK_MODEL_NAME = 'gemini-2.5-flash';
 process.env.ENABLE_CLI_PROXY = 'false';
 delete process.env.MAX_RETRIES;
 
-const batchProcessor = await import('../batchProcessor.js');
-const config = await import('../config.js');
+const {
+  clearBatchProcessorTestOverrides,
+  createContentGenerator,
+  getBatchSummary,
+  setBatchProcessorTestOverrides,
+} = await import('../batchProcessor.js');
 
-function resetKeyManagerState() {
-  config.apiKeyManager.currentIndex = 0;
-  config.apiKeyManager.cooldowns.clear();
-  config.apiKeyManager.softBans.clear();
-  config.apiKeyManager.consecutive429.clear();
-  config.apiKeyManager.invalidKeys.clear();
-  config.apiKeyManager.reservedKeys.clear();
-  config.apiKeyManager.activeRequests.clear();
-  for (const stat of config.apiKeyManager.usageStats) {
-    stat.requests = 0;
-    stat.errors = 0;
-    stat.rateLimits = 0;
-    stat.invalid = false;
-  }
-}
-
-async function testGenerateContentTriesAllKeys() {
-  resetKeyManagerState();
-
-  const usedKeys = new Set();
-  const originalClients = [...config.apiKeyManager.clients];
-
-  config.apiKeyManager.clients = config.apiKeyManager.clients.map((client, index) => ({
-    ...client,
+function createFakeApiKeyManager(handlers) {
+  const invalidKeys = new Set();
+  const clients = handlers.map((handler, index) => ({
     models: {
-      ...client.models,
-      async generateContent() {
-        usedKeys.add(index);
-        const error = new Error('503 overloaded');
-        error.status = 503;
-        throw error;
+      async generateContent(request) {
+        return handler({ ...request, keyIndex: index });
       },
     },
   }));
 
+  return {
+    clients,
+    invalidKeys,
+    totalCount: clients.length,
+    currentIndex: 0,
+    getNextClient() {
+      for (let attempts = 0; attempts < clients.length; attempts++) {
+        const keyIndex = this.currentIndex;
+        this.currentIndex = (this.currentIndex + 1) % clients.length;
+        if (!invalidKeys.has(keyIndex)) {
+          return { client: clients[keyIndex], keyIndex };
+        }
+      }
+      throw new Error('all fake keys invalid');
+    },
+    getClientByIndex(index) {
+      return { client: clients[index], keyIndex: index };
+    },
+    markError() {},
+    markRateLimited() {},
+    markInvalid(index) {
+      invalidKeys.add(index);
+    },
+    isInvalid(index) {
+      return invalidKeys.has(index);
+    },
+  };
+}
+
+function createTestGenerator(handlers) {
+  const apiKeyManager = createFakeApiKeyManager(handlers);
+  const generator = createContentGenerator({
+    apiKeyManager,
+    cliProxyClient: null,
+    enableCliProxy: false,
+    cliProxyModel: 'fake-cli-model',
+    modelName: 'gemini-2.5-flash',
+    fallbackModelName: 'gemini-2.5-flash',
+    generationConfig: {},
+    safetySettings: [],
+    logger: {
+      debug() {},
+      info() {},
+      warn() {},
+      error() {},
+    },
+    sleep: async () => {},
+    configuredMaxRetries: 1,
+  });
+
+  return { apiKeyManager, generator };
+}
+
+function createUnexpectedRealClientSentinel() {
+  return async function unexpectedRealClientCall() {
+    throw new Error('Unexpected real Gemini client path reached');
+  };
+}
+
+function overloadedHandler(usedKeys) {
+  return async ({ keyIndex }) => {
+    usedKeys.add(keyIndex);
+    const error = new Error('503 overloaded');
+    error.status = 503;
+    throw error;
+  };
+}
+
+function assertOnlyFakeClientsWereUsed(usedKeys, expectedCount) {
+  assert.equal(
+    usedKeys.size,
+    expectedCount,
+    'generator should use every fake key before exhausting retries'
+  );
+  for (let index = 0; index < expectedCount; index++) {
+    assert.equal(usedKeys.has(index), true, `fake key #${index + 1} should be used`);
+  }
+}
+
+async function testGenerateContentTriesAllKeys() {
+  const usedKeys = new Set();
+  const { apiKeyManager, generator } = createTestGenerator(
+    Array.from({ length: 17 }, () => overloadedHandler(usedKeys))
+  );
+
   let thrown = null;
   try {
-    await batchProcessor.generateContent('regression prompt');
+    await generator('regression prompt');
   } catch (error) {
     thrown = error;
-  } finally {
-    config.apiKeyManager.clients = originalClients;
   }
 
   assert(thrown, 'generateContent should fail when every key is exhausted');
@@ -62,32 +124,17 @@ async function testGenerateContentTriesAllKeys() {
     /Вичерпано всі спроби запиту до Gemini/,
     'expected exhausted retries error'
   );
-  assert.equal(
-    usedKeys.size,
-    config.apiKeyManager.totalCount,
-    'generateContent should try every available Gemini key before giving up'
-  );
+  assertOnlyFakeClientsWereUsed(usedKeys, apiKeyManager.totalCount);
 }
 
 async function testCustomPromptFallsBackOnRetryableGeminiError() {
-  resetKeyManagerState();
-
-  const originalClients = [...config.apiKeyManager.clients];
-  config.apiKeyManager.clients = config.apiKeyManager.clients.map((client) => ({
-    ...client,
-    models: {
-      ...client.models,
-      async generateContent() {
-        const error = new Error('503 overloaded');
-        error.status = 503;
-        throw error;
-      },
-    },
-  }));
+  const usedKeys = new Set();
+  const { generator } = createTestGenerator([overloadedHandler(usedKeys)]);
 
   let result;
   try {
-    result = await batchProcessor.getBatchSummary(
+    setBatchProcessorTestOverrides({ generateContent: generator });
+    result = await getBatchSummary(
       [
         {
           caseNumber: '123/456/78',
@@ -102,9 +149,10 @@ async function testCustomPromptFallsBackOnRetryableGeminiError() {
       'ищу дела где лицо обвиняется в'
     );
   } finally {
-    config.apiKeyManager.clients = originalClients;
+    clearBatchProcessorTestOverrides();
   }
 
+  assert.equal(usedKeys.size, 1, 'custom prompt test should use the fake Gemini handler');
   assert.match(
     result,
     /Частина справ не була проаналізована через тимчасову помилку AI/,
@@ -113,38 +161,27 @@ async function testCustomPromptFallsBackOnRetryableGeminiError() {
 }
 
 async function testPermissionDeniedKeyIsRemovedFromRotation() {
-  resetKeyManagerState();
-
-  const originalClients = [...config.apiKeyManager.clients];
   const usedKeys = [];
-
-  config.apiKeyManager.clients = config.apiKeyManager.clients.map((client, index) => ({
-    ...client,
-    models: {
-      ...client.models,
-      async generateContent() {
-        usedKeys.push(index);
-        if (index === 0) {
-          const error = new Error(
-            '{"error":{"code":403,"message":"Your project has been denied access. Please contact support.","status":"PERMISSION_DENIED"}}'
-          );
-          error.status = 403;
-          throw error;
-        }
-        return { text: 'success from healthy key' };
-      },
+  const { apiKeyManager, generator } = createTestGenerator([
+    async ({ keyIndex }) => {
+      usedKeys.push(keyIndex);
+      const error = new Error(
+        '{"error":{"code":403,"message":"Your project has been denied access. Please contact support.","status":"PERMISSION_DENIED"}}'
+      );
+      error.status = 403;
+      throw error;
     },
-  }));
+    async ({ keyIndex }) => {
+      usedKeys.push(keyIndex);
+      return { text: 'success from healthy key' };
+    },
+    createUnexpectedRealClientSentinel(),
+  ]);
 
-  let result;
-  try {
-    result = await batchProcessor.generateContent('permission denied regression prompt');
-  } finally {
-    config.apiKeyManager.clients = originalClients;
-  }
+  const result = await generator('permission denied regression prompt');
 
   assert.equal(result, 'success from healthy key');
-  assert.equal(config.apiKeyManager.isInvalid(0), true, '403 denied key should be marked invalid');
+  assert.equal(apiKeyManager.isInvalid(0), true, '403 denied key should be marked invalid');
   assert.deepEqual(
     usedKeys.slice(0, 2),
     [0, 1],

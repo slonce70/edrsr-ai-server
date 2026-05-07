@@ -406,6 +406,7 @@ select {
   justify-content: space-between;
   align-items: center;
   gap: 12px;
+  min-width: 0;
   padding: 10px 12px;
   border-radius: 12px;
   background: var(--panel-muted);
@@ -665,6 +666,7 @@ select {
   color: var(--accent-strong);
   font-weight: 600;
   font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .actions {
@@ -850,6 +852,7 @@ select {
   font-size: 13px;
   color: var(--muted);
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .share-view {

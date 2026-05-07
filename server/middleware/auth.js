@@ -120,11 +120,18 @@ export function requireAuth(req, res, next) {
   return next();
 }
 
+function shouldBypassProcessedUrlAuth(req) {
+  if (process.env.DISABLE_EXTENSION_PROCESSED_URL_FILTER !== 'true') return false;
+  const origin = String(req.headers.origin || '');
+  if (!origin.startsWith('chrome-extension://')) return false;
+  return req.path === '/processed-urls' || req.path === '/urls/processed-check';
+}
+
 export function requireAuthExcept(publicPaths = []) {
   return function (req, res, next) {
     // Match by path prefix within /api router
     const isPublic = publicPaths.some((p) => req.path === p || req.path.startsWith(p));
-    if (isPublic) return next();
+    if (isPublic || shouldBypassProcessedUrlAuth(req)) return next();
     if (!req.user) return res.status(401).json({ error: 'Необходима авторизация' });
     return next();
   };

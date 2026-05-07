@@ -19,12 +19,25 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
   if (area === 'local' && changes.sb_session) {
     void clearPromptsCache();
+    if (changes.sb_session.newValue) {
+      void connectWebSocket();
+    } else {
+      shouldReconnectWebSocket = false;
+      clearReconnectTimer();
+      if (socket && socket.readyState !== WebSocket.CLOSED) {
+        socket.close(1000, 'signed_out');
+      }
+      markWebSocketAuthRequired();
+    }
   }
 });
 
 let socket = null;
 let popupPort = null;
 let heartbeatInterval = null;
+let reconnectTimer = null;
+let shouldReconnectWebSocket = true;
+let wsAuthRefreshInFlight = false;
 const jobToTabMap = new Map();
 const resultsPorts = new Map();
 let nextResultsPortId = 1;
@@ -265,39 +278,108 @@ function stopHeartbeat() {
   heartbeatInterval = null;
 }
 
-function connectWebSocket() {
+function clearReconnectTimer() {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+}
+
+function setWebSocketStatus(status) {
+  const badge = {
+    connected: { color: '#4CAF50', text: '✓' },
+    reconnecting: { color: '#FFC107', text: '...' },
+    disconnected: { color: '#F44336', text: 'OFF' },
+    auth_required: { color: '#F44336', text: 'AUTH' },
+    error: { color: '#F44336', text: 'ERR' },
+  }[status];
+
+  if (badge) {
+    chrome.action.setBadgeBackgroundColor({ color: badge.color });
+    chrome.action.setBadgeText({ text: badge.text });
+  }
+  if (popupPort) {
+    popupPort.postMessage({ type: 'WEBSOCKET_STATUS', payload: { status } });
+  }
+}
+
+function markWebSocketAuthRequired() {
+  reconnectAttempts = 0;
+  stopHeartbeat();
+  clearReconnectTimer();
+  setWebSocketStatus('auth_required');
+  if (popupPort) popupPort.postMessage({ type: 'AUTH_REQUIRED' });
+}
+
+async function getCurrentWebSocketStatus() {
+  if (socket?.readyState === WebSocket.OPEN) return 'connected';
+  if (socket?.readyState === WebSocket.CONNECTING) return 'reconnecting';
+  return (await isAuthenticated()) ? 'disconnected' : 'auth_required';
+}
+
+function scheduleWebSocketReconnect() {
+  reconnectAttempts++;
+  const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 60000);
+  console.log(`[WS] Next reconnect attempt in ${delay / 1000} seconds.`);
+  setWebSocketStatus('reconnecting');
+  clearReconnectTimer();
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    void connectWebSocket();
+  }, delay);
+}
+
+async function handleWebSocketAuthClose() {
+  if (wsAuthRefreshInFlight) return;
+  wsAuthRefreshInFlight = true;
+  try {
+    const refreshed = await forceRefresh();
+    if (refreshed?.access_token) {
+      shouldReconnectWebSocket = true;
+      void connectWebSocket();
+      return;
+    }
+    await clearSession();
+  } finally {
+    wsAuthRefreshInFlight = false;
+  }
+  shouldReconnectWebSocket = false;
+  markWebSocketAuthRequired();
+}
+
+async function connectWebSocket() {
+  const token = await getAccessToken();
+  if (!token) {
+    shouldReconnectWebSocket = false;
+    markWebSocketAuthRequired();
+    return;
+  }
+  shouldReconnectWebSocket = true;
+  clearReconnectTimer();
+
   if (
     socket &&
     (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)
   ) {
     console.log('[WS] WebSocket is already open or connecting.');
-    if (popupPort)
-      popupPort.postMessage({ type: 'WEBSOCKET_STATUS', payload: { status: 'connected' } });
+    setWebSocketStatus(socket.readyState === WebSocket.OPEN ? 'connected' : 'reconnecting');
     reconnectAttempts = 0; // Reset counter on successful connection or attempt
     return;
   }
 
   console.log(`[WS] Connecting to server... (Attempt: ${reconnectAttempts + 1})`);
-  socket = new WebSocket(WS_URL);
+  const ws = new WebSocket(WS_URL);
+  socket = ws;
 
-  socket.onopen = () => {
+  ws.onopen = () => {
     console.log('[WS] Connection established.');
     reconnectAttempts = 0; // Reset counter on successful connection
-    chrome.action.setBadgeBackgroundColor({ color: '#4CAF50' });
-    chrome.action.setBadgeText({ text: '✓' });
-    if (popupPort)
-      popupPort.postMessage({ type: 'WEBSOCKET_STATUS', payload: { status: 'connected' } });
+    setWebSocketStatus('connected');
     startHeartbeat();
-    // Authenticate WS with current token if available
-    (async () => {
-      const token = await getAccessToken();
-      if (token) {
-        socket.send(JSON.stringify({ type: 'auth', token }));
-      }
-    })();
+    ws.send(JSON.stringify({ type: 'auth', token }));
   };
 
-  socket.onmessage = async (event) => {
+  ws.onmessage = async (event) => {
     try {
       const message = JSON.parse(event.data);
       console.log('[WS] Received message:', message);
@@ -361,36 +443,33 @@ function connectWebSocket() {
     }
   };
 
-  socket.onclose = (event) => {
+  ws.onclose = async (event) => {
     console.log(`[WS] Connection closed. Code: ${event.code}, Reason: ${event.reason}`);
-    chrome.action.setBadgeBackgroundColor({ color: '#F44336' }); // Red for disconnected
-    chrome.action.setBadgeText({ text: 'OFF' }); // Use 'OFF' to indicate disconnected state
-    if (popupPort)
-      popupPort.postMessage({ type: 'WEBSOCKET_STATUS', payload: { status: 'disconnected' } });
-    socket = null;
+    if (socket === ws) socket = null;
     stopHeartbeat();
+
+    if (event.code === 4001 || event.reason === 'auth_required') {
+      await handleWebSocketAuthClose();
+      return;
+    }
+
+    setWebSocketStatus('disconnected');
 
     // Only attempt to reconnect if the closure was abnormal (e.g., server went down)
     // A normal closure (code 1000) means we don't need to reconnect.
-    if (event.code !== 1000) {
-      reconnectAttempts++;
-      const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 60000); // Max 1 minute
-      console.log(`[WS] Next reconnect attempt in ${delay / 1000} seconds.`);
-      if (popupPort)
-        popupPort.postMessage({ type: 'WEBSOCKET_STATUS', payload: { status: 'reconnecting' } });
-      setTimeout(connectWebSocket, delay);
+    if (event.code !== 1000 && shouldReconnectWebSocket) {
+      scheduleWebSocketReconnect();
     } else {
       console.log('[WS] WebSocket closed normally. No reconnection needed.');
     }
   };
 
-  socket.onerror = (errorEvent) => {
+  ws.onerror = (errorEvent) => {
     console.error(
       `[WS] WebSocket error occurred. Type: ${errorEvent.type}. More details in the following event.`
     );
     // Set a visual indicator that an error has happened before the connection closes.
-    chrome.action.setBadgeBackgroundColor({ color: '#F44336' }); // Red for error
-    chrome.action.setBadgeText({ text: 'ERR' });
+    setWebSocketStatus('error');
     // The 'onclose' event will be fired immediately after this,
     // which will handle the full "disconnected" state and reconnection logic.
   };
@@ -472,9 +551,11 @@ chrome.runtime.onConnect.addListener((port) => {
     console.log('[PORT] Popup connected.');
 
     // Immediately send the current status upon connection
-    const currentStatus =
-      socket && socket.readyState === WebSocket.OPEN ? 'connected' : 'disconnected';
-    popupPort.postMessage({ type: 'WEBSOCKET_STATUS', payload: { status: currentStatus } });
+    void getCurrentWebSocketStatus().then((currentStatus) => {
+      if (popupPort === port) {
+        popupPort.postMessage({ type: 'WEBSOCKET_STATUS', payload: { status: currentStatus } });
+      }
+    });
 
     port.onMessage.addListener(portHandler);
     port.onDisconnect.addListener(() => {
