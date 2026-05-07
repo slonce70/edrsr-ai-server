@@ -15,6 +15,16 @@ class JobQueue {
     this.isProcessing = false;
     // Тимчасовий кеш cookies для активних jobs (не персистується)
     this.cookieCache = new Map(); // jobId → cookie
+    this.cookieTtlMs = Number.parseInt(
+      process.env.JOB_COOKIE_CACHE_TTL_MS || String(15 * 60 * 1000),
+      10
+    );
+  }
+
+  getCookieTtlMs() {
+    return Number.isFinite(this.cookieTtlMs) && this.cookieTtlMs > 0
+      ? this.cookieTtlMs
+      : 15 * 60 * 1000;
   }
 
   /**
@@ -26,7 +36,13 @@ class JobQueue {
   enqueue(job) {
     // Зберігаємо cookie в тимчасовому кеші
     if (job.cookie) {
-      this.cookieCache.set(job.jobId, job.cookie);
+      this.clearCachedCookie(job.jobId);
+      const expiresAt = Date.now() + this.getCookieTtlMs();
+      const timer = setTimeout(() => {
+        this.clearCachedCookie(job.jobId);
+      }, this.getCookieTtlMs());
+      timer.unref?.();
+      this.cookieCache.set(job.jobId, { cookie: job.cookie, expiresAt, timer });
       logger.debug(`[QUEUE] Cookie збережено для job ${job.jobId}`);
     }
 
@@ -51,7 +67,13 @@ class JobQueue {
    * @returns {string|null} Cookie або null
    */
   getCachedCookie(jobId) {
-    return this.cookieCache.get(jobId) || null;
+    const entry = this.cookieCache.get(jobId);
+    if (!entry) return null;
+    if (entry.expiresAt <= Date.now()) {
+      this.clearCachedCookie(jobId);
+      return null;
+    }
+    return entry.cookie || null;
   }
 
   /**
@@ -59,7 +81,16 @@ class JobQueue {
    * @param {string} jobId - ID job
    */
   clearCachedCookie(jobId) {
+    const entry = this.cookieCache.get(jobId);
+    if (entry?.timer) clearTimeout(entry.timer);
     this.cookieCache.delete(jobId);
+  }
+
+  sweepExpiredCookies() {
+    const now = Date.now();
+    for (const [jobId, entry] of this.cookieCache.entries()) {
+      if (entry.expiresAt <= now) this.clearCachedCookie(jobId);
+    }
   }
 
   /**
@@ -78,6 +109,7 @@ class JobQueue {
    * @returns {number}
    */
   getCachedJobsCount() {
+    this.sweepExpiredCookies();
     return this.cookieCache.size;
   }
 
@@ -109,6 +141,9 @@ class JobQueue {
    */
   clearAllCookies() {
     const count = this.cookieCache.size;
+    for (const entry of this.cookieCache.values()) {
+      if (entry?.timer) clearTimeout(entry.timer);
+    }
     this.cookieCache.clear();
     logger.info(`[QUEUE] Очищено ${count} cookies з кешу`);
   }

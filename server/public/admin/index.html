@@ -88,7 +88,12 @@
       <main class="main-content">
         <!-- Header -->
         <header class="top-header">
-          <button class="mobile-menu-btn" id="mobile-menu-btn" aria-label="Открыть меню">
+          <button
+            class="mobile-menu-btn"
+            id="mobile-menu-btn"
+            aria-label="Відкрити меню"
+            data-i18n-aria-label="common.openMenu"
+          >
             <i class="fas fa-bars"></i>
           </button>
           <h1 id="page-title" data-i18n="nav.dashboard">Дашборд</h1>
@@ -198,7 +203,11 @@
                   data-i18n-placeholder="users.searchPlaceholder"
                   placeholder="Поиск пользователей..."
                 />
-                <button id="users-search-btn" aria-label="Найти пользователей">
+                <button
+                  id="users-search-btn"
+                  aria-label="Знайти користувачів"
+                  data-i18n-aria-label="common.searchUsers"
+                >
                   <i class="fas fa-search"></i>
                 </button>
               </div>
@@ -253,7 +262,11 @@
                   data-i18n-placeholder="jobs.searchPlaceholder"
                   placeholder="Поиск заданий..."
                 />
-                <button id="jobs-search-btn" aria-label="Найти задания">
+                <button
+                  id="jobs-search-btn"
+                  aria-label="Знайти завдання"
+                  data-i18n-aria-label="common.searchJobs"
+                >
                   <i class="fas fa-search"></i>
                 </button>
                 <button id="jobs-clear-btn" class="btn btn-secondary">
@@ -593,9 +606,15 @@
     </div>
 
     <!-- Login Modal -->
-    <div id="login-modal" class="modal">
-      <div class="modal-content">
-        <h2 data-i18n="login.title">Авторизация в админ панели</h2>
+    <div
+      id="login-modal"
+      class="modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="login-modal-title"
+    >
+      <div class="modal-content" tabindex="-1">
+        <h2 id="login-modal-title" data-i18n="login.title">Авторизация в админ панели</h2>
         <form id="login-form">
           <div class="form-group">
             <label for="email" data-i18n="login.emailLabel">Email:</label>
@@ -615,8 +634,14 @@
     </div>
 
     <!-- Job Details Modal -->
-    <div id="job-details-modal" class="modal">
-      <div class="modal-content modal-large">
+    <div
+      id="job-details-modal"
+      class="modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="job-details-title"
+    >
+      <div class="modal-content modal-large" tabindex="-1">
         <div class="modal-header">
           <h2 id="job-details-title" data-i18n="jobDetails.title">Детали задания</h2>
           <button class="btn btn-secondary btn-sm" id="job-details-close">

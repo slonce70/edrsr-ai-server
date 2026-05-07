@@ -303,13 +303,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Render metadata
     const metadataHTML = `
-      <li><strong>${t('results.statusLabel')}:</strong> ${getStatusLabel(job.status)}</li>
-      <li><strong>${t('results.createdLabel')}:</strong> ${formatUiDate(job.created_at)}</li>
-      <li><strong>${t('results.totalLinksLabel')}:</strong> ${job.total_links}</li>
-      <li><strong>${t('results.processedLinksLabel')}:</strong> ${job.processed_links || 0}</li>
-      <li><strong>${t('results.durationLabel')}:</strong> ${
+      <li><strong>${t('results.statusLabel')}:</strong> ${escapeHtml(getStatusLabel(job.status))}</li>
+      <li><strong>${t('results.createdLabel')}:</strong> ${escapeHtml(formatUiDate(job.created_at))}</li>
+      <li><strong>${t('results.totalLinksLabel')}:</strong> ${escapeHtml(job.total_links)}</li>
+      <li><strong>${t('results.processedLinksLabel')}:</strong> ${escapeHtml(job.processed_links || 0)}</li>
+      <li><strong>${t('results.durationLabel')}:</strong> ${escapeHtml(
         job.duration ?? t('common.na')
-      } ${t('common.secondsShort')}</li>
+      )} ${t('common.secondsShort')}</li>
     `;
     elements.jobMetadata.innerHTML = metadataHTML;
 
@@ -350,10 +350,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     const header = document.querySelector('.header');
     if (header.querySelector('.edit-icon')) return; // Already setup
 
-    const editIcon = document.createElement('span');
+    const editIcon = document.createElement('button');
+    editIcon.type = 'button';
     editIcon.innerHTML = '&#x270E;';
     editIcon.className = 'edit-icon';
     editIcon.title = t('results.editTitle');
+    editIcon.setAttribute('aria-label', t('results.editTitle'));
 
     const editContainer = document.createElement('div');
     editContainer.className = 'title-edit-container hidden';

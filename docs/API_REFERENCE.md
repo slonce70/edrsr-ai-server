@@ -1,747 +1,284 @@
-# 🔌 API Reference
+# API Reference
 
-## **Обзор API**
+Base URLs:
 
-EDRSR-AI предоставляет RESTful API для взаимодействия с системой анализа судебных решений. API разделен на публичные и административные endpoints.
+- Production API: `https://edrsr-ai-server.fun/api`
+- Development API: `http://localhost:4000/api`
 
-**Base URL:** `https://edrsr-ai-server.fun` (production) или `http://localhost:4000` (development)
+Most `/api` endpoints require a Supabase bearer token. Public exceptions are listed below.
 
-## **📐 Contract Guarantees**
+## Public Endpoints
 
-- REST paths сохраняются стабильными; текущий рефакторинг не меняет URL endpoints.
-- JSON payloads сохраняются без breaking changes; допускаются только additive/internal изменения.
-- Portal/workspace endpoints используют `workspaceId` как query-параметр, а не как отдельную версию API.
-- Если `workspaceId` указан и пользователь не имеет доступа к workspace, endpoint возвращает `403`.
-- Публичный `GET /api/share/:token` не требует авторизации:
-  - `404` — share link не найден
-  - `410` — share link отозван или истёк
-- `GET /api/prompts` и `GET /api/prompts/definitions` поддерживают `ETag` / `If-None-Match`.
-- `GET /api/status/:id` по умолчанию возвращает лёгкий job payload; крупные поля добавляются только через `include`.
+### `GET /api/health/light`
 
-## **🔓 Публичные Endpoints**
+Lightweight public health check.
 
-### **Аутентификация**
+Response:
 
-#### POST `/api/auth/signin`
-Вход для получения JWT. Тело: `{ "email", "password" }`. При успехе возвращает `access_token` и `user`.
-Rate limit: 5 попыток/15 минут.
-
-### **Проверка здоровья системы**
-
-#### GET `/api/health/light`
-Быстрая публичная проверка доступности сервера, базы данных и upstream `reyestr.court.gov.ua`. Ответ кэшируется на `HEALTH_LIGHT_TTL_MS`.
-
-**Response (200):**
 ```json
 {
   "status": "ok",
-  "version": "2.0.3",
+  "version": "2.0.5",
   "checks": {
     "server": { "status": "ok" },
-    "db": { "status": "ok", "latencyMs": 8 },
-    "upstream": { "status": "ok", "statusCode": 200, "latencyMs": 120 }
-  },
-  "cachedAt": "2026-04-25T10:30:00.000Z",
-  "ttlMs": 15000
+    "db": { "status": "ok", "latencyMs": 7 },
+    "upstream": { "status": "ok" }
+  }
 }
 ```
 
-**Response (503):**
+### `GET /api/prompts/definitions`
+
+Public prompt-template definitions. Supports `ETag` and `If-None-Match`.
+
+### `GET /api/share/:token`
+
+Public share-link payload.
+
+- `404` - token not found
+- `410` - token revoked or expired
+
+### `POST /api/auth/signin`
+
+Server-side Supabase password signin.
+
+Body:
+
+```json
+{ "email": "user@example.com", "password": "password" }
+```
+
+Response:
+
 ```json
 {
-  "status": "degraded",
-  "version": "2.0.3",
-  "checks": {
-    "server": { "status": "ok" },
-    "db": { "status": "down", "error": "ECONNREFUSED" },
-    "upstream": { "status": "ok", "statusCode": 200, "latencyMs": 120 }
-  },
-  "cachedAt": "2026-04-25T10:30:00.000Z",
-  "ttlMs": 15000
+  "access_token": "...",
+  "user": { "id": "...", "email": "user@example.com" }
 }
 ```
 
-#### GET `/api/health/full`
-Полная проверка доступности сервиса (требуется админ‑роль). Ответ кэшируется на `HEALTH_FULL_TTL_MS`.
+## Authenticated User Endpoints
 
-**Response (200):**
+### `GET /api/me`
+
+Returns the current authenticated user.
+
+### `POST /api/collect`
+
+Creates a queued analysis job.
+
+Body:
+
 ```json
 {
-  "status": "healthy",
-  "services": {
-    "gemini": "online"
-  },
-  "activeJobs": 3,
-  "version": "1.1.0",
-  "cachedAt": "2025-12-30T10:30:00Z",
-  "ttlMs": 60000
-}
-```
-
-## **📦 Задания (пользовательские)**
-
-Все требуют `Authorization: Bearer <jwt>`.
-Для портала/команд доступен параметр `workspaceId` (query) на большинстве endpoints
-(`GET /api/jobs`, `GET /api/status/:id`, `GET /api/jobs/:jobId/analysis`, `GET /api/jobs/:jobId/links-content`,
-`POST /api/chat/:jobId`, `GET /api/chat/:jobId`).
-
-Если `workspaceId` не передан, backend использует обычную user-scoped семантику.
-
-#### POST `/api/collect`
-Создать новое задание.
-
-Тело:
-```json
-{
-  "links": [{ "url": "...", "decisionDate": "DD.MM.YYYY" }],
-  "cookie": "optional",
-  "prompt": "optional",
-  "prompt_label": "optional",
+  "links": [{ "url": "https://reyestr.court.gov.ua/Review/123456789" }],
+  "cookie": "",
+  "prompt": "optional custom prompt",
+  "prompt_label": "optional label",
   "auto_title_enabled": true,
-  "clientId": "optional",
-  "workspaceId": "optional",
-  "matterId": "optional"
+  "workspaceId": "optional workspace id",
+  "matterId": "optional matter id",
+  "clientId": "optional websocket client id"
 }
 ```
 
-Ответ: `{ success, jobId, ...state }`.
-`state` — стартовый snapshot задания в формате job-status payload.
-Ограничение: `MAX_LINKS_PER_REQUEST` (по умолчанию 300).
+### `GET /api/jobs`
 
-#### POST `/api/retry/:jobId`
-Создать копию существующего задания и поставить в очередь.
+Lists jobs visible to the current user or workspace.
 
-#### GET `/api/me`
-Вернуть базовый профиль пользователя (id + email).
+Query params:
 
-Ответ: `{ "success": true, "user": { "id": "...", "email": "..." } }`.
+- `limit` - number or `all`
+- `page` - page number
+- `status` - optional status filter
+- `search` - optional text search
+- `workspaceId` - optional workspace scope
 
-#### GET `/api/jobs?limit=<n>&page=<n>&status=<value>&search=<query>`
-Последние задания пользователя (короткая карточка) + постраничная выдача.
+### `GET /api/status/:id`
 
-Параметры:
-- `limit` — размер страницы (по умолчанию 100, ограничен `JOBS_MAX_LIMIT`).
-- `page` — номер страницы (1..n).
-- `status` — фильтр по статусу (`queued`, `retrying`, `processing`, `downloading`, `analyzing`, `completed`, `error`).
-- `search` — поиск по `title` или `prompt`.
+Returns lightweight job status.
 
-Ответ: `{ success: true, jobs: [...], pagination: { page, limit, total } }`.
+Query params:
 
-Примечание: `limit=all` поддерживается только без фильтров (совместимость с расширением).
+- `include=analysis`
+- `include=links`
+- `workspaceId=<id>`
 
-#### GET `/api/status/:id`
-Статус конкретного задания (по умолчанию — лёгкий ответ без больших полей).
+### `GET /api/jobs/:jobId/analysis`
 
-Поддерживаемые параметры:
-- `include=analysis` — добавить итоговый анализ (`analysis_text`).
-- `include=links` — добавить список ссылок без поля `content` (только `url, status, decision_date`).
+Returns stored analysis for a job.
 
-Canonical lightweight shape:
+### `GET /api/jobs/:jobId/links-content`
+
+Returns extracted link content for a job.
+
+### `GET /api/jobs/last`
+
+Returns the latest relevant job for the current user.
+
+### `POST /api/retry/:jobId`
+
+Creates a retry job from an existing job. Requires a valid `clientId`.
+
+### `PATCH /api/jobs/:id/title`
+
+Updates a job title.
+
+Body:
+
 ```json
-{
-  "id": "...",
-  "status": "queued|retrying|processing|downloading|analyzing|completed|error",
-  "progress": 0,
-  "processed_links": 0,
-  "total_links": 0
-}
+{ "title": "New title" }
 ```
 
-При `include=analysis` дополнительно появляется поле `analysis`.
-При `include=links` дополнительно появляется поле `links`.
+### `DELETE /api/jobs/:id`
 
-#### PATCH `/api/jobs/:id/title`
-Обновить заголовок задания: `{ title }`.
+Deletes a job and terminates an active worker for it when present.
 
-#### DELETE `/api/jobs/:id`
-Удалить задание и все связанные данные.
+### `GET /api/processed-urls`
 
-#### POST `/api/urls/processed-check`
-Проверка набора URL на предмет уже обработанных.
+Returns processed EDRSR URLs for the current user. Kept for extension compatibility.
 
-Тело запроса: `{ "urls": ["https://.../Review/123", ...] }`
+### `POST /api/urls/processed-check`
 
-Ответ: `{ "success": true, "processed": ["https://.../Review/123", ...] }`
+Checks processed membership for a list of URLs.
 
-Заменяет устаревший `GET /api/processed-urls`.
+Body:
 
-#### GET `/api/processed-urls` (deprecated)
-Возвращает все обработанные URL пользователя. Не рекомендуется для больших объёмов.
-
-Ответ: `{ "success": true, "urls": ["https://.../Review/123", ...] }`
-
-#### GET `/api/jobs/:jobId/analysis`
-Вернуть только итоговый анализ задания.
-
-Ответ: `{ "success": true, "jobId": "...", "analysis": "...markdown..." }`
-
-## **🏢 Workspaces / Команды**
-
-#### GET `/api/workspaces`
-Список рабочих пространств пользователя. Возвращает `active_workspace_id`.
-
-Ответ: `{ "success": true, "workspaces": [...], "active_workspace_id": "..." }`.
-
-#### POST `/api/workspaces`
-Создать новое пространство: `{ "name": "..." }`.
-
-#### GET `/api/workspaces/:workspaceId/members`
-Список участников пространства.
-
-#### POST `/api/workspaces/:workspaceId/members`
-Добавить участника (только owner/admin): `{ "email": "...", "role": "member|admin" }`.
-
-#### PATCH `/api/workspaces/:workspaceId/members/:memberId`
-Изменить роль участника (owner/admin): `{ "role": "member|admin|owner" }`.
-
-#### DELETE `/api/workspaces/:workspaceId/members/:memberId`
-Удалить участника (owner/admin).
-
-## **📁 Matters (Справы/проекты)**
-
-#### GET `/api/matters`
-Список дел в активном пространстве (`workspaceId`).
-
-#### POST `/api/matters`
-Создать дело: `{ "title", "description", "clientName", "tags": [] }`.
-
-#### GET `/api/matters/:matterId`
-Детали дела + список связанных заданий.
-
-#### PATCH `/api/matters/:matterId`
-Обновить дело (title/description/clientName/tags).
-
-#### DELETE `/api/matters/:matterId`
-Удалить дело.
-
-#### POST `/api/matters/:matterId/jobs`
-Привязать задание: `{ "jobId": "..." }`.
-
-#### DELETE `/api/matters/:matterId/jobs/:jobId`
-Отвязать задание от дела.
-
-## **🔗 Share Links**
-
-#### POST `/api/share-links`
-Создать публичную ссылку для отчёта: `{ "jobId": "...", "expiresInDays": 14 }`.
-
-#### GET `/api/share-links`
-Список share‑ссылок по workspace.
-
-#### POST `/api/share-links/:id/revoke`
-Отозвать share‑ссылку.
-
-#### GET `/api/share/:token` (public)
-Публичный просмотр отчёта (без авторизации). 
-
-Успешный ответ:
 ```json
-{
-  "success": true,
-  "share": {
-    "id": "...",
-    "expires_at": "2026-03-10T10:30:00.000Z",
-    "created_at": "2026-03-01T10:30:00.000Z"
-  },
-  "job": { "...": "..." },
-  "analysis": "...markdown...",
-  "links": [{ "url": "...", "status": "processed", "decision_date": "..." }]
-}
+{ "urls": ["https://reyestr.court.gov.ua/Review/123456789"] }
 ```
 
-#### GET `/api/jobs/:jobId/links-content`
-Вернуть контент обработанных ссылок для задания (используется для экспорта TXT).
+## Prompts
 
-Ответ: `{ "success": true, "jobId": "...", "links": [{ "url": "...", "content": "..." }] }`
+User prompts:
 
-#### GET `/api/jobs/last`
-Последнее релевантное задание пользователя (лёгкий объект).
+- `GET /api/prompts`
+- `POST /api/prompts`
+- `PATCH /api/prompts/:id`
+- `DELETE /api/prompts/:id`
+- `POST /api/prompts/import`
 
-Ответ: `{ "success": true, "job": { ... } }`
+Prompt list responses use `ETag` and support `If-None-Match`.
 
-## **🧩 Пользовательские промпты**
+Workspace prompts:
 
-Все требуют `Authorization: Bearer <jwt>`.
+- `GET /api/prompts/shared`
+- `POST /api/prompts/shared`
+- `PATCH /api/prompts/shared/:id`
+- `DELETE /api/prompts/shared/:id`
+- `POST /api/prompts/shared/from-user`
 
-#### GET `/api/prompts`
-Список сохранённых промптов пользователя.
+## Chat
 
-Поддерживает `If-None-Match` (ETag) для экономии трафика. При совпадении возвращает `304 Not Modified`.
+- `GET /api/chat/:jobId`
+- `POST /api/chat/:jobId`
 
-Ответ: `{ "success": true, "prompts": [{ "id", "name", "content", "created_at", "updated_at" }], "lastUpdated": "..." }`
+`POST` body:
 
-#### GET `/api/prompts/definitions` (public)
-Дефолтные описания/группы промптов (публичный endpoint). Поддерживает `ETag`.
-
-Ответ: `{ "success": true, "definitions": [...], "version": 1, "lastUpdated": "..." }`
-
-#### POST `/api/prompts`
-Создать новый промпт. Тело: `{ name, content }`.
-
-Если имя занято — сервер добавит суффикс ` (2)`, ` (3)` и т.д.
-
-#### PATCH `/api/prompts/:id`
-Обновить промпт. Тело: `{ name?, content? }`.
-
-Если новое имя занято — добавится суффикс.
-
-#### DELETE `/api/prompts/:id`
-Удалить промпт пользователя.
-
-#### POST `/api/prompts/import`
-Импорт массива промптов (для миграции).
-
-Тело: `{ prompts: [{ name, content }, ...] }`.
-
-## **🤝 Командные промпты (workspace)**
-
-#### GET `/api/prompts/shared`
-Список командных промптов для активного workspace.
-
-Ответ: `{ "success": true, "workspace_id": "...", "prompts": [...] }`
-
-#### POST `/api/prompts/shared`
-Создать командный промпт. Тело: `{ name, content }`. Только owner/admin.
-
-#### PATCH `/api/prompts/shared/:id`
-Обновить командный промпт. Тело: `{ name?, content? }`. Только owner/admin.
-
-#### DELETE `/api/prompts/shared/:id`
-Удалить командный промпт. Только owner/admin.
-
-#### POST `/api/prompts/shared/from-user`
-Скопировать user‑промпт в командную библиотеку. Тело: `{ promptId }`. Только owner/admin.
-
-## **💬 Чат по результатам**
-
-#### GET `/api/chat/:jobId`
-История сообщений.
-
-Ответ — массив сообщений без дополнительной оболочки:
 ```json
-[
-  {
-    "role": "user",
-    "content": "..."
-  }
-]
+{ "message": "Question about this analysis" }
 ```
 
-#### POST `/api/chat/:jobId`
-Отправить вопрос: `{ message }`. Ответ: `{ answer }`.
+## Workspaces
 
-## **🧵 Воркеры и система**
+- `GET /api/workspaces`
+- `POST /api/workspaces`
+- `GET /api/workspaces/:workspaceId/members`
+- `POST /api/workspaces/:workspaceId/members`
+- `PATCH /api/workspaces/:workspaceId/members/:memberId`
+- `DELETE /api/workspaces/:workspaceId/members/:memberId`
 
-Все эндпоинты ниже требуют роли `admin`.
+Workspace roles are `owner`, `admin`, and `member`.
 
-#### GET `/api/workers/active`
-Список активных воркеров.
+## Matters
 
-#### POST `/api/workers/:jobId/terminate`
-Принудительно завершить воркер задания.
+- `GET /api/matters`
+- `POST /api/matters`
+- `GET /api/matters/:matterId`
+- `PATCH /api/matters/:matterId`
+- `DELETE /api/matters/:matterId`
+- `POST /api/matters/:matterId/jobs`
+- `DELETE /api/matters/:matterId/jobs/:jobId`
 
-#### POST `/api/workers/terminate-all`
-Завершить все воркеры.
+## Share Links
 
-#### GET `/api/system/stats`
-Системная статистика: очередь, воркеры, память, uptime.
+- `GET /api/share-links`
+- `POST /api/share-links`
+- `POST /api/share-links/:id/revoke`
 
-#### GET `/api/system/chat-sessions`
-Состояние in‑memory chat‑сессий.
+## Operations
 
-#### POST `/api/queue/clear`
-Очистить in‑memory очередь и отменить queued jobs (админ).
+Admin-only operational endpoints mounted under `/api`:
 
-#### POST `/api/internal/process-queue`
-Принудительно запустить обработку очереди (админ).
+- `GET /api/workers/active`
+- `POST /api/workers/:jobId/terminate`
+- `POST /api/workers/terminate-all`
+- `GET /api/system/stats`
+- `GET /api/system/chat-sessions`
+- `POST /api/queue/clear`
+- `GET /api/health/full`
+- `POST /api/internal/process-queue`
 
-## **🔐 Административные Endpoints**
+## Admin API
 
-Все требуют роли `admin`.
+Admin UI endpoints are mounted at `/admin/api` and require an authenticated admin:
 
-#### GET `/api/admin/dashboard`
-Статистика дашборда. Ответ кэшируется на стороне сервера (TTL 60s).
+- `GET /admin/api/dashboard`
+- `GET /admin/api/users`
+- `POST /admin/api/users/:userId/make-admin`
+- `DELETE /admin/api/users/:userId/admin-role`
+- `DELETE /admin/api/users/:userId`
+- `GET /admin/api/jobs`
+- `GET /admin/api/jobs/:jobId/report`
+- `GET /admin/api/jobs/:jobId/details`
+- `PUT /admin/api/jobs/:jobId/title`
+- `DELETE /admin/api/jobs/:jobId`
+- `POST /admin/api/jobs/:jobId/requeue`
+- `POST /admin/api/jobs/:jobId/retry`
+- `POST /admin/api/jobs/retry-failed`
+- `POST /admin/api/jobs/recover-stuck`
+- `POST /admin/api/system/cleanup`
+- `GET /admin/api/system/stats`
+- `GET /admin/api/audit-log`
+- `GET /admin/api/security/stats`
+- `GET /admin/api/gemini/stats`
+- `POST /admin/api/gemini/reset-stats`
 
-**Response (200):**
+## WebSocket
+
+Connect to:
+
+- Production: `wss://edrsr-ai-server.fun`
+- Development: `ws://localhost:4000`
+
+The client sends an auth message after opening:
+
 ```json
-{
-  "success": true,
-  "data": {
-    "total_jobs": 150,
-    "completed_jobs": 147,
-    "failed_jobs": 3,
-    "retryable_jobs": 2,
-    "jobs_today": 10,
-    "total_links_processed": 1250,
-    "avg_job_duration": 240,
-    "total_chat_messages": 560,
-    "cached_cases": 420,
-    "total_users": 120,
-    "new_users_30d": 15,
-    "admin_count": 2,
-    "last_job_created": "2024-01-15T10:30:00Z",
-    "last_job_updated": "2024-01-15T11:00:00Z",
-    "memory_usage": 280,
-    "uptime_hours": 12.5
-  }
-}
+{ "type": "auth", "token": "<supabase access token>" }
 ```
 
-#### GET `/api/admin/users`
-Список пользователей (с пагинацией и поиском по email).
+Common client messages:
 
-**Query Parameters:**
-- `page` (optional): Номер страницы (default: 1)
-- `limit` (optional): Количество пользователей на странице (default: 20)
-- `search` (optional): Поиск по email (client-side filter)
-
-**Response (200):**
 ```json
-{
-  "success": true,
-  "users": [
-    {
-      "id": "uuid",
-      "email": "user@example.com",
-      "created_at": "2024-01-15T10:30:00Z",
-      "last_sign_in_at": "2024-01-15T12:00:00Z",
-      "email_confirmed_at": "2024-01-15T10:31:00Z",
-      "roles": ["user"],
-      "is_admin": false
-    }
-  ],
-  "pagination": {
-    "page": 1,
-    "limit": 20,
-    "total": 25
-  }
-}
+{ "type": "subscribe", "jobId": "...", "workspaceId": "optional" }
+{ "type": "heartbeat" }
 ```
 
-#### POST `/api/admin/users/:userId/make-admin`
-Назначить роль администратора.
+Common server events:
 
-**Response (200):**
+- `clientId`
+- `JOB_UPDATE`
+- `CHAT_UPDATE`
+- `error`
+
+Production must allow the Chrome extension origin through `CHROME_EXTENSION_IDS` and HTTP/WS origin config.
+
+## Error Shape
+
+Common error payload:
+
 ```json
-{
-  "success": true,
-  "message": "Права администратора предоставлены"
-}
+{ "success": false, "error": "message", "errorId": "ERR-..." }
 ```
 
-#### DELETE `/api/admin/users/:userId`
-Удалить пользователя и его данные.
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "message": "Пользователь удален"
-}
-```
-
-#### DELETE `/api/admin/users/:userId/admin-role`
-Отзыв прав администратора у пользователя.
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "message": "Права администратора отозваны"
-}
-```
-
-### **Управление заданиями**
-
-#### GET `/api/admin/jobs`
-Список всех заданий в системе.
-
-**Query Parameters:**
-- `page` (optional): Номер страницы (default: 1)
-- `limit` (optional): Количество заданий на странице (default: 20)
-- `status` (optional): Фильтр по статусу (`pending`, `queued`, `retrying`, `processing`, `completed`, `error`)
-- `search` (optional): Поиск по `title` или `prompt`
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "jobs": [
-    {
-      "id": "uuid",
-      "title": "Анализ решений по гражданским делам",
-      "status": "completed",
-      "progress": 100,
-      "total_links": 25,
-      "processed_links": 25,
-      "user_id": "user_uuid",
-      "user_email": "user@example.com",
-      "created_at": "2024-01-15T10:30:00Z",
-      "updated_at": "2024-01-15T11:00:00Z",
-      "duration": 1800,
-      "error_message": null
-    }
-  ],
-  "pagination": {
-    "page": 1,
-    "limit": 20,
-    "total": 150
-  }
-}
-```
-
-#### POST `/api/admin/jobs/:id/requeue`
-Перезапустить задание: сбрасывает блокировки и переводит в `retrying`/очередь. Тело: `{ reset_links?: boolean }`.
-После успешного запроса очередь автоматически запускается.
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "message": "Задание <id> поставлено в очередь на повтор"
-}
-```
-
-#### GET `/api/admin/jobs/:jobId/report`
-Получение отчета по конкретному заданию.
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "job": {
-    "id": "uuid",
-    "title": "Анализ решений по гражданским делам",
-    "status": "completed",
-    "created_at": "2024-01-15T10:30:00Z",
-    "updated_at": "2024-01-15T11:00:00Z",
-    "total_links": 25,
-    "processed_links": 25
-  },
-  "analysis": "markdown_content_here"
-}
-```
-
-#### PUT `/api/admin/jobs/:jobId/title`
-Изменение названия задания.
-
-**Request Body:**
-```json
-{
-  "title": "Новое название задания"
-}
-```
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "message": "Название задания обновлено"
-}
-```
-
-#### DELETE `/api/admin/jobs/:jobId`
-Удаление задания и всех связанных данных.
-
-#### GET `/api/admin/jobs/errors`
-Список последних заданий в статусе `error`.
-
-#### POST `/api/admin/jobs/:jobId/retry`
-Перезапустить конкретное задание из статуса `error` в `retrying`. После запроса очередь автоматически запускается.
-
-#### POST `/api/admin/jobs/retry-failed`
-Массовый перезапуск всех заданий с временными ошибками. Автоматически запускает очередь при наличии перезапущенных заданий.
-
-#### POST `/api/admin/jobs/recover-stuck`
-Ручное восстановление зависших заданий (без heartbeat дольше порога). Тело: `{ grace_minutes?: number }` (по умолчанию 5). Все подходящие задания переводятся в `retrying` и запускается очередь.
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "recovered": 3,
-  "grace_minutes": 5
-}
-```
-
-### **Система и аудит**
-
-#### GET `/api/admin/system/stats`
-Системная статистика (память/uptime + counts по таблицам).
-
-#### POST `/api/admin/system/cleanup`
-Очистка данных. Тело: `{ cleanupType: "old_jobs" | "failed_jobs" | "old_cache" }`.
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "message": "Очистка выполнена. Удалено: 12",
-  "cleaned": 12
-}
-```
-
-#### GET `/api/admin/audit-log`
-Журнал административных действий (с пагинацией).
-
-#### GET `/api/admin/security/stats`
-Статистика безопасности (in-memory).
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "blockedIPs": [
-    { "target": "ip:192.168.1.1", "reason": "ip_attempts", "remainingTime": 12 }
-  ],
-  "failedAttempts": [
-    { "target": "email:test@example.com", "count": 3, "lastAttempt": "2024-01-15T12:30:00Z" }
-  ]
-}
-```
-
-### **Gemini API статистика**
-
-#### GET `/api/admin/gemini/stats`
-Статистика использования ключей Gemini (включая queued jobs и summary).
-
-#### POST `/api/admin/gemini/reset-stats`
-Сброс статистики использования ключей.
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "message": "Статистику Gemini API скинуто"
-}
-```
-
-## **📊 Коды ответов**
-
-### **Успешные ответы**
-- **200 OK** - Запрос выполнен успешно
-- **201 Created** - Ресурс создан
-
-### **Ошибки клиента**
-- **400 Bad Request** - Неверный запрос
-- **401 Unauthorized** - Требуется авторизация
-- **403 Forbidden** - Доступ запрещен (не админ)
-- **404 Not Found** - Ресурс не найден
-- **429 Too Many Requests** - Превышен лимит запросов
-
-### **Ошибки сервера**
-- **500 Internal Server Error** - Внутренняя ошибка сервера
-- **503 Service Unavailable** - Сервис недоступен
-
-## **🔒 Безопасность**
-
-### **Rate Limiting**
-- **Вход в админку:** 5 попыток за 15 минут на IP
-- **Административные запросы:** 100 запросов в минуту на IP
-
-### **Аутентификация**
-- JWT токены с временем жизни
-- Автоматическая блокировка при подозрительной активности
-- Логирование всех действий
-
-### **Защита от атак**
-- Защита от брутфорс атак
-- Блокировка подозрительных IP
-- Обнаружение необычных User-Agent
-- Защита от XSS и SQL injection
-
-## **📝 Пример cURL**
-
-Вход в систему:
-```bash
-curl -X POST http://localhost:4000/api/auth/signin \
-  -H "Content-Type: application/json" \
-  -d '{"email": "admin@example.com", "password": "password123"}'
-```
-
-#### **Ручное восстановление зависших заданий**
-```bash
-curl -X POST http://localhost:4000/api/admin/jobs/recover-stuck \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"grace_minutes": 10}'
-```
-
-#### **Получение списка пользователей:**
-```bash
-curl -X GET https://edrsr-ai-server.fun/api/admin/users \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN"
-```
-
-#### **Удаление пользователя:**
-```bash
-curl -X DELETE https://edrsr-ai-server.fun/api/admin/users/USER_UUID \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN"
-```
-
-### **JavaScript примеры**
-
-#### **Вход в систему:**
-```javascript
-const response = await fetch('/api/auth/signin', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json'
-  },
-  body: JSON.stringify({
-    email: 'admin@example.com',
-    password: 'password123'
-  })
-});
-
-const data = await response.json();
-const token = data.access_token;
-```
-
-#### **Получение статистики:**
-```javascript
-const response = await fetch('/api/admin/dashboard', {
-  headers: {
-    'Authorization': `Bearer ${token}`
-  }
-});
-
-const stats = await response.json();
-console.log('Total users:', stats.data.total_users);
-```
-
-## **🔄 WebSocket Events**
-
-### **Подключение**
-```javascript
-const ws = new WebSocket('wss://edrsr-ai-server.fun');
-
-ws.onopen = () => {
-  console.log('Connected to WebSocket');
-};
-```
-
-### **События**
-- **job_progress** - Обновление прогресса задания
-- **job_completed** - Задание завершено
-- **memory_update** - Обновление использования памяти
-- **error** - Ошибка в системе
-
-### **Пример обработки событий:**
-```javascript
-ws.onmessage = (event) => {
-  const data = JSON.parse(event.data);
-  
-  switch (data.type) {
-    case 'job_progress':
-      console.log(`Job ${data.job_id}: ${data.progress}%`);
-      break;
-    case 'job_completed':
-      console.log(`Job ${data.job_id} completed!`);
-      break;
-    case 'memory_update':
-      console.log(`Memory: ${data.memory.heapUsed}`);
-      break;
-  }
-};
-```
+Validation/auth errors may omit `success` for compatibility with older extension flows.

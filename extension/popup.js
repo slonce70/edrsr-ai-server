@@ -3,7 +3,7 @@
 // This script uses a modern, robust architecture with a long-lived port
 // connection to the service worker, which acts as the central controller.
 import { getPromptDescriptions, getPromptGroupLabels } from './prompt-definitions.js';
-import { SUPABASE_REDIRECT_TO } from './config.js';
+import { API_BASE_URL, SUPABASE_REDIRECT_TO } from './config.js';
 import {
   isAuthenticated,
   signInWithPassword,
@@ -227,6 +227,18 @@ document.addEventListener('DOMContentLoaded', () => {
         elements.serverStatus.className = 'status-indicator status-offline';
         elements.serverStatus.innerHTML = `<span><div class="status-dot dot-offline"></div>${t(
           'popup.messages.serverReconnecting'
+        )}</span>`;
+        break;
+      case 'auth_required':
+        elements.serverStatus.className = 'status-indicator status-offline';
+        elements.serverStatus.innerHTML = `<span><div class="status-dot dot-offline"></div>${t(
+          'popup.messages.authRequired'
+        )}</span>`;
+        break;
+      case 'error':
+        elements.serverStatus.className = 'status-indicator status-offline';
+        elements.serverStatus.innerHTML = `<span><div class="status-dot dot-offline"></div>${t(
+          'popup.messages.serverConnectionError'
         )}</span>`;
         break;
     }
@@ -972,7 +984,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     if (elements.footerStatus) {
       const version = chrome.runtime?.getManifest?.().version;
-      elements.footerStatus.textContent = t('popup.footer', { version });
+      const apiHost = new URL(API_BASE_URL).host;
+      elements.footerStatus.textContent = t('popup.footer', { version, apiHost });
     }
     await populatePromptTemplates();
     await updatePromptDescription();

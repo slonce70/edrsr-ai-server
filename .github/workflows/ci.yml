@@ -30,11 +30,26 @@ jobs:
       - name: Quality (lint + prettier)
         run: npm run quality:check
 
+      - name: Server lint
+        run: npm run lint:server
+
       - name: Web lint
         run: npm run web:lint
 
       - name: Web build
         run: npm run web:build
+
+      - name: Extension build
+        run: npm run build:extension
+
+      - name: Root dependency audit
+        run: npm audit --omit=dev
+
+      - name: Server dependency audit
+        run: npm --prefix server audit --omit=dev
+
+      - name: Web dependency audit
+        run: npm --prefix web audit --omit=dev
 
       - name: Selfcheck
         run: npm run test:selfcheck
@@ -42,5 +57,27 @@ jobs:
       - name: Scraper parsing tests
         run: node server/scripts/test-scraper-parsing.js
 
+      - name: Scraper fixture tests
+        run: node server/scripts/test-scraper-fixtures.js
+
       - name: Prompt assembly tests
         run: node server/scripts/test-prompts.js
+
+      - name: Offline server regressions
+        run: |
+          node server/scripts/test-security-regressions.js
+          node server/scripts/test-delete-job-security-regression.js
+          node server/scripts/test-websocket-message-hardening.js
+          node server/scripts/test-websocket-subscription-auth.js
+          node server/scripts/test-proxy-ip-regression.js
+          node server/scripts/test-queue-cookie-cache.js
+          node server/scripts/test-job-link-decision-date-regression.js
+          node server/scripts/test-title-localization-regression.js
+          node server/scripts/test-ui-accessibility-regressions.js
+          node server/scripts/test-markdown-xss-regressions.js
+          node server/scripts/test-db-integration-safety.js
+          node server/scripts/test-provider-failover-regression.js
+          node server/scripts/test-gemini-retry-regression.js
+          node server/scripts/test-portal-contracts.js
+          node server/scripts/test-route-service-wiring.js
+          node server/scripts/test-service-contracts.js

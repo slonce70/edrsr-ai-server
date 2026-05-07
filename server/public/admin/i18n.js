@@ -132,6 +132,13 @@
         untitled: 'Без названия',
         yes: 'Да',
         no: 'Нет',
+        openMenu: 'Открыть меню',
+        searchUsers: 'Найти пользователей',
+        searchJobs: 'Найти задания',
+        editTitle: 'Редактировать название',
+        previousPage: 'Предыдущая страница',
+        nextPage: 'Следующая страница',
+        pageLabel: ({ page }) => `Страница ${page}`,
       },
       status: {
         pending: 'Ожидание',
@@ -454,6 +461,13 @@
         untitled: 'Без назви',
         yes: 'Так',
         no: 'Ні',
+        openMenu: 'Відкрити меню',
+        searchUsers: 'Знайти користувачів',
+        searchJobs: 'Знайти завдання',
+        editTitle: 'Редагувати назву',
+        previousPage: 'Попередня сторінка',
+        nextPage: 'Наступна сторінка',
+        pageLabel: ({ page }) => `Сторінка ${page}`,
       },
       status: {
         pending: 'Очікування',
@@ -706,6 +720,11 @@
       const key = el.getAttribute('data-i18n-placeholder');
       if (!key) return;
       el.setAttribute('placeholder', t(key));
+    });
+    root.querySelectorAll('[data-i18n-aria-label]').forEach((el) => {
+      const key = el.getAttribute('data-i18n-aria-label');
+      if (!key) return;
+      el.setAttribute('aria-label', t(key));
     });
   }
 

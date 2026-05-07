@@ -28,7 +28,9 @@ Permissions (justification):
 - notifications — оповещения о завершении или ошибке заданий.
 Host permissions:
 - https://reyestr.court.gov.ua/* — доступ к DOM страницы реестра для сбора видимых ссылок на решения.
-- https://*.supabase.co/* — только для аутентификации (email/пароль) и обновления токенов.
+- https://edrsr-ai-server.fun/* — API и WebSocket backend для заданий, истории, промптов и отчётов.
+- https://app.edrsr-ai-server.fun/* — открытие портала/публичных share-страниц.
+- https://hosvrzhfdotstghdoycv.supabase.co/* — только для аутентификации (email/пароль) и обновления токенов.
 
 Data Safety (guidance for form):
 - Собираемые данные: аккаунт (email через Supabase), пользовательские запросы (prompt), выбранные ссылки дел, результаты анализа и статусы заданий.
@@ -50,8 +52,10 @@ Prohibited content/behavior (комплаенс):
 - Один сценарий использования (single‑purpose): анализ ЄДРСР.
 
 Release checklist:
-1) Увеличьте версию в extension/manifest.json.
+1) Увеличьте версию в `package.json`, `package-lock.json` и `extension/manifest.json`.
 2) Запустите release-сборку: `npm run build:extension:release`.
 3) Загрузите ZIP `edrsr-ai-extension-vX.Y.Z.zip` в Chrome Web Store (Unlisted).
 4) Укажите URL Privacy Policy и заполните Data Safety.
 5) В описании перечислите и обоснуйте permissions/host_permissions.
+6) После публикации убедитесь, что production API разрешает Store origin:
+   `chrome-extension://dknfodmbknjengdbmdecidpapbiabgdb`.

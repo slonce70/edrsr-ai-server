@@ -5,6 +5,11 @@ import dbService from './services/dbService.js';
 import collaborationService from './services/collaborationService.js';
 import jobQueryService from './services/jobQueryService.js';
 import { canSubscribeToJob } from './services/wsSubscriptionService.js';
+import {
+  getWsMaxPayloadBytes,
+  parseWsClientMessage,
+  sanitizeWsLogValue,
+} from './services/wsMessageValidator.js';
 import { createClient } from '@supabase/supabase-js';
 import { parseDevAuthToken } from './auth/devAuth.js';
 
@@ -173,9 +178,11 @@ function initWebSocket(server) {
   const wss = new WebSocketServer({
     server,
     verifyClient,
+    maxPayload: getWsMaxPayloadBytes(),
     perMessageDeflate: {
       // Enable compression for large messages
       zlibDeflateOptions: { level: 6 },
+      concurrencyLimit: 4,
       threshold: 1024, // Only compress messages > 1KB
     },
   });
@@ -211,8 +218,18 @@ function initWebSocket(server) {
     });
 
     ws.on('message', async (message) => {
+      const parsed = parseWsClientMessage(message);
+      if (!parsed.ok) {
+        logger.warn(
+          `[WS-SECURITY] Rejected client message from ${clientId}: ${parsed.reason}; preview=${sanitizeWsLogValue(
+            message
+          )}`
+        );
+        return;
+      }
+
       try {
-        const data = JSON.parse(message);
+        const data = parsed.data;
 
         // Don't process heartbeats further, they are just for keep-alive
         if (data.type === 'heartbeat') {
@@ -222,7 +239,6 @@ function initWebSocket(server) {
 
         if (data.type === 'auth') {
           const token = data.token;
-          if (typeof token !== 'string' || token.length < 10) return;
           const devUser = parseDevAuthToken(token);
           if (devUser) {
             const clientData = clients.get(clientId);
@@ -250,10 +266,7 @@ function initWebSocket(server) {
           const clientData = clients.get(clientId);
           if (!clientData?.userId) return; // require auth for subscriptions
           if (clientData && data.jobId) {
-            const workspaceId =
-              typeof data.workspaceId === 'string' && data.workspaceId.trim()
-                ? data.workspaceId.trim()
-                : null;
+            const workspaceId = data.workspaceId || null;
             try {
               const allowed = await canSubscribeToJob({
                 jobId: data.jobId,
@@ -280,8 +293,8 @@ function initWebSocket(server) {
             }
           }
         }
-      } catch {
-        logger.warn(`[WS] Received non-JSON message from ${clientId}: ${message}`);
+      } catch (error) {
+        logger.warn(`[WS] Error handling client message from ${clientId}: ${error.message}`);
       }
     });
 

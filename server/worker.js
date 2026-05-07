@@ -311,7 +311,8 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
         const originalLinkData = batch.find((l) => l.url === caseData.url);
         return {
           ...caseData,
-          decisionDate: originalLinkData ? originalLinkData.decision_date : null,
+          decisionDate:
+            originalLinkData?.decision_date || caseData.decisionDate || caseData.date || null,
         };
       });
 
@@ -320,14 +321,10 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
         if (caseData.error) {
           await dbService.updateLinkStatus(jobId, caseData.url, 'error', null, caseData.error);
         } else {
-          await dbService.updateLinkStatus(
-            jobId,
-            caseData.url,
-            'processed',
-            caseData.body,
-            null,
-            caseData.metadata
-          );
+          await dbService.updateLinkStatus(jobId, caseData.url, 'processed', caseData.body, null, {
+            ...(caseData.metadata || {}),
+            decisionDate: caseData.decisionDate || null,
+          });
         }
       }
 

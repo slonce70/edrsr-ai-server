@@ -142,6 +142,7 @@ async function run() {
 
   // --- origin policy tests ---
   try {
+    const serverSource = fs.readFileSync(path.resolve(__dirname, '../server/server.js'), 'utf8');
     const prodEnv = {
       NODE_ENV: 'production',
       CORS_ALLOWED_ORIGINS: 'https://portal.example.com',
@@ -163,6 +164,7 @@ async function run() {
       'https://www.edrsr-ai-server.fun',
       'https://app.edrsr-ai-server.fun',
     ]);
+    assert.match(serverSource, /error\.status = 403;/);
     pass('originPolicy');
   } catch (e) {
     fail('originPolicy', e);
@@ -188,6 +190,15 @@ async function run() {
     assert.match(bgSource, /broadcastToResultsPorts\(jobData\.id/);
     assert.match(bgSource, /redirectResultsPortsForJob\(jobId, result\.jobId\)/);
     assert.match(bgSource, /port\.jobId = jobId;/);
+    assert.match(bgSource, /async function getCurrentWebSocketStatus\(\)/);
+    assert.match(
+      bgSource,
+      /return \(await isAuthenticated\(\)\) \? 'disconnected' : 'auth_required';/
+    );
+    assert.match(popupSource, /case 'auth_required':/);
+    assert.match(popupSource, /popup\.messages\.authRequired/);
+    assert.match(popupSource, /case 'error':/);
+    assert.match(popupSource, /popup\.messages\.serverConnectionError/);
     assert.doesNotMatch(shareLinksSource, /navigator\.clipboard\.writeText\(link\.share_url\)/);
     pass('extensionWebContracts');
   } catch (e) {
@@ -209,11 +220,27 @@ async function run() {
       'EXTENSION_BUILD_ENV=production PACKAGE_EXTENSION_ZIP=true node scripts/build-extension.js'
     );
     assert.match(buildScriptSource, /const SHOULD_PACKAGE_ZIP =/);
+    assert.match(buildScriptSource, /shouldCopyExtensionFile/);
+    assert.match(buildScriptSource, /basename !== 'AGENTS\.md'/);
     assert.match(buildScriptSource, /Skipping zip packaging for non-release build/);
     assert.match(
       buildScriptSource,
       /Release zip packaging is only allowed for production\/staging builds/
     );
+    const i18nSource = fs.readFileSync(path.resolve(__dirname, '../extension/i18n.js'), 'utf8');
+    const popupSource = fs.readFileSync(path.resolve(__dirname, '../extension/popup.js'), 'utf8');
+    const docsSource = fs.readFileSync(
+      path.resolve(__dirname, '../docs/ENVIRONMENT_VARIABLES.md'),
+      'utf8'
+    );
+    assert.doesNotMatch(
+      i18nSource,
+      /Требуется запущенный сервер API|Потрібен запущений сервер API/
+    );
+    assert.match(popupSource, /API_BASE_URL/);
+    assert.match(popupSource, /apiHost/);
+    assert.match(docsSource, /CHROME_EXTENSION_IDS=__CHROME_STORE_EXTENSION_ID__/);
+    assert.match(docsSource, /chrome-extension:\/\/__CHROME_STORE_EXTENSION_ID__/);
     pass('extensionBuildPolicy');
   } catch (e) {
     fail('extensionBuildPolicy', e);

@@ -6,18 +6,19 @@ import { fileURLToPath } from 'url';
 
 import { createClient } from '@supabase/supabase-js';
 import collaborationService from '../services/collaborationService.js';
-import dbService from '../services/dbService.js';
 import jobQueryService from '../services/jobQueryService.js';
 import jobWriteService from '../services/jobWriteService.js';
 import queueService from '../services/queueService.js';
+import { refreshHeuristicTitle } from '../services/jobTitleService.js';
+import { createWorkerLifecycleService } from '../services/workerLifecycleService.js';
 import { attachUser, requireAuthExcept } from '../middleware/auth.js';
-import { limitCollect, limitRetry } from '../middleware/rateLimit.js';
-import { validateCollectRequest } from '../middleware/validators.js';
 import { adminLoginRateLimit, checkBlocked, trackFailedLogin } from '../middleware/security.js';
 import jobQueue from '../queue.js';
 import { sendUpdateToJobOwner } from '../websocket.js';
-import { logger, isValidEDRSRUrl } from '../utils.js';
+import { logger } from '../utils.js';
 import createChatRouter from './chat.js';
+import createJobCollectionRouter from './job-collection.js';
+import createJobMutationsRouter from './job-mutations.js';
 import createJobQueriesRouter from './job-queries.js';
 import createOperationsRouter from './operations.js';
 import createPromptsRouter from './prompts.js';
@@ -128,47 +129,11 @@ const ENABLE_PERIODIC_RECOVERY = process.env.ENABLE_PERIODIC_RECOVERY !== 'false
 const ENABLE_CHAT_CLEANUP = process.env.ENABLE_CHAT_CLEANUP !== 'false';
 const ENABLE_WORKER_AUTO_TERMINATE = process.env.ENABLE_WORKER_AUTO_TERMINATE !== 'false';
 const activeWorkers = new Map(); // Для отслеживания активных воркеров: jobId -> worker
-
-// Автоочищення зависших воркерів кожні 5 хвилин (TTL 30 хвилин)
-const MAX_WORKER_AGE_MS = 30 * 60 * 1000; // 30 хв
-setInterval(
-  () => {
-    const now = Date.now();
-    for (const [jobId, data] of activeWorkers.entries()) {
-      if (now - data.startTime > MAX_WORKER_AGE_MS) {
-        logger.warn(
-          `[CLEANUP] Видаляю завислий воркер ${jobId} (вік: ${Math.round((now - data.startTime) / 60000)} хв)`
-        );
-        activeWorkers.delete(jobId);
-      }
-    }
-  },
-  5 * 60 * 1000
-);
-
-function truncate(str, max = 70) {
-  if (!str) return '';
-  const s = String(str).trim();
-  return s.length > max ? s.slice(0, max - 1) + '…' : s;
-}
-
-function generateInitialTitle({ linksCount = 0, prompt = null, promptLabel = null }) {
-  const n = linksCount || 0;
-  const suffix = n > 0 ? ` — ${n} дел` : '';
-  if (promptLabel && promptLabel.trim()) return `Анализ: «${truncate(promptLabel, 40)}»${suffix}`;
-  if (prompt && typeof prompt === 'string' && prompt.trim()) {
-    const words = prompt
-      .toLowerCase()
-      .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-      .split(/\s+/)
-      .filter((w) => w.length > 3)
-      .slice(0, 5)
-      .join(' ');
-    if (words) return `Запрос: ${truncate(words, 40)}${suffix}`;
-  }
-  const today = new Date().toLocaleDateString('ru-RU');
-  return `Анализ от ${today}${suffix}`;
-}
+const workerLifecycle = createWorkerLifecycleService({
+  activeWorkers,
+  processQueue,
+});
+const { forceTerminateWorker, getActiveWorkersInfo } = workerLifecycle;
 
 async function resolveWorkspaceFromQuery(req, res) {
   const workspaceId = typeof req.query.workspaceId === 'string' ? req.query.workspaceId : null;
@@ -179,47 +144,6 @@ async function resolveWorkspaceFromQuery(req, res) {
     return null;
   }
   return { id: workspaceId, role };
-}
-
-async function refreshHeuristicTitle(jobId) {
-  try {
-    const userId = await jobQueryService.getJobOwnerId(jobId);
-    const summary = await jobQueryService.summarizeJobForTitle(jobId, userId || null);
-    const { processed, total, topArticle, topCaseType } = summary;
-    const status = await jobQueryService.getJobStatus(jobId);
-    if (!total || total < 1) return false;
-    let base = '';
-    if (topArticle) base = `Ст. ${topArticle}`;
-    else if (topCaseType) base = `${topCaseType}`;
-    else base = 'Анализ';
-    // During processing, avoid confusing partial counters in the title.
-    // Show counts only after completion; otherwise show stable total count.
-    const suffix =
-      status === 'completed' ? (processed ? ` — ${processed} из ${total}` : '') : ` — ${total}`;
-    const title = truncate(`${base}${suffix}`, 70);
-    const ok = await jobWriteService.updateAutoTitleIfAllowed(jobId, title, 'heuristic');
-    if (ok) {
-      const updatedJob = await dbService.getJob(jobId, userId || null);
-      // Send light update to clients if job still exists
-      if (updatedJob) {
-        sendUpdateToJobOwner(jobId, {
-          id: updatedJob.id,
-          title: updatedJob.title,
-          status: updatedJob.status,
-          progress: updatedJob.progress,
-          processed_links: updatedJob.processed_links,
-          total_links: updatedJob.total_links,
-          updated_at: updatedJob.updated_at,
-        });
-      } else {
-        logger.debug(`[TITLE] Job ${jobId} disappeared before title update broadcast`);
-      }
-    }
-    return ok;
-  } catch (e) {
-    logger.debug(`[TITLE] refreshHeuristicTitle error for ${jobId}: ${e.message}`);
-    return false;
-  }
 }
 
 function startWorker({ jobId, links, cookie, prompt, claimed = false }) {
@@ -400,140 +324,6 @@ function startWorker({ jobId, links, cookie, prompt, claimed = false }) {
   });
 }
 
-// Функция для получения информации об активных воркерах
-function getActiveWorkersInfo() {
-  const workers = [];
-  const now = Date.now();
-
-  for (const [jobId, workerInfo] of activeWorkers.entries()) {
-    const runningTime = now - workerInfo.startTime;
-    workers.push({
-      jobId,
-      status: workerInfo.status,
-      startTime: workerInfo.startTime,
-      runningTimeMs: runningTime,
-      runningTimeFormatted: formatDuration(runningTime),
-    });
-  }
-
-  return {
-    count: workers.length,
-    workers: workers.sort((a, b) => b.runningTimeMs - a.runningTimeMs), // Сортируем по времени работы
-  };
-}
-
-// Вспомогательная функция для форматирования времени
-function formatDuration(ms) {
-  const seconds = Math.floor(ms / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
-
-  if (hours > 0) {
-    return `${hours}ч ${minutes % 60}м ${seconds % 60}с`;
-  } else if (minutes > 0) {
-    return `${minutes}м ${seconds % 60}с`;
-  } else {
-    return `${seconds}с`;
-  }
-}
-
-async function markJobAsForceTerminated(jobId, reason) {
-  const errorMessage = `Воркер принудительно завершён: ${reason}`;
-
-  try {
-    const updatedJob = await jobWriteService.updateJobStatus(jobId, 'error', {
-      error_message: errorMessage,
-      end_time: new Date().toISOString(),
-    });
-
-    if (updatedJob) {
-      sendUpdateToJobOwner(jobId, {
-        ...updatedJob,
-        error_message: errorMessage,
-      });
-    }
-  } catch (statusError) {
-    logger.error(
-      `[FORCE_TERMINATE] Ошибка обновления статуса задачи ${jobId}:`,
-      statusError.message
-    );
-  }
-}
-
-// Функция для принудительного завершения воркера
-function forceTerminateWorker(jobId, reason = 'Принудительное завершение') {
-  const workerInfo = activeWorkers.get(jobId);
-  if (!workerInfo) {
-    logger.warn(`[FORCE_TERMINATE] Воркер для задачи ${jobId} не найден`);
-    return false;
-  }
-
-  logger.warn(`[FORCE_TERMINATE] Принудительно завершаю воркер для задачи ${jobId}: ${reason}`);
-
-  try {
-    // Сначала пытаемся отправить сигнал отмены
-    workerInfo.worker.postMessage({
-      type: 'cancelJob',
-      jobId: jobId,
-      reason: reason,
-    });
-
-    // Даем воркеру 3 секунды на корректное завершение (сокращено с 5)
-    setTimeout(() => {
-      const stillActive = activeWorkers.get(jobId);
-      if (stillActive) {
-        logger.error(
-          `[FORCE_TERMINATE] Воркер ${jobId} не отвечает на сигнал отмены, принудительно завершаю`
-        );
-
-        // Принудительно завершаем воркер
-        try {
-          stillActive.worker.terminate();
-        } catch (termError) {
-          logger.error(
-            `[FORCE_TERMINATE] Ошибка при завершении воркера ${jobId}:`,
-            termError.message
-          );
-        }
-
-        stillActive.status = 'force_terminated';
-        activeWorkers.delete(jobId);
-        void markJobAsForceTerminated(jobId, reason).finally(() => {
-          // Освобождаем блокировку в БД только после фиксации финального статуса
-          queueService.clearJobLock(jobId).catch((err) => {
-            logger.error(
-              `[FORCE_TERMINATE] Ошибка очистки блокировки в БД для ${jobId}:`,
-              err.message
-            );
-          });
-        });
-
-        // Освобождаем очередь если этот воркер блокировал её
-        if (!jobQueue.isIdle()) {
-          jobQueue.endProcessing();
-          processQueue();
-        }
-      }
-    }, 3000);
-
-    return true;
-  } catch (error) {
-    logger.error(`[FORCE_TERMINATE] Ошибка при завершении воркера ${jobId}:`, error.message);
-
-    // В случае ошибки все равно удаляем из отслеживания
-    activeWorkers.delete(jobId);
-    void markJobAsForceTerminated(jobId, reason).finally(() => {
-      queueService.clearJobLock(jobId).catch((lockError) => {
-        logger.error(
-          `[FORCE_TERMINATE] Ошибка очистки блокировки в БД для ${jobId}:`,
-          lockError.message
-        );
-      });
-    });
-    return false;
-  }
-}
-
 async function processQueue() {
   // Reserve processing slot immediately to prevent race across concurrent triggers
   if (!jobQueue.tryReserve()) {
@@ -669,7 +459,13 @@ function startWorkerCleanupService() {
         } catch (error) {
           logger.error(`[CLEANUP] Ошибка health check для воркера ${jobId}:`, error.message);
           // Если не можем отправить сообщение, воркер вероятно мертв
-          forceTerminateWorker(jobId, 'Воркер не отвечает на health check');
+          if (ENABLE_WORKER_AUTO_TERMINATE) {
+            forceTerminateWorker(jobId, 'Воркер не отвечает на health check');
+          } else {
+            logger.info(
+              `[CLEANUP] Auto‑terminate disabled, worker ${jobId} left running after failed health check`
+            );
+          }
         }
       }
 
@@ -840,326 +636,20 @@ export default function (clients) {
   // Kick the queue once on startup (handles already queued jobs)
   setTimeout(() => processQueue(), 2000);
 
-  router.post('/collect', limitCollect, validateCollectRequest, async (req, res, next) => {
-    try {
-      const { links, cookie = '', prompt = null, clientId } = req.body;
-      const autoTitleEnabled =
-        typeof req.body.auto_title_enabled === 'boolean' ? req.body.auto_title_enabled : true;
-      const promptLabel = req.body.prompt_label || null;
-      if (!links || !Array.isArray(links) || links.length === 0) {
-        return res.status(400).json({ error: 'Массив ссылок "links" не может быть пустым' });
-      }
-      // Лимит на количество ссылок в одном запросе (конфигурируемый)
-      const MAX_LINKS = parseInt(process.env.MAX_LINKS_PER_REQUEST || '300', 10);
-      if (links.length > MAX_LINKS) {
-        return res.status(422).json({ error: `Слишком много ссылок: максимум ${MAX_LINKS}` });
-      }
-      let clientData = null;
-      if (clientId) {
-        if (!clients.has(clientId)) {
-          logger.warn(`[SEC] Unknown clientId provided for collect: ${clientId}`);
-        } else {
-          clientData = clients.get(clientId);
-        }
-      }
-
-      // Валидация, чтобы предотвратить падение сервера
-      const validLinks = links.filter((link) => link && typeof link === 'object' && link.url);
-      if (validLinks.length < links.length) {
-        logger.warn(
-          `[VALIDATION] Получен некорректный массив ссылок. Отфильтровано ${links.length - validLinks.length} невалидных элементов.`
-        );
-      }
-      // Строгая проверка домена/пути (только EDRSR /Review/<id>)
-      const strictlyValid = validLinks.filter(
-        (l) => typeof l.url === 'string' && isValidEDRSRUrl(l.url)
-      );
-      // Ограничение длины URL и полей
-      const MAX_URL_LEN = parseInt(process.env.MAX_URL_LENGTH || '2048', 10);
-      const MAX_PROMPT_LEN = parseInt(process.env.MAX_PROMPT_LENGTH || '4000', 10);
-      if (prompt && typeof prompt === 'string' && prompt.length > MAX_PROMPT_LEN) {
-        return res.status(422).json({ error: `Слишком длинный prompt (> ${MAX_PROMPT_LEN})` });
-      }
-      const tooLongUrls = strictlyValid.filter((l) => l.url.length > MAX_URL_LEN).length;
-      if (tooLongUrls > 0) {
-        logger.warn(
-          `[VALIDATION] Отфильтровано ${tooLongUrls} слишком длинных URL (> ${MAX_URL_LEN})`
-        );
-      }
-      const safeLinks = strictlyValid.filter((l) => l.url.length <= MAX_URL_LEN);
-
-      if (safeLinks.length === 0) {
-        return res
-          .status(400)
-          .json({ error: 'Не найдено ни одной валидной ссылки для обработки.' });
-      }
-
-      const jobId = uuid();
-      const defaultTitle = generateInitialTitle({
-        linksCount: safeLinks.length,
-        prompt,
-        promptLabel,
-      });
-
-      const jobData = {
-        id: jobId,
-        title: defaultTitle,
-        status: 'queued',
-        totalLinks: safeLinks.length,
-        links: safeLinks,
-        prompt,
-        titleSource: 'heuristic',
-        autoTitleEnabled,
-      };
-
-      // Привязываем job к WebSocket только если он принадлежит тому же пользователю
-      if (clientData && clientData.userId && req.user?.id && clientData.userId === req.user.id) {
-        clientData.jobs.add(jobId);
-      } else if (clientId) {
-        logger.warn(`[SEC] ClientId ${clientId} does not match req.user for job ${jobId}`);
-      }
-
-      let workspace = null;
-      const requestedWorkspaceId =
-        typeof req.body.workspaceId === 'string' ? req.body.workspaceId : null;
-      if (req.user?.id) {
-        if (requestedWorkspaceId) {
-          const role = await collaborationService.getWorkspaceRole(
-            req.user.id,
-            requestedWorkspaceId
-          );
-          if (!role) return res.status(403).json({ error: 'Недостаточно прав доступа' });
-          workspace = { id: requestedWorkspaceId, role };
-        } else {
-          workspace = await collaborationService.ensureWorkspaceForUser(
-            req.user.id,
-            req.user.email
-          );
-        }
-      }
-      const matterId = typeof req.body.matterId === 'string' ? req.body.matterId : null;
-      if (matterId && workspace) {
-        const matter = await collaborationService.getMatter(matterId, workspace.id);
-        if (!matter) return res.status(404).json({ error: 'Matter not found' });
-      }
-
-      await dbService.createJob(jobData, req.user?.id || null, workspace?.id || null, matterId);
-      const initialJobState = await dbService.getJob(jobId, req.user?.id || null);
-
-      await jobWriteService.updateJobStatus(jobId, 'queued', { progress: 0 });
-      sendUpdateToJobOwner(jobId, {
-        ...initialJobState,
-        status: 'queued',
-        progress: 0,
-        message: 'Задание в очереди',
-      });
-
-      res.json({ success: true, jobId, ...initialJobState });
-
-      // Queue только очищенные ссылки, чтобы не перегружать воркерлер лишними проверками
-      jobQueue.enqueue({ jobId, links: safeLinks, cookie, prompt });
-      processQueue();
-    } catch (error) {
-      next(error);
-    }
-  });
+  router.use(createJobCollectionRouter({ clients, processQueue }));
   router.use(createPromptsRouter());
 
-  router.post('/retry/:jobId', limitRetry, async (req, res, next) => {
-    try {
-      const { jobId: oldJobId } = req.params;
-      const { clientId } = req.body;
-
-      if (!clientId || !clients.has(clientId)) {
-        return res.status(400).json({ error: 'Неверный или отсутствующий clientId' });
-      }
-
-      // 1. Get the original job details
-      const originalJob = await dbService.getJob(oldJobId, req.user?.id || null);
-      if (!originalJob) {
-        return res.status(404).json({ error: 'Задание для повтора не найдено.' });
-      }
-
-      // 2. Create a new job ID and data object
-      const newJobId = uuid();
-      const today = new Date().toLocaleDateString('ru-RU');
-      const defaultTitle = `Повторный анализ от ${today}`;
-
-      const jobData = {
-        id: newJobId,
-        title: defaultTitle,
-        status: 'queued',
-        totalLinks: originalJob.total_links || originalJob.totalLinks || originalJob.links.length,
-        links: originalJob.links.map((link) => ({
-          url: link.url,
-          decisionDate: link.decision_date,
-          status: 'pending',
-        })),
-        prompt: originalJob.prompt,
-        originalJobId: oldJobId, // Keep a reference to the original
-      };
-
-      // 3. Associate the new job with the client
-      const clientData = clients.get(clientId);
-      if (clientData && clientData.userId && req.user?.id && clientData.userId === req.user.id) {
-        clientData.jobs.add(newJobId);
-      } else {
-        logger.warn(`[SEC] ClientId ${clientId} does not match req.user for job ${newJobId}`);
-      }
-
-      // 4. Save the new job to the database
-      await dbService.createJob(
-        jobData,
-        req.user?.id || null,
-        originalJob.workspace_id || null,
-        originalJob.matter_id || null
-      );
-      const newJobState = await dbService.getJob(newJobId, req.user?.id || null);
-
-      // 5. Send initial "queued" status via WebSocket
-      sendUpdateToJobOwner(newJobId, {
-        ...newJobState,
-        status: 'queued',
-        progress: 0,
-        message: 'Задание в очереди на повтор',
-      });
-
-      // 6. Respond to the HTTP request
-      res.json({ success: true, jobId: newJobId, ...newJobState });
-
-      // 7. Enqueue the job for the worker
-      // Assuming originalJob had a cookie, we might need to handle that if it's stored.
-      // For now, passing an empty one as '/collect' does.
-      jobQueue.enqueue({
-        jobId: newJobId,
-        links: newJobState.links,
-        cookie: '',
-        prompt: newJobState.prompt,
-      });
-      processQueue();
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  router.patch('/jobs/:id/title', async (req, res, next) => {
-    try {
-      const { id } = req.params;
-      const { title } = req.body;
-
-      if (!title || typeof title !== 'string' || title.length > 255) {
-        return res.status(400).json({ error: 'Неверный или отсутствующий заголовок' });
-      }
-
-      const workspace = await resolveWorkspaceFromQuery(req, res);
-      if (req.query.workspaceId && !workspace) return;
-
-      let updatedJob = null;
-      if (workspace) {
-        const job = await jobQueryService.getJobLightForWorkspace(id, workspace.id);
-        if (!job) return res.status(404).json({ error: 'Задание не найдено' });
-        if (workspace.role === 'member' && job.user_id && job.user_id !== req.user.id) {
-          return res.status(403).json({ error: 'Недостаточно прав доступа' });
-        }
-        updatedJob = await jobWriteService.updateJobTitleForWorkspace(id, title, workspace.id);
-      } else {
-        updatedJob = await jobWriteService.updateJobTitle(id, title, req.user?.id || null);
-      }
-
-      if (!updatedJob) {
-        return res.status(404).json({ error: 'Задание не найдено' });
-      }
-
-      // Send a WebSocket update to all relevant clients
-      sendUpdateToJobOwner(id, {
-        id,
-        ...updatedJob,
-        message: 'Заголовок обновлен',
-      });
-
-      res.status(200).json({ success: true, job: updatedJob });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  router.get('/jobs', async (req, res, next) => {
-    try {
-      const { limit, page, status = '', search = '' } = req.query;
-      const workspace = await resolveWorkspaceFromQuery(req, res);
-      if (req.query.workspaceId && !workspace) return;
-      const maxLimit = parseInt(process.env.JOBS_MAX_LIMIT || '100', 10);
-      const numericLimit = Math.min(parseInt(limit, 10) || maxLimit, maxLimit);
-      const finalLimit = limit === 'all' ? maxLimit : numericLimit;
-
-      const wantPaged = typeof page !== 'undefined' || status || search;
-      if (limit === 'all' && !wantPaged) {
-        const jobs = workspace
-          ? await jobQueryService.getRecentJobsForWorkspace(workspace.id, 'all')
-          : await jobQueryService.getRecentJobs('all', req.user?.id || null);
-        return res.json({ success: true, jobs });
-      }
-
-      const pageNum = Math.max(1, parseInt(page, 10) || 1);
-      const result = await jobQueryService.getJobsPage({
-        page: pageNum,
-        limit: finalLimit,
-        status: typeof status === 'string' ? status : '',
-        search: typeof search === 'string' ? search : '',
-        userId: workspace ? null : req.user?.id || null,
-        workspaceId: workspace?.id || null,
-      });
-
-      return res.json({
-        success: true,
-        jobs: result.jobs,
-        pagination: {
-          page: result.page,
-          limit: result.limit,
-          total: result.total,
-        },
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  router.delete('/jobs/:id', async (req, res, next) => {
-    try {
-      const { id } = req.params;
-
-      // Проверяем есть ли активный воркер для этой задачи
-      const workerInfo = activeWorkers.get(id);
-      if (workerInfo) {
-        logger.info(`[DELETE_JOB] Найден активный воркер для задачи ${id}, завершаю его...`);
-        forceTerminateWorker(id, 'Задача удалена пользователем');
-      }
-
-      const workspace = await resolveWorkspaceFromQuery(req, res);
-      if (req.query.workspaceId && !workspace) return;
-
-      if (workspace) {
-        const job = await jobQueryService.getJobLightForWorkspace(id, workspace.id);
-        if (!job) return res.status(404).json({ error: 'Задание не найдено' });
-        if (workspace.role === 'member' && job.user_id && job.user_id !== req.user.id) {
-          return res.status(403).json({ error: 'Недостаточно прав доступа' });
-        }
-        await jobWriteService.deleteJobForWorkspace(id, workspace.id);
-      } else {
-        await jobWriteService.deleteJob(id, req.user?.id || null);
-      }
-      // Clean up chat session context and metadata for this job
-      if (chatSessions.has(id)) chatSessions.delete(id);
-      if (chatMeta.has(id)) chatMeta.delete(id);
-      res.status(200).json({
-        success: true,
-        message: `Job ${id} deleted successfully.`,
-        workerTerminated: !!workerInfo,
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
+  router.use(
+    createJobMutationsRouter({
+      chatMeta,
+      chatSessions,
+      clients,
+      hasActiveWorker: (jobId) => activeWorkers.has(jobId),
+      processQueue,
+      resolveWorkspaceFromQuery,
+      terminateWorker: forceTerminateWorker,
+    })
+  );
   router.use(createJobQueriesRouter({ resolveWorkspaceFromQuery }));
 
   router.use(createChatRouter({ chatMeta, chatSessions, resolveWorkspaceFromQuery }));

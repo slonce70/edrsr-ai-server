@@ -11,6 +11,7 @@ const projectRoot = path.resolve(__dirname, '..');
 const extensionDir = path.join(projectRoot, 'extension');
 const buildDir = path.join(projectRoot, 'extension-build');
 const serverEnvPath = path.join(projectRoot, 'server/.env');
+const sourceConfigPath = path.join(extensionDir, 'config.js');
 
 if (fs.existsSync(serverEnvPath)) {
   dotenv.config({ path: serverEnvPath });
@@ -41,10 +42,17 @@ const DEV_DEFAULTS = Object.freeze({
   ),
 });
 
-function assertEnv(name) {
-  const value = String(process.env[name] || '').trim();
+function readSourceConfigString(name) {
+  const source = fs.readFileSync(sourceConfigPath, 'utf-8');
+  const pattern = new RegExp(`export const ${name} =\\s*(['"])(.*?)\\1;`, 's');
+  const match = source.match(pattern);
+  return match?.[2] ? match[2].trim() : '';
+}
+
+function getRequiredBuildValue(envName, configName) {
+  const value = String(process.env[envName] || readSourceConfigString(configName)).trim();
   if (!value) {
-    throw new Error(`${name} is required for ${EXTENSION_BUILD_ENV} extension builds`);
+    throw new Error(`${envName} is required for ${EXTENSION_BUILD_ENV} extension builds`);
   }
   return value;
 }
@@ -55,11 +63,11 @@ function getBuildConfig() {
   }
 
   return {
-    apiBaseUrl: assertEnv('EXT_API_URL'),
-    wsUrl: assertEnv('EXT_WS_URL'),
-    supabaseUrl: assertEnv('EXT_SUPABASE_URL'),
-    supabaseAnonKey: assertEnv('EXT_SUPABASE_ANON_KEY'),
-    supabaseRedirectTo: assertEnv('EXT_SUPABASE_REDIRECT_TO'),
+    apiBaseUrl: getRequiredBuildValue('EXT_API_URL', 'API_BASE_URL'),
+    wsUrl: getRequiredBuildValue('EXT_WS_URL', 'WS_URL'),
+    supabaseUrl: getRequiredBuildValue('EXT_SUPABASE_URL', 'SUPABASE_URL'),
+    supabaseAnonKey: getRequiredBuildValue('EXT_SUPABASE_ANON_KEY', 'SUPABASE_ANON_KEY'),
+    supabaseRedirectTo: getRequiredBuildValue('EXT_SUPABASE_REDIRECT_TO', 'SUPABASE_REDIRECT_TO'),
     devAuthEnabled: false,
   };
 }
@@ -108,6 +116,13 @@ async function ensureHermeticFonts() {
       );
     }
   }
+}
+
+function shouldCopyExtensionFile(src) {
+  const relativePath = path.relative(extensionDir, src);
+  const parts = relativePath.split(path.sep);
+  const basename = path.basename(src);
+  return basename !== 'AGENTS.md' && !parts.includes('.DS_Store');
 }
 
 async function patchConfig(config) {
@@ -163,6 +178,7 @@ async function patchManifest(config) {
   }
 
   const apiOrigin = new URL(config.apiBaseUrl).origin;
+  const redirectOrigin = new URL(config.supabaseRedirectTo).origin;
   const supabaseOrigin = new URL(config.supabaseUrl).origin;
 
   manifestJson.version = rootPkg.version;
@@ -176,6 +192,7 @@ async function patchManifest(config) {
           !permission.includes('supabase.co')
       ),
       `${apiOrigin}/*`,
+      `${redirectOrigin}/*`,
       `${supabaseOrigin}/*`,
     ])
   );
@@ -248,7 +265,7 @@ async function build() {
     await fs.emptyDir(buildDir);
 
     console.log(`📂 Copying files from ${extensionDir} to ${buildDir}`);
-    await fs.copy(extensionDir, buildDir);
+    await fs.copy(extensionDir, buildDir, { filter: shouldCopyExtensionFile });
 
     await patchConfig(config);
     await patchPopupFooter(config);

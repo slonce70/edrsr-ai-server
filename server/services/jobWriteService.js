@@ -92,7 +92,9 @@ class JobWriteService {
       sql = `
             UPDATE job_links
             SET status = $1, content = $2, error_message = $3, processed_at = CURRENT_TIMESTAMP,
-                law_articles = $6, claim_amount = $7, case_type = $8, parties = $9, metadata_extracted_at = CURRENT_TIMESTAMP
+                law_articles = $6, claim_amount = $7, case_type = $8, parties = $9,
+                decision_date = COALESCE($10, decision_date),
+                metadata_extracted_at = CURRENT_TIMESTAMP
             WHERE job_id = $4 AND url = $5
         `;
       params = [
@@ -105,6 +107,7 @@ class JobWriteService {
         metadata.claimAmount ? JSON.stringify(metadata.claimAmount) : null,
         metadata.caseType || null,
         JSON.stringify(metadata.parties || {}),
+        metadata.decisionDate || null,
       ];
     } else {
       sql = `

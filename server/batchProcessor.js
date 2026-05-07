@@ -18,11 +18,188 @@ import { buildStrictCaseLinkMap, createAnalysisPrompt, logger } from './utils.js
 
 const CONFIGURED_MAX_RETRIES = parseInt(process.env.MAX_RETRIES, 10) || 15;
 const INITIAL_RETRY_DELAY_MS = 20000; // 20 seconds
+const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function getEffectiveMaxRetries() {
-  const modelsPerKey = FALLBACK_MODEL_NAME && FALLBACK_MODEL_NAME !== modelName ? 2 : 1;
+function getEffectiveMaxRetriesFor(manager, primaryModel, fallbackModel, configuredMaxRetries) {
+  const modelsPerKey = fallbackModel && fallbackModel !== primaryModel ? 2 : 1;
 
-  return Math.max(CONFIGURED_MAX_RETRIES, apiKeyManager.totalCount * modelsPerKey);
+  return Math.max(configuredMaxRetries, manager.totalCount * modelsPerKey);
+}
+
+/**
+ * Create a Gemini content generator with explicit dependencies.
+ * Production uses default runtime deps; regression tests use fake deps to avoid network calls.
+ */
+function createContentGenerator({
+  apiKeyManager: manager,
+  cliProxyClient: proxyClient = null,
+  enableCliProxy = false,
+  cliProxyModel = '',
+  modelName: primaryModel,
+  fallbackModelName = '',
+  generationConfig,
+  safetySettings,
+  logger: log = logger,
+  sleep = defaultSleep,
+  configuredMaxRetries = CONFIGURED_MAX_RETRIES,
+}) {
+  return async function generatedContent(prompt, reservedKeyIndex = null) {
+    // ========== PHASE 1: CLIProxyAPI (PRIMARY) ==========
+    if (enableCliProxy && proxyClient) {
+      try {
+        log.debug(
+          `🚀 CLIProxy PRIMARY (${cliProxyModel}, доступно ${proxyClient.availableCount}/${proxyClient.totalCount} ключів)`
+        );
+
+        const response = await proxyClient.generateContent({
+          model: cliProxyModel,
+          contents: prompt,
+          config: generationConfig,
+        });
+
+        if (response.text?.trim()) {
+          log.info(`✅ CLIProxy успіх! (${response.text.length} chars)`);
+          return response.text.trim();
+        }
+      } catch (proxyError) {
+        if (proxyError.allKeysExhausted) {
+          const tried = proxyError.tried || proxyClient.totalCount;
+          log.warn(
+            `⚠️ CLIProxy: всі ${proxyClient.totalCount} ключів вичерпані (спроб: ${tried}), fallback на офіційні...`
+          );
+        } else {
+          log.warn(`⚠️ CLIProxy помилка: ${proxyError.message}`);
+        }
+      }
+    }
+
+    // ========== PHASE 2: Офіційні Gemini ключі (FALLBACK) ==========
+    let attempt = 0;
+    const maxRetries = getEffectiveMaxRetriesFor(
+      manager,
+      primaryModel,
+      fallbackModelName,
+      configuredMaxRetries
+    );
+    const keysFullyTried = new Set(); // Ключі де обидві моделі не спрацювали
+
+    while (attempt < maxRetries) {
+      attempt++;
+
+      // Використати зарезервований ключ або взяти наступний доступний
+      const { client, keyIndex } =
+        reservedKeyIndex !== null
+          ? manager.getClientByIndex(reservedKeyIndex)
+          : manager.getNextClient();
+
+      // Спробувати спочатку основну модель, потім fallback
+      const modelsToTry = [primaryModel];
+      if (fallbackModelName && fallbackModelName !== primaryModel) {
+        modelsToTry.push(fallbackModelName);
+      }
+
+      for (const currentModel of modelsToTry) {
+        log.info(
+          `🚀 Gemini (Спроба ${attempt}/${maxRetries}, Ключ #${keyIndex + 1}/${manager.totalCount}, Модель: ${currentModel})`
+        );
+
+        try {
+          const response = await client.models.generateContent({
+            model: currentModel,
+            contents: prompt,
+            config: {
+              ...generationConfig,
+              safetySettings,
+            },
+          });
+          const text = response.text;
+
+          if (!text?.trim()) {
+            throw new Error('Gemini повернув порожню відповідь.');
+          }
+          return text.trim(); // Успіх!
+        } catch (error) {
+          const message = String(error.message || '');
+          const statusCode = error.status || error.statusCode || message.match(/\b(\d{3})\b/)?.[1];
+
+          // Детальне логування помилки
+          log.warn(`❌ [GEMINI] Ключ #${keyIndex + 1}, ${currentModel}: ${message.slice(0, 200)}`);
+          if (statusCode) {
+            log.warn(`   HTTP Status: ${statusCode}`);
+          }
+
+          const isQuotaError = message.includes('429') || message.includes('RESOURCE_EXHAUSTED');
+          const isOverloadError = message.includes('503') || message.includes('overloaded');
+          const isEmptyResponse =
+            message.includes('порожню відповідь') ||
+            message.toLowerCase().includes('empty response');
+          const isPermissionDenied =
+            String(statusCode) === '403' ||
+            message.includes('PERMISSION_DENIED') ||
+            message.includes('denied access');
+          const isInvalidKey =
+            message.includes('400') ||
+            message.includes('401') ||
+            message.includes('API_KEY_INVALID') ||
+            message.includes('INVALID_ARGUMENT') ||
+            isPermissionDenied;
+
+          manager.markError(keyIndex);
+
+          // Невалідний ключ - позначаємо як ПЕРМАНЕНТНО невалідний
+          if (isInvalidKey) {
+            log.error(
+              `🚫 [GEMINI] Ключ #${keyIndex + 1} НЕВАЛІДНИЙ або не має доступу! Перевірте ключ/проєкт в Google AI Studio.`
+            );
+            manager.markInvalid(keyIndex); // Permanent ban замість cooldown
+            keysFullyTried.add(keyIndex);
+            break;
+          }
+
+          if (isQuotaError || isOverloadError || isEmptyResponse) {
+            // Спробувати fallback модель на цьому ж ключі
+            if (currentModel === primaryModel && modelsToTry.length > 1) {
+              log.info(`⚠️ ${currentModel} недоступна, пробую fallback модель...`);
+              await sleep(1000);
+              continue; // Спробувати наступну модель
+            }
+
+            // Обидві моделі не спрацювали на цьому ключі
+            // Використовуємо адаптивний cooldown на основі моделі
+            manager.markRateLimited(keyIndex, null, currentModel);
+            keysFullyTried.add(keyIndex);
+            log.info(`⚠️ Ключ #${keyIndex + 1} тимчасово недоступний, пробую інший ключ...`);
+            break; // Вийти з циклу моделей, спробувати інший ключ
+          }
+
+          // Інші помилки
+          const isNetworkError =
+            message.includes('fetch failed') ||
+            message.includes('ENET') ||
+            message.includes('ECONN');
+          const isInternalError = message.includes('500');
+
+          if ((isNetworkError || isInternalError) && attempt < maxRetries) {
+            const delay = INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt - 1);
+            log.info(`[RETRY] Помилка, повтор через ${Math.round(delay / 1000)} сек...`);
+            await sleep(delay);
+            break;
+          }
+
+          throw error;
+        }
+      }
+
+      // Якщо всі ключі вичерпані
+      if (keysFullyTried.size >= manager.totalCount && attempt < maxRetries) {
+        log.warn(`⚠️ Всі ${manager.totalCount} ключів rate limited, чекаю 60 сек...`);
+        keysFullyTried.clear();
+        await sleep(60000);
+      }
+    }
+
+    throw new Error('Вичерпано всі спроби запиту до Gemini');
+  };
 }
 
 /**
@@ -31,154 +208,34 @@ function getEffectiveMaxRetries() {
  * @param {number|null} reservedKeyIndex - Опціональний індекс зарезервованого ключа для batch
  * @returns {string} - Generated content
  */
-async function generateContent(prompt, reservedKeyIndex = null) {
-  // ========== PHASE 1: CLIProxyAPI (PRIMARY) ==========
-  if (ENABLE_CLI_PROXY && cliProxyClient) {
-    try {
-      logger.debug(
-        `🚀 CLIProxy PRIMARY (${CLI_PROXY_MODEL}, доступно ${cliProxyClient.availableCount}/${cliProxyClient.totalCount} ключів)`
-      );
+const generateContent = createContentGenerator({
+  apiKeyManager,
+  cliProxyClient,
+  enableCliProxy: ENABLE_CLI_PROXY,
+  cliProxyModel: CLI_PROXY_MODEL,
+  modelName,
+  fallbackModelName: FALLBACK_MODEL_NAME,
+  generationConfig: GENERATION_CONFIG,
+  safetySettings: SAFETY_SETTINGS,
+  logger,
+});
 
-      const response = await cliProxyClient.generateContent({
-        model: CLI_PROXY_MODEL,
-        contents: prompt,
-        config: GENERATION_CONFIG,
-      });
+const batchProcessorTestOverrides = {
+  generateContent: null,
+};
 
-      if (response.text?.trim()) {
-        logger.info(`✅ CLIProxy успіх! (${response.text.length} chars)`);
-        return response.text.trim();
-      }
-    } catch (proxyError) {
-      if (proxyError.allKeysExhausted) {
-        const tried = proxyError.tried || cliProxyClient.totalCount;
-        logger.warn(
-          `⚠️ CLIProxy: всі ${cliProxyClient.totalCount} ключів вичерпані (спроб: ${tried}), fallback на офіційні...`
-        );
-      } else {
-        logger.warn(`⚠️ CLIProxy помилка: ${proxyError.message}`);
-      }
-    }
+function setBatchProcessorTestOverrides(overrides = {}) {
+  if (Object.prototype.hasOwnProperty.call(overrides, 'generateContent')) {
+    batchProcessorTestOverrides.generateContent = overrides.generateContent;
   }
+}
 
-  // ========== PHASE 2: Офіційні Gemini ключі (FALLBACK) ==========
-  let attempt = 0;
-  const maxRetries = getEffectiveMaxRetries();
-  const keysFullyTried = new Set(); // Ключі де обидві моделі не спрацювали
+function clearBatchProcessorTestOverrides() {
+  batchProcessorTestOverrides.generateContent = null;
+}
 
-  while (attempt < maxRetries) {
-    attempt++;
-
-    // Використати зарезервований ключ або взяти наступний доступний
-    const { client, keyIndex } =
-      reservedKeyIndex !== null
-        ? apiKeyManager.getClientByIndex(reservedKeyIndex)
-        : apiKeyManager.getNextClient();
-
-    // Спробувати спочатку основну модель, потім fallback
-    const modelsToTry = [modelName];
-    if (FALLBACK_MODEL_NAME && FALLBACK_MODEL_NAME !== modelName) {
-      modelsToTry.push(FALLBACK_MODEL_NAME);
-    }
-
-    for (const currentModel of modelsToTry) {
-      logger.info(
-        `🚀 Gemini (Спроба ${attempt}/${maxRetries}, Ключ #${keyIndex + 1}/${apiKeyManager.totalCount}, Модель: ${currentModel})`
-      );
-
-      try {
-        const response = await client.models.generateContent({
-          model: currentModel,
-          contents: prompt,
-          config: {
-            ...GENERATION_CONFIG,
-            safetySettings: SAFETY_SETTINGS,
-          },
-        });
-        const text = response.text;
-
-        if (!text?.trim()) {
-          throw new Error('Gemini повернув порожню відповідь.');
-        }
-        return text.trim(); // Успіх!
-      } catch (error) {
-        const message = String(error.message || '');
-        const statusCode = error.status || error.statusCode || message.match(/\b(\d{3})\b/)?.[1];
-
-        // Детальне логування помилки
-        logger.warn(`❌ [GEMINI] Ключ #${keyIndex + 1}, ${currentModel}: ${message.slice(0, 200)}`);
-        if (statusCode) {
-          logger.warn(`   HTTP Status: ${statusCode}`);
-        }
-
-        const isQuotaError = message.includes('429') || message.includes('RESOURCE_EXHAUSTED');
-        const isOverloadError = message.includes('503') || message.includes('overloaded');
-        const isEmptyResponse =
-          message.includes('порожню відповідь') || message.toLowerCase().includes('empty response');
-        const isPermissionDenied =
-          String(statusCode) === '403' ||
-          message.includes('PERMISSION_DENIED') ||
-          message.includes('denied access');
-        const isInvalidKey =
-          message.includes('400') ||
-          message.includes('401') ||
-          message.includes('API_KEY_INVALID') ||
-          message.includes('INVALID_ARGUMENT') ||
-          isPermissionDenied;
-
-        apiKeyManager.markError(keyIndex);
-
-        // Невалідний ключ - позначаємо як ПЕРМАНЕНТНО невалідний
-        if (isInvalidKey) {
-          logger.error(
-            `🚫 [GEMINI] Ключ #${keyIndex + 1} НЕВАЛІДНИЙ або не має доступу! Перевірте ключ/проєкт в Google AI Studio.`
-          );
-          apiKeyManager.markInvalid(keyIndex); // Permanent ban замість cooldown
-          keysFullyTried.add(keyIndex);
-          break;
-        }
-
-        if (isQuotaError || isOverloadError || isEmptyResponse) {
-          // Спробувати fallback модель на цьому ж ключі
-          if (currentModel === modelName && modelsToTry.length > 1) {
-            logger.info(`⚠️ ${currentModel} недоступна, пробую fallback модель...`);
-            await new Promise((resolve) => setTimeout(resolve, 1000));
-            continue; // Спробувати наступну модель
-          }
-
-          // Обидві моделі не спрацювали на цьому ключі
-          // Використовуємо адаптивний cooldown на основі моделі
-          apiKeyManager.markRateLimited(keyIndex, null, currentModel);
-          keysFullyTried.add(keyIndex);
-          logger.info(`⚠️ Ключ #${keyIndex + 1} тимчасово недоступний, пробую інший ключ...`);
-          break; // Вийти з циклу моделей, спробувати інший ключ
-        }
-
-        // Інші помилки
-        const isNetworkError =
-          message.includes('fetch failed') || message.includes('ENET') || message.includes('ECONN');
-        const isInternalError = message.includes('500');
-
-        if ((isNetworkError || isInternalError) && attempt < maxRetries) {
-          const delay = INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt - 1);
-          logger.info(`[RETRY] Помилка, повтор через ${Math.round(delay / 1000)} сек...`);
-          await new Promise((resolve) => setTimeout(resolve, delay));
-          break;
-        }
-
-        throw error;
-      }
-    }
-
-    // Якщо всі ключі вичерпані
-    if (keysFullyTried.size >= apiKeyManager.totalCount && attempt < maxRetries) {
-      logger.warn(`⚠️ Всі ${apiKeyManager.totalCount} ключів rate limited, чекаю 60 сек...`);
-      keysFullyTried.clear();
-      await new Promise((resolve) => setTimeout(resolve, 60000));
-    }
-  }
-
-  throw new Error('Вичерпано всі спроби запиту до Gemini');
+function getContentGenerator() {
+  return batchProcessorTestOverrides.generateContent || generateContent;
 }
 
 /**
@@ -344,7 +401,7 @@ ${materialsBlock}
   }
 
   try {
-    const summary = await generateContent(prompt, reservedKeyIndex);
+    const summary = await getContentGenerator()(prompt, reservedKeyIndex);
     logger.info(`✅ Summary for batch ${batchNumber} received: ${summary.length} chars`);
     return summary;
   } catch (err) {
@@ -412,7 +469,7 @@ async function createFinalAnalysis(cases, allSummaries, userPromptKey) {
   const finalPrompt = createAnalysisPrompt(cases, userPromptKey, corpus);
 
   try {
-    const finalReport = await generateContent(finalPrompt);
+    const finalReport = await getContentGenerator()(finalPrompt);
     logger.info(`✅ Final analysis created: ${finalReport.length} chars`);
     return finalReport;
   } catch (err) {
@@ -422,4 +479,11 @@ async function createFinalAnalysis(cases, allSummaries, userPromptKey) {
   }
 }
 
-export { generateContent, getBatchSummary, createFinalAnalysis };
+export {
+  clearBatchProcessorTestOverrides,
+  createContentGenerator,
+  generateContent,
+  getBatchSummary,
+  createFinalAnalysis,
+  setBatchProcessorTestOverrides,
+};

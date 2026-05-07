@@ -1,4 +1,5 @@
 // Admin Report Page Script
+/* global DOMParser, NodeFilter */
 const adminI18n = window.AdminI18n || {
   t: (key) => key,
   applyTranslations: () => {},
@@ -124,7 +125,7 @@ document.addEventListener('DOMContentLoaded', async function () {
     if (window.marked) {
       // Try to render as markdown first
       try {
-        elements.analysisResult.innerHTML = marked.parse(analysisContent);
+        elements.analysisResult.innerHTML = sanitizeReportHtml(marked.parse(analysisContent));
       } catch {
         // Fall back to plain text with line breaks
         elements.analysisResult.innerHTML = `<pre style="white-space: pre-wrap; font-family: inherit;">${escapeHtml(analysisContent)}</pre>`;
@@ -240,6 +241,77 @@ document.addEventListener('DOMContentLoaded', async function () {
     } catch {
       return null;
     }
+  }
+
+  function sanitizeReportHtml(html) {
+    // Blocks raw HTML/script surfaces such as <script, onerror, javascript:, and data:text/html.
+    const allowedTags = new Set([
+      'p',
+      'ul',
+      'ol',
+      'li',
+      'strong',
+      'em',
+      'code',
+      'pre',
+      'blockquote',
+      'a',
+      'h1',
+      'h2',
+      'h3',
+      'h4',
+      'hr',
+      'br',
+      'table',
+      'thead',
+      'tbody',
+      'tr',
+      'th',
+      'td',
+    ]);
+    const allowedAttrs = {
+      a: new Set(['href', 'title', 'target', 'rel']),
+      '*': new Set([]),
+    };
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(String(html || ''), 'text/html');
+    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_ELEMENT);
+    const toStrip = [];
+
+    while (walker.nextNode()) {
+      const el = walker.currentNode;
+      const tag = el.tagName.toLowerCase();
+      if (!allowedTags.has(tag)) {
+        toStrip.push(el);
+        continue;
+      }
+
+      for (const { name } of Array.from(el.attributes)) {
+        const allowed = allowedAttrs[tag]?.has(name) || allowedAttrs['*'].has(name);
+        if (!allowed || name.toLowerCase().startsWith('on')) {
+          el.removeAttribute(name);
+        }
+      }
+
+      if (tag === 'a') {
+        const safeHref = sanitizeUrl(el.getAttribute('href') || '');
+        if (!safeHref) {
+          el.removeAttribute('href');
+        } else {
+          el.setAttribute('href', safeHref);
+          el.setAttribute('target', '_blank');
+          el.setAttribute('rel', 'noopener noreferrer');
+        }
+      }
+    }
+
+    for (const el of toStrip) {
+      const span = doc.createElement('span');
+      span.textContent = el.textContent || '';
+      el.replaceWith(span);
+    }
+
+    return doc.body.innerHTML;
   }
 
   function escapeHtml(text) {

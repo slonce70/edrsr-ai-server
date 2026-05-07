@@ -39,6 +39,7 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (typeof window !== 'undefined') {
       window.localStorage.setItem(STORAGE_KEY, locale);
+      document.documentElement.lang = locale;
     }
   }, [locale]);
 
