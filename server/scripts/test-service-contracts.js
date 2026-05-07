@@ -2,40 +2,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import dotenv from 'dotenv';
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-dotenv.config({ path: path.resolve(__dirname, '../.env') });
-
-const [
-  { default: dbService },
-  { default: promptService },
-  { default: collaborationService },
-  { default: chatService },
-  { default: jobQueryService },
-  { default: jobWriteService },
-  jobTitleService,
-  workerLifecycleService,
-  { default: queueService },
-  { default: cacheService },
-] = await Promise.all([
-  import('../services/dbService.js'),
-  import('../services/promptService.js'),
-  import('../services/collaborationService.js'),
-  import('../services/chatService.js'),
-  import('../services/jobQueryService.js'),
-  import('../services/jobWriteService.js'),
-  import('../services/jobTitleService.js'),
-  import('../services/workerLifecycleService.js'),
-  import('../services/queueService.js'),
-  import('../services/cacheService.js'),
-]);
+const serverRoot = path.resolve(__dirname, '..');
 
 const serviceContracts = [
   [
     'promptService',
-    promptService,
+    'services/promptService.js',
     [
       'getPromptsMeta',
       'listPrompts',
@@ -56,7 +30,7 @@ const serviceContracts = [
   ],
   [
     'collaborationService',
-    collaborationService,
+    'services/collaborationService.js',
     [
       'ensureWorkspaceForUser',
       'listWorkspaces',
@@ -82,10 +56,14 @@ const serviceContracts = [
       'getSharePayloadByToken',
     ],
   ],
-  ['chatService', chatService, ['addChatMessage', 'getChatHistory', 'getChatHistoryForWorkspace']],
+  [
+    'chatService',
+    'services/chatService.js',
+    ['addChatMessage', 'getChatHistory', 'getChatHistoryForWorkspace'],
+  ],
   [
     'jobQueryService',
-    jobQueryService,
+    'services/jobQueryService.js',
     [
       'getJob',
       'getRecentJobs',
@@ -111,7 +89,7 @@ const serviceContracts = [
   ],
   [
     'jobWriteService',
-    jobWriteService,
+    'services/jobWriteService.js',
     [
       'updateJobTitle',
       'updateJobTitleForWorkspace',
@@ -124,11 +102,19 @@ const serviceContracts = [
       'deleteJobForWorkspace',
     ],
   ],
-  ['jobTitleService', jobTitleService, ['generateInitialTitle', 'refreshHeuristicTitle']],
-  ['workerLifecycleService', workerLifecycleService, ['createWorkerLifecycleService']],
+  [
+    'jobTitleService',
+    'services/jobTitleService.js',
+    ['generateInitialTitle', 'refreshHeuristicTitle'],
+  ],
+  [
+    'workerLifecycleService',
+    'services/workerLifecycleService.js',
+    ['createWorkerLifecycleService'],
+  ],
   [
     'queueService',
-    queueService,
+    'services/queueService.js',
     [
       'recoverStuckJobs',
       'recoverJobsAfterServerRestart',
@@ -145,7 +131,7 @@ const serviceContracts = [
   ],
   [
     'cacheService',
-    cacheService,
+    'services/cacheService.js',
     ['getCachedCaseByUrl', 'saveCaseToCache', 'cleanupOldCacheEntriesOptimized'],
   ],
 ];
@@ -178,23 +164,39 @@ const filesThatShouldNotImportDbService = [
 
 const failures = [];
 
-for (const [name, service, methods] of serviceContracts) {
+function read(relativePath) {
+  return fs.readFileSync(path.join(serverRoot, relativePath), 'utf8');
+}
+
+function hasFunction(source, method) {
+  const escaped = method.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const patterns = [
+    new RegExp(`\\basync\\s+${escaped}\\s*\\(`),
+    new RegExp(`\\b${escaped}\\s*\\([^)]*\\)\\s*\\{`),
+    new RegExp(`\\bexport\\s+(async\\s+)?function\\s+${escaped}\\s*\\(`),
+    new RegExp(`\\bconst\\s+${escaped}\\s*=\\s*(async\\s*)?\\(`),
+  ];
+  return patterns.some((pattern) => pattern.test(source));
+}
+
+for (const [name, relativePath, methods] of serviceContracts) {
+  const source = read(relativePath);
   for (const method of methods) {
-    if (typeof service?.[method] !== 'function') {
+    if (!hasFunction(source, method)) {
       failures.push(`${name}.${method} is missing`);
     }
   }
 }
 
+const dbServiceSource = read('services/dbService.js');
 for (const method of facadeMethods) {
-  if (typeof dbService?.[method] !== 'function') {
+  if (!hasFunction(dbServiceSource, method)) {
     failures.push(`dbService.${method} facade method is missing`);
   }
 }
 
 for (const relativePath of filesThatShouldNotImportDbService) {
-  const absolutePath = path.resolve(__dirname, '..', relativePath.replace(/^server\//, ''));
-  const source = fs.readFileSync(absolutePath, 'utf8');
+  const source = read(relativePath.replace(/^server\//, ''));
   if (
     source.includes("from '../services/dbService.js'") ||
     source.includes("from './dbService.js'")
