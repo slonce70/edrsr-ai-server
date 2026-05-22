@@ -2,7 +2,7 @@
 
 EDRSR-AI collects public court-decision links from ЄДРСР, runs asynchronous Gemini analysis, and exposes the results through a Chrome extension, a React portal, and an admin UI.
 
-Current package version: `2.0.5`
+Current package version: `2.0.6`
 
 ## Runtime Surfaces
 

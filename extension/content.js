@@ -439,6 +439,42 @@ function removeCompletionButton() {
 
 // --- CORE LOGIC ---
 
+async function markProcessedLinksAsVisited() {
+  const links = getDecisionLinkElements();
+  if (links.length === 0) return;
+
+  const pageDecisions = links
+    .map((link) => link.getAttribute('href'))
+    .filter(Boolean)
+    .map((href) => ({ url: 'https://reyestr.court.gov.ua' + href }));
+  const processedUrls = new Set(await getProcessedUrls(pageDecisions));
+
+  if (processedUrls.size === 0) return;
+
+  links.forEach((link) => {
+    const href = link.getAttribute('href');
+    if (!href) return;
+
+    const fullUrl = 'https://reyestr.court.gov.ua' + href;
+    if (!processedUrls.has(fullUrl)) return;
+
+    link.style.color = '#551a8b';
+    link.setAttribute('data-edrsr-processed', 'true');
+  });
+
+  if (!document.getElementById('edrsr-processed-links-style')) {
+    const style = document.createElement('style');
+    style.id = 'edrsr-processed-links-style';
+    style.textContent = `
+      a[data-edrsr-processed="true"]:visited,
+      a[data-edrsr-processed="true"] {
+        color: #551a8b !important;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+}
+
 function collectDecisionLinks() {
   const decisions = [];
   const seen = new Set();
@@ -754,10 +790,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 function initialize() {
   if (hasDecisionLinks()) {
     void addCollectButton();
+    void markProcessedLinksAsVisited();
   }
   const observer = new MutationObserver(() => {
     if (hasDecisionLinks() && !document.getElementById('edrsr-ai-collect-btn')) {
       void addCollectButton();
+      void markProcessedLinksAsVisited();
     }
   });
   observer.observe(document.body, { childList: true, subtree: true });

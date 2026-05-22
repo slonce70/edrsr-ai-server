@@ -178,12 +178,20 @@ async function run() {
       'utf8'
     );
     const bgSource = fs.readFileSync(path.resolve(__dirname, '../extension/bg.js'), 'utf8');
+    const contentSource = fs.readFileSync(
+      path.resolve(__dirname, '../extension/content.js'),
+      'utf8'
+    );
     const shareLinksSource = fs.readFileSync(
       path.resolve(__dirname, '../web/src/pages/ShareLinksPage.tsx'),
       'utf8'
     );
 
     assert.equal((popupSource.match(/API_CHECK_PROCESSED/g) || []).length, 1);
+    assert.match(contentSource, /async function markProcessedLinksAsVisited\(\)/);
+    assert.match(contentSource, /data-edrsr-processed/);
+    assert.match(contentSource, /edrsr-processed-links-style/);
+    assert.match(contentSource, /type: 'API_CHECK_PROCESSED'/);
     assert.match(resultsSource, /document\.createTextNode\(job\.error_message/);
     assert.doesNotMatch(resultsSource, /innerHTML\s*=\s*.*error_message/s);
     assert.match(bgSource, /const resultsPorts = new Map\(\);/);
