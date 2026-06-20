@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { apiRequest } from '../lib/api';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { API_BASE } from '../lib/config';
 import { useDocumentTitle } from '../lib/useDocumentTitle';
 import { useAuth } from '../state/AuthContext';
@@ -29,6 +30,14 @@ export function SettingsPage() {
   const [memberRole, setMemberRole] = useState('member');
   const [membersLoading, setMembersLoading] = useState(false);
   const [membersError, setMembersError] = useState<string | null>(null);
+  // Holds the message + confirmed action for the styled confirm dialog that
+  // replaces the blocking window.confirm(). Null when no dialog is open.
+  const [pendingConfirm, setPendingConfirm] = useState<{
+    message: string;
+    danger?: boolean;
+    confirmLabel?: string;
+    onConfirm: () => void;
+  } | null>(null);
 
   useEffect(() => {
     apiRequest<HealthResponse>('/health/light')
@@ -96,9 +105,8 @@ export function SettingsPage() {
     }
   };
 
-  const handleRemoveMember = async (userId: string) => {
+  const performRemoveMember = async (userId: string) => {
     if (!accessToken || !activeWorkspaceId) return;
-    if (!window.confirm(t('settings.removeConfirm'))) return;
     try {
       await apiRequest(`/workspaces/${activeWorkspaceId}/members/${userId}`, {
         token: accessToken,
@@ -112,6 +120,19 @@ export function SettingsPage() {
       setMembersError(message);
       toastError(message);
     }
+  };
+
+  const handleRemoveMember = (userId: string) => {
+    if (!accessToken || !activeWorkspaceId) return;
+    setPendingConfirm({
+      message: t('settings.removeConfirm'),
+      danger: true,
+      confirmLabel: t('common.remove'),
+      onConfirm: () => {
+        setPendingConfirm(null);
+        void performRemoveMember(userId);
+      },
+    });
   };
 
   return (
@@ -243,6 +264,15 @@ export function SettingsPage() {
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={!!pendingConfirm}
+        message={pendingConfirm?.message ?? ''}
+        confirmLabel={pendingConfirm?.confirmLabel}
+        danger={pendingConfirm?.danger}
+        onConfirm={() => pendingConfirm?.onConfirm()}
+        onCancel={() => setPendingConfirm(null)}
+      />
     </div>
   );
 }

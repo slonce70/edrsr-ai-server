@@ -7,6 +7,7 @@ import { useAuth } from '../state/AuthContext';
 import { useLocale } from '../state/LocaleContext';
 import { useToast } from '../state/ToastContext';
 import { useWorkspace } from '../state/WorkspaceContext';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { EmptyState } from '../components/EmptyState';
 import { Skeleton, SkeletonCard } from '../components/Skeleton';
 import type {
@@ -50,6 +51,14 @@ export function MatterDetailPage() {
   const [attachLoading, setAttachLoading] = useState(false);
   const [attachError, setAttachError] = useState<string | null>(null);
   const [mattersIndex, setMattersIndex] = useState<Record<string, string>>({});
+  // Holds the message + confirmed action for the styled confirm dialog that
+  // replaces the blocking window.confirm(). Null when no dialog is open.
+  const [pendingConfirm, setPendingConfirm] = useState<{
+    message: string;
+    danger?: boolean;
+    confirmLabel?: string;
+    onConfirm: () => void;
+  } | null>(null);
 
   const loadMatter = useCallback(async () => {
     if (!accessToken || !activeWorkspaceId || !matterId) return;
@@ -158,12 +167,8 @@ export function MatterDetailPage() {
     }
   };
 
-  const handleAttachJob = async (job: AvailableJob) => {
+  const performAttachJob = async (job: AvailableJob) => {
     if (!accessToken || !activeWorkspaceId || !matterId) return;
-    if (job.matter_id && job.matter_id !== matterId) {
-      const otherName = mattersIndex[job.matter_id] || job.matter_id;
-      if (!window.confirm(t('matters.moveConfirm', { matter: otherName }))) return;
-    }
     try {
       await apiRequest(`/matters/${matterId}/jobs`, {
         token: accessToken,
@@ -179,6 +184,25 @@ export function MatterDetailPage() {
       setAttachError(message);
       toastError(message);
     }
+  };
+
+  const handleAttachJob = (job: AvailableJob) => {
+    if (!accessToken || !activeWorkspaceId || !matterId) return;
+    // Moving a job out of another matter needs confirmation; a fresh attach
+    // does not. The move is reassignment (not destructive), so no danger style.
+    if (job.matter_id && job.matter_id !== matterId) {
+      const otherName = mattersIndex[job.matter_id] || job.matter_id;
+      setPendingConfirm({
+        message: t('matters.moveConfirm', { matter: otherName }),
+        confirmLabel: t('common.confirm'),
+        onConfirm: () => {
+          setPendingConfirm(null);
+          void performAttachJob(job);
+        },
+      });
+      return;
+    }
+    void performAttachJob(job);
   };
 
   if (loading)
@@ -379,6 +403,15 @@ export function MatterDetailPage() {
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={!!pendingConfirm}
+        message={pendingConfirm?.message ?? ''}
+        confirmLabel={pendingConfirm?.confirmLabel}
+        danger={pendingConfirm?.danger}
+        onConfirm={() => pendingConfirm?.onConfirm()}
+        onCancel={() => setPendingConfirm(null)}
+      />
     </div>
   );
 }

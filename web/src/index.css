@@ -3032,3 +3032,104 @@ select {
     transform: none;
   }
 }
+
+/* Print: a browser Ctrl+P should produce the REPORT, not the app chrome.
+   We hide every interactive/navigational surface (sidebar, topbar, nav, action
+   buttons, TOC toggle, search bar, back-to-top, bulk-bar, toaster, active-jobs
+   chip, the SharePage signup CTA) and let the report body (.markdown + headings
+   + tables) print full-width on a clean white page. This is independent of the
+   JS Print button (handlePrint), which opens its own window. */
+@media print {
+  @page {
+    margin: 18mm;
+  }
+
+  /* Force legible black-on-white and keep backgrounds/colors faithful so the
+     report card never prints as washed-out or invisible ink. */
+  html,
+  body {
+    background: #fff !important;
+    color: #000 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* App chrome + transient/interactive surfaces: never printed. */
+  .sidebar,
+  .topbar,
+  .nav,
+  .reading-progress,
+  .back-to-top,
+  .bulk-bar,
+  .toaster,
+  .pill-active-jobs,
+  .report-search .btn,
+  .report-toc__summary,
+  .card__actions,
+  .page-header__actions,
+  .share-masthead {
+    display: none !important;
+  }
+
+  /* Collapse the app shell so the report uses the full printable width. */
+  .app-shell,
+  .app-main,
+  .page {
+    display: block !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: none !important;
+    width: auto !important;
+  }
+
+  /* Report-as-hero: drop the two-pane/grid constraints so the report body is
+     full-width. The metadata/sources rail prints AFTER the report (in flow). */
+  .grid--two,
+  .job-layout {
+    display: block !important;
+    grid-template-columns: none !important;
+    gap: 0 !important;
+  }
+
+  .job-layout__rail {
+    position: static !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  /* The TOC keeps its (expanded) list for navigation reference; only its
+     toggle/summary is hidden above. Sticky positioning is meaningless on paper. */
+  .report-toc {
+    position: static !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  /* The report card itself prints as plain content: no card chrome, full width,
+     and never split awkwardly across a page boundary mid-line. */
+  .card {
+    border: none !important;
+    box-shadow: none !important;
+    background: #fff !important;
+    break-inside: auto;
+  }
+
+  .markdown {
+    color: #000 !important;
+    max-width: none !important;
+  }
+
+  .markdown h1,
+  .markdown h2,
+  .markdown h3,
+  .markdown h4 {
+    color: #000 !important;
+    break-after: avoid;
+  }
+
+  .markdown table,
+  .markdown pre,
+  .markdown blockquote {
+    break-inside: avoid;
+  }
+}

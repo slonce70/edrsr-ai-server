@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { apiRequest } from '../lib/api';
 import { formatDate } from '../lib/format';
 import { useDocumentTitle } from '../lib/useDocumentTitle';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { EmptyState } from '../components/EmptyState';
 import { SkeletonList } from '../components/Skeleton';
 import { useAuth } from '../state/AuthContext';
@@ -21,6 +22,14 @@ export function ShareLinksPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [revokingId, setRevokingId] = useState<string | null>(null);
+  // Holds the message + confirmed action for the styled confirm dialog that
+  // replaces the blocking window.confirm(). Null when no dialog is open.
+  const [pendingConfirm, setPendingConfirm] = useState<{
+    message: string;
+    danger?: boolean;
+    confirmLabel?: string;
+    onConfirm: () => void;
+  } | null>(null);
 
   const loadLinks = useCallback(async () => {
     if (!accessToken || !activeWorkspaceId) return;
@@ -56,9 +65,8 @@ export function ShareLinksPage() {
     return 'active';
   }, []);
 
-  const handleRevoke = async (link: ShareLink) => {
+  const performRevoke = async (link: ShareLink) => {
     if (!accessToken || !activeWorkspaceId) return;
-    if (!window.confirm(t('share.revokeConfirm'))) return;
     setRevokingId(link.id);
     setError(null);
     try {
@@ -76,6 +84,19 @@ export function ShareLinksPage() {
     } finally {
       setRevokingId(null);
     }
+  };
+
+  const handleRevoke = (link: ShareLink) => {
+    if (!accessToken || !activeWorkspaceId) return;
+    setPendingConfirm({
+      message: t('share.revokeConfirm'),
+      danger: true,
+      confirmLabel: t('share.revoke'),
+      onConfirm: () => {
+        setPendingConfirm(null);
+        void performRevoke(link);
+      },
+    });
   };
 
   const hasWorkspace = Boolean(activeWorkspaceId);
@@ -170,6 +191,15 @@ export function ShareLinksPage() {
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!pendingConfirm}
+        message={pendingConfirm?.message ?? ''}
+        confirmLabel={pendingConfirm?.confirmLabel}
+        danger={pendingConfirm?.danger}
+        onConfirm={() => pendingConfirm?.onConfirm()}
+        onCancel={() => setPendingConfirm(null)}
+      />
     </div>
   );
 }

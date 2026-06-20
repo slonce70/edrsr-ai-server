@@ -58,4 +58,42 @@ describe('reduceJobEvent', () => {
     reduceJobEvent(state, { id: 'h', status: 'processing' });
     expect(reduceJobEvent(state, { id: 'h', status: 'error' }).notify).toBeUndefined();
   });
+
+  it('prunes a tracked job from the set when it ends in error (no notify)', () => {
+    const state = createJobNotifyState();
+    reduceJobEvent(state, { id: 'h', status: 'processing' });
+    expect(state.tracked.has('h')).toBe(true);
+    const result = reduceJobEvent(state, { id: 'h', status: 'error' });
+    expect(result.notify).toBeUndefined();
+    expect(state.tracked.has('h')).toBe(false);
+    expect(state.tracked.size).toBe(0);
+  });
+
+  it('prunes a tracked job from the set when it is cancelled (no notify)', () => {
+    const state = createJobNotifyState();
+    reduceJobEvent(state, { id: 'i', status: 'analyzing' });
+    expect(state.tracked.has('i')).toBe(true);
+    const result = reduceJobEvent(state, { id: 'i', status: 'cancelled' });
+    expect(result.notify).toBeUndefined();
+    expect(state.tracked.has('i')).toBe(false);
+  });
+
+  it('prunes a tracked job from the set when it ends in failed (no notify)', () => {
+    const state = createJobNotifyState();
+    reduceJobEvent(state, { id: 'j', status: 'queued' });
+    const result = reduceJobEvent(state, { id: 'j', status: 'failed' });
+    expect(result.notify).toBeUndefined();
+    expect(state.tracked.has('j')).toBe(false);
+  });
+
+  it('does not grow the tracked set across many terminal (non-completed) events', () => {
+    const state = createJobNotifyState();
+    for (let n = 0; n < 100; n += 1) {
+      reduceJobEvent(state, { id: `t${n}`, status: 'processing' });
+      const status = n % 3 === 0 ? 'error' : n % 3 === 1 ? 'failed' : 'cancelled';
+      const result = reduceJobEvent(state, { id: `t${n}`, status });
+      expect(result.notify).toBeUndefined();
+    }
+    expect(state.tracked.size).toBe(0);
+  });
 });

@@ -126,7 +126,20 @@ export function ReportSearch({ markdown }: ReportSearchProps) {
     rangesRef.current = [];
     clearHighlights();
 
-    const cache = cacheRef.current;
+    // Robustness: the cache is normally populated by the rAF effect below, but
+    // the async MarkdownView can finish rendering AFTER that loop gives up,
+    // leaving an empty/partial snapshot that never refreshes (markdown didn't
+    // change again). So rebuild synchronously here whenever the cache is
+    // missing, empty, or stale relative to the live DOM. `textContent.length`
+    // is a cheap staleness check that avoids a full TreeWalker walk when the
+    // cache is already current (the per-keystroke optimization is preserved).
+    const root = containerRef.current;
+    let cache = cacheRef.current;
+    if (root && (!cache || cache.entries.length === 0 || cache.text.length !== (root.textContent?.length ?? 0))) {
+      cache = collectTextNodes(root);
+      cacheRef.current = cache;
+    }
+
     const trimmed = query.trim();
     if (!cache || !trimmed) {
       setMatchCount(0);

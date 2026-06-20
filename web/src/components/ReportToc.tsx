@@ -34,12 +34,25 @@ export function ReportToc({ markdown }: ReportTocProps) {
     let scrollQueued = false;
     let retries = 0;
     let scrollTarget: HTMLElement | Window | null = null;
+    // Cache of resolved heading elements (Finding 44). Built once in setup() so
+    // recompute() reuses them instead of re-querying getElementById per heading
+    // on every scroll frame / IO callback. Entries are re-resolved lazily only
+    // if a cached element goes null/detached (e.g. report re-rendered in place).
+    let headingEls: { id: string; el: HTMLElement }[] = [];
+
+    const resolveEl = (id: string): HTMLElement | null => document.getElementById(id);
 
     const recompute = () => {
-      const positions = items
-        .map((item) => {
-          const el = document.getElementById(item.id);
-          return el ? { id: item.id, top: el.getBoundingClientRect().top } : null;
+      const positions = headingEls
+        .map((entry) => {
+          // Reuse the cached node; re-resolve only if it was detached from the
+          // document since caching (isConnected === false) or was never found.
+          let el: HTMLElement | null = entry.el;
+          if (!el.isConnected) {
+            el = resolveEl(entry.id);
+            if (el) entry.el = el;
+          }
+          return el ? { id: entry.id, top: el.getBoundingClientRect().top } : null;
         })
         .filter((entry): entry is { id: string; top: number } => entry !== null);
       setActiveId(pickActiveId(positions, ACTIVE_OFFSET));
@@ -61,9 +74,13 @@ export function ReportToc({ markdown }: ReportTocProps) {
     };
 
     const setup = () => {
-      const elements = items
-        .map((item) => document.getElementById(item.id))
-        .filter((el): el is HTMLElement => el !== null);
+      const resolved = items
+        .map((item) => {
+          const el = document.getElementById(item.id);
+          return el ? { id: item.id, el } : null;
+        })
+        .filter((entry): entry is { id: string; el: HTMLElement } => entry !== null);
+      const elements = resolved.map((entry) => entry.el);
 
       // Headings are rendered asynchronously by MarkdownView; if they are not
       // all present yet, retry on the next animation frame (capped) until they
@@ -74,6 +91,10 @@ export function ReportToc({ markdown }: ReportTocProps) {
         return;
       }
       if (elements.length === 0) return;
+
+      // Cache the resolved {id, el} pairs so recompute() reuses them instead of
+      // re-querying the DOM per heading on every scroll frame.
+      headingEls = resolved;
 
       // rootMargin keeps a heading "active" while it sits in the top ~30% of the
       // viewport; the callback just re-triggers our position-based recompute.

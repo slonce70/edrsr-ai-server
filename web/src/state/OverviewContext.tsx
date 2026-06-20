@@ -86,7 +86,7 @@ export function OverviewProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     mountedRef.current = true;
     if (accessToken) void doFetch();
-    else setOverview(null);
+    else if (mountedRef.current) setOverview(null);
     return () => {
       // Allow refetch on the next effect run; cleanup of timers/aborts handled below.
     };

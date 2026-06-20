@@ -1,4 +1,4 @@
-import { ACTIVE_STATUS_KEYS } from './overviewStats';
+import { ACTIVE_STATUS_KEYS, ERROR_STATUS_KEYS } from './overviewStats';
 
 // Pure tracking logic for the global "analysis finished" notification.
 //
@@ -10,6 +10,10 @@ import { ACTIVE_STATUS_KEYS } from './overviewStats';
 // were already completed when first seen are never tracked, so they never toast.
 
 const ACTIVE_STATUSES: ReadonlySet<string> = new Set(ACTIVE_STATUS_KEYS);
+// Terminal non-completed outcomes (error/failed/cancelled). A tracked job that
+// reaches one of these is pruned from the set so it cannot leak — we still only
+// toast on `completed`, so these prune silently with no notify.
+const TERMINAL_STATUSES: ReadonlySet<string> = new Set(ERROR_STATUS_KEYS);
 
 export type JobEvent = {
   id?: string;
@@ -52,6 +56,13 @@ export function reduceJobEvent(state: JobNotifyState, event: JobEvent): ReduceRe
   if (status === 'completed' && state.tracked.has(jobId)) {
     state.tracked.delete(jobId);
     return { state, notify: { jobId, title: typeof event.title === 'string' ? event.title : '' } };
+  }
+
+  // Terminal failure/cancellation prunes the tracked job (preventing unbounded
+  // set growth) but never toasts — only `completed` produces a notification.
+  if (TERMINAL_STATUSES.has(status)) {
+    state.tracked.delete(jobId);
+    return { state };
   }
 
   return { state };

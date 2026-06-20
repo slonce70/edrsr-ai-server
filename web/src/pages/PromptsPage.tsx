@@ -6,6 +6,7 @@ import { useAuth } from '../state/AuthContext';
 import { useLocale } from '../state/LocaleContext';
 import { useToast } from '../state/ToastContext';
 import { useWorkspace } from '../state/WorkspaceContext';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { EmptyState } from '../components/EmptyState';
 import { SkeletonList } from '../components/Skeleton';
 
@@ -43,6 +44,14 @@ export function PromptsPage() {
   const [formNotice, setFormNotice] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'user' | 'shared'>('user');
+  // Holds the message + confirmed action for the styled confirm dialog that
+  // replaces the blocking window.confirm(). Null when no dialog is open.
+  const [pendingConfirm, setPendingConfirm] = useState<{
+    message: string;
+    danger?: boolean;
+    confirmLabel?: string;
+    onConfirm: () => void;
+  } | null>(null);
 
   const hasSelection = Boolean(form.id);
   const activeWorkspace = useMemo(
@@ -178,9 +187,8 @@ export function PromptsPage() {
     }
   };
 
-  const handleDelete = async () => {
+  const performDelete = async () => {
     if (!accessToken || !form.id) return;
-    if (!window.confirm(t('prompts.confirmDelete'))) return;
     setSaving(true);
     setFormError(null);
     setFormNotice(null);
@@ -213,6 +221,19 @@ export function PromptsPage() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleDelete = () => {
+    if (!accessToken || !form.id) return;
+    setPendingConfirm({
+      message: t('prompts.confirmDelete'),
+      danger: true,
+      confirmLabel: t('common.remove'),
+      onConfirm: () => {
+        setPendingConfirm(null);
+        void performDelete();
+      },
+    });
   };
 
   const handleShareToWorkspace = async () => {
@@ -468,6 +489,15 @@ export function PromptsPage() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!pendingConfirm}
+        message={pendingConfirm?.message ?? ''}
+        confirmLabel={pendingConfirm?.confirmLabel}
+        danger={pendingConfirm?.danger}
+        onConfirm={() => pendingConfirm?.onConfirm()}
+        onCancel={() => setPendingConfirm(null)}
+      />
     </div>
   );
 }
