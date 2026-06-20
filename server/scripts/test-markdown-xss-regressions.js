@@ -26,13 +26,19 @@ assert.doesNotMatch(
   'admin report should not write raw marked output into innerHTML'
 );
 
-for (const payload of ['javascript:', 'onerror', '<script', 'data:text/html']) {
-  assert.match(
-    adminReport,
-    new RegExp(payload.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'),
-    `admin report sanitizer should mention ${payload} defense`
-  );
-}
+assert.match(adminReport, /DOMPurify\.sanitize/, 'admin report should sanitize via DOMPurify');
+assert.match(adminReport, /ALLOWED_TAGS/, 'admin sanitizer should pin a tag allowlist');
+assert.match(
+  adminReport,
+  /addHook\('afterSanitizeAttributes'/,
+  'admin sanitizer should harden anchors via a DOMPurify hook'
+);
+assert.match(adminReport, /noopener noreferrer/, 'admin anchors should be forced rel=noopener');
+assert.match(
+  adminReport,
+  /parsed\.protocol !== 'http:'/,
+  'admin should restrict link protocols to http/https'
+);
 
 assert.match(extensionResults, /function sanitizeHtml/, 'extension should keep MV3 sanitizer');
 assert.match(

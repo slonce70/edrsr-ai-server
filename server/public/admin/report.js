@@ -1,5 +1,6 @@
 // Admin Report Page Script
-/* global DOMParser, NodeFilter */
+/* global DOMPurify */
+let purifyHookRegistered = false;
 const adminI18n = window.AdminI18n || {
   t: (key) => key,
   applyTranslations: () => {},
@@ -241,73 +242,60 @@ document.addEventListener('DOMContentLoaded', async function () {
 
   function sanitizeReportHtml(html) {
     // Blocks raw HTML/script surfaces such as <script, onerror, javascript:, and data:text/html.
-    const allowedTags = new Set([
-      'p',
-      'ul',
-      'ol',
-      'li',
-      'strong',
-      'em',
-      'code',
-      'pre',
-      'blockquote',
-      'a',
-      'h1',
-      'h2',
-      'h3',
-      'h4',
-      'hr',
-      'br',
-      'table',
-      'thead',
-      'tbody',
-      'tr',
-      'th',
-      'td',
-    ]);
-    const allowedAttrs = {
-      a: new Set(['href', 'title', 'target', 'rel']),
-      '*': new Set([]),
-    };
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(String(html || ''), 'text/html');
-    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_ELEMENT);
-    const toStrip = [];
-
-    while (walker.nextNode()) {
-      const el = walker.currentNode;
-      const tag = el.tagName.toLowerCase();
-      if (!allowedTags.has(tag)) {
-        toStrip.push(el);
-        continue;
-      }
-
-      for (const { name } of Array.from(el.attributes)) {
-        const allowed = allowedAttrs[tag]?.has(name) || allowedAttrs['*'].has(name);
-        if (!allowed || name.toLowerCase().startsWith('on')) {
-          el.removeAttribute(name);
-        }
-      }
-
-      if (tag === 'a') {
-        const safeHref = sanitizeUrl(el.getAttribute('href') || '');
-        if (!safeHref) {
-          el.removeAttribute('href');
-        } else {
-          el.setAttribute('href', safeHref);
-          el.setAttribute('target', '_blank');
-          el.setAttribute('rel', 'noopener noreferrer');
-        }
-      }
+    // Delegates to the vetted DOMPurify (Cure53) engine for parity with the React portal.
+    // Tags allowed: p, ul, ol, li, strong, em, code, pre, blockquote, a, h1-h4, hr, br,
+    // table, thead, tbody, tr, th, td. DOMPurify strips event handlers and script/style/iframe
+    // by default; the allowlist + the anchor hook reproduce the old hand-rolled guarantees.
+    if (!window.DOMPurify) {
+      // Surface a throw so the caller's try/catch falls back to the safe escaped <pre>.
+      throw new Error('DOMPurify unavailable');
     }
 
-    for (const el of toStrip) {
-      const span = doc.createElement('span');
-      span.textContent = el.textContent || '';
-      el.replaceWith(span);
+    // DOMPurify.addHook accumulates, so register the anchor-hardening hook exactly once.
+    if (!purifyHookRegistered) {
+      DOMPurify.addHook('afterSanitizeAttributes', function (node) {
+        if (node.tagName === 'A' || node.nodeName === 'A') {
+          const safeHref = sanitizeUrl(node.getAttribute('href') || '');
+          if (!safeHref) {
+            node.removeAttribute('href');
+          } else {
+            node.setAttribute('href', safeHref);
+            node.setAttribute('target', '_blank');
+            node.setAttribute('rel', 'noopener noreferrer');
+          }
+        }
+      });
+      purifyHookRegistered = true;
     }
 
-    return doc.body.innerHTML;
+    return DOMPurify.sanitize(String(html || ''), {
+      ALLOWED_TAGS: [
+        'p',
+        'ul',
+        'ol',
+        'li',
+        'strong',
+        'em',
+        'code',
+        'pre',
+        'blockquote',
+        'a',
+        'h1',
+        'h2',
+        'h3',
+        'h4',
+        'hr',
+        'br',
+        'table',
+        'thead',
+        'tbody',
+        'tr',
+        'th',
+        'td',
+      ],
+      ALLOWED_ATTR: ['href', 'title', 'target', 'rel'],
+      ALLOW_DATA_ATTR: false,
+    });
   }
 
   function escapeHtml(text) {
