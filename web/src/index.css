@@ -20,6 +20,22 @@
   --font-display: 'Fraunces', 'Georgia', serif;
 }
 
+[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0e1413;
+  --bg-alt: #131b1a;
+  --panel: #18211f;
+  --panel-muted: #1f2a28;
+  --ink: #e7ecea;
+  --muted: #9aa8a3;
+  --accent: #2dd4bf;
+  --accent-strong: #5eead4;
+  --accent-warm: #fbbf24;
+  --border: #2c3a37;
+  --shadow: 0 24px 60px -40px rgba(0, 0, 0, 0.7);
+  --shadow-soft: 0 12px 30px -20px rgba(0, 0, 0, 0.6);
+}
+
 *,
 *::before,
 *::after {

@@ -26,6 +26,11 @@ export const translations = {
       openMenu: 'Відкрити меню',
       closeMenu: 'Закрити меню',
     },
+    theme: {
+      toggle: 'Тема',
+      light: 'Світла',
+      dark: 'Темна',
+    },
     common: {
       loading: 'Завантаження...',
       back: 'Назад',
@@ -334,6 +339,11 @@ export const translations = {
       settings: 'Настройки',
       openMenu: 'Открыть меню',
       closeMenu: 'Закрыть меню',
+    },
+    theme: {
+      toggle: 'Тема',
+      light: 'Светлая',
+      dark: 'Тёмная',
     },
     common: {
       loading: 'Загрузка...',

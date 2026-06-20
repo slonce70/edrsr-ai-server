@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { APP_NAME } from '../lib/config';
+import { resolveInitialTheme, type Theme } from '../lib/theme';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { useAuth } from '../state/AuthContext';
 import { useLocale } from '../state/LocaleContext';
@@ -13,7 +14,18 @@ export function AppLayout() {
   const { t, locale, setLocale, labels } = useLocale();
   const { workspaces, activeWorkspaceId, setActiveWorkspaceId } = useWorkspace();
   const [isSidebarOpen, setSidebarOpen] = useState(false);
+  const [theme, setTheme] = useState<Theme>(() =>
+    resolveInitialTheme(
+      localStorage.getItem('edrsr-ai-theme'),
+      window.matchMedia('(prefers-color-scheme: dark)').matches,
+    ),
+  );
   const location = useLocation();
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('edrsr-ai-theme', theme);
+  }, [theme]);
 
   const navItems = [
     { to: '/analyses', label: t('nav.analyses') },
@@ -115,6 +127,16 @@ export function AppLayout() {
           </div>
           <div className="topbar__actions">
             <span className={`pill pill-${status}`}>{statusLabel}</span>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              aria-label={t('theme.toggle')}
+              title={t('theme.toggle')}
+              aria-pressed={theme === 'dark'}
+              onClick={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
+            >
+              {theme === 'dark' ? '☀' : '☾'}
+            </button>
             <select
               className="locale-switch"
               value={locale}
