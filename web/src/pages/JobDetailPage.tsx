@@ -22,7 +22,8 @@ import { ReportStatusBanner } from '../components/ReportStatusBanner';
 import { ReportToc } from '../components/ReportToc';
 import { Skeleton, SkeletonCard } from '../components/Skeleton';
 import { buildRetryBody } from './jobRetry';
-import { buildWordBlob } from '../lib/exportDoc';
+import { buildSourcesFooterHtml, buildWordBlob, PRINT_STYLE } from '../lib/exportDoc';
+import { downloadBlob, downloadText } from '../lib/download';
 import { mergeJobUpdate } from '../lib/jobUpdate';
 import { ACTIVE_STATUS_KEYS } from '../lib/overviewStats';
 import { deriveCompleteness } from '../lib/reportCoverage';
@@ -243,25 +244,6 @@ export function JobDetailPage() {
     }
   };
 
-  const downloadText = (filename: string, content: string) => {
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const downloadBlob = (filename: string, blob: Blob) => {
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
-
   const handleDownloadReport = () => {
     const safeTitle = job?.title ? job.title.replace(/[^a-zA-Z0-9_-]+/g, '_') : 'report';
     const content = analysis || t('job.reportEmpty');
@@ -278,6 +260,27 @@ export function JobDetailPage() {
     }
   };
 
+  const buildSourcesFooter = useCallback(() => {
+    const coverage = deriveCompleteness({
+      processedLinks: job?.processed_links,
+      totalLinks: job?.total_links,
+      links,
+      qualityPartial: job?.quality?.partial === true,
+    });
+    const coverageNote =
+      coverage.total > 0
+        ? `${t('job.exportCoverage', {
+            processed: coverage.processed,
+            total: coverage.total,
+          })}${job?.quality?.partial === true ? t('job.exportIncomplete') : ''}`
+        : undefined;
+    return buildSourcesFooterHtml({
+      links: links.map((link) => ({ url: link.url, decision_date: link.decision_date })),
+      coverageNote,
+      labels: { sourcesTitle: t('job.exportSourcesTitle') },
+    });
+  }, [job?.processed_links, job?.total_links, job?.quality?.partial, links, t]);
+
   const handleDownloadWord = async () => {
     const safeTitle = job?.title ? job.title.replace(/[^a-zA-Z0-9_-]+/g, '_') : 'report';
     if (!analysis) {
@@ -292,7 +295,7 @@ export function JobDetailPage() {
       const blob = buildWordBlob({
         title: job?.title || t('job.report'),
         meta,
-        bodyHtml: html,
+        bodyHtml: `${html}${buildSourcesFooter()}`,
       });
       downloadBlob(`${safeTitle}.doc`, blob);
     } catch (err) {
@@ -341,8 +344,7 @@ export function JobDetailPage() {
     }
 
     const style = printDocument.createElement('style');
-    style.textContent =
-      'body{font-family:Arial, sans-serif; padding:32px;} h1{margin-bottom:16px;} .meta{color:#555; font-size:12px; margin-bottom:24px;} pre,code{white-space:pre-wrap;} a{color:#0f766e;}';
+    style.textContent = PRINT_STYLE;
     printDocument.head.appendChild(style);
 
     while (printDocument.body.firstChild) {
@@ -362,7 +364,7 @@ export function JobDetailPage() {
     printDocument.body.appendChild(metaElement);
 
     const reportBody = printDocument.createElement('div');
-    reportBody.innerHTML = html;
+    reportBody.innerHTML = `${html}${buildSourcesFooter()}`;
     printDocument.body.appendChild(reportBody);
 
     printWindow.focus();

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildWordHtml } from './exportDoc';
+import { buildSourcesFooterHtml, buildWordHtml } from './exportDoc';
 
 describe('buildWordHtml', () => {
   it('escapes the title and does not emit it raw', () => {
@@ -53,5 +53,61 @@ describe('buildWordHtml', () => {
       bodyHtml: '<p>x</p>',
     });
     expect(html).toContain("<div class='meta'>a &amp; b &lt;c&gt;</div>");
+  });
+});
+
+describe('buildSourcesFooterHtml', () => {
+  const labels = { sourcesTitle: 'Джерела' };
+
+  it('includes the heading and each url', () => {
+    const html = buildSourcesFooterHtml({
+      links: [
+        { url: 'https://example.com/a' },
+        { url: 'https://example.com/b' },
+      ],
+      labels,
+    });
+    expect(html).toContain('<h2>Джерела</h2>');
+    expect(html).toContain('https://example.com/a');
+    expect(html).toContain('https://example.com/b');
+    expect(html).toContain('<ol>');
+  });
+
+  it('escapes urls containing < and &', () => {
+    const html = buildSourcesFooterHtml({
+      links: [{ url: 'https://example.com/?a=1&b=2<script>' }],
+      labels,
+    });
+    expect(html).toContain('https://example.com/?a=1&amp;b=2&lt;script&gt;');
+    expect(html).not.toContain('<script>');
+  });
+
+  it('appends the decision date when provided', () => {
+    const html = buildSourcesFooterHtml({
+      links: [{ url: 'https://example.com/a', decision_date: '2024-01-15' }],
+      labels,
+    });
+    expect(html).toContain('https://example.com/a · 2024-01-15');
+  });
+
+  it('includes the coverage note when given', () => {
+    const html = buildSourcesFooterHtml({
+      links: [{ url: 'https://example.com/a' }],
+      coverageNote: 'Покриття: 3/5',
+      labels,
+    });
+    expect(html).toContain("<p class='sources-coverage'>Покриття: 3/5</p>");
+  });
+
+  it('omits the coverage note when not given', () => {
+    const html = buildSourcesFooterHtml({
+      links: [{ url: 'https://example.com/a' }],
+      labels,
+    });
+    expect(html).not.toContain('sources-coverage');
+  });
+
+  it('returns an empty string (no <ol>) when links is empty', () => {
+    expect(buildSourcesFooterHtml({ links: [], labels })).toBe('');
   });
 });
