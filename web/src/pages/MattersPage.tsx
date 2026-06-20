@@ -5,6 +5,7 @@ import { useAuth } from '../state/AuthContext';
 import { useLocale } from '../state/LocaleContext';
 import { useWorkspace } from '../state/WorkspaceContext';
 import { EmptyState } from '../components/EmptyState';
+import { SkeletonList } from '../components/Skeleton';
 
 type MatterSummary = {
   id: string;
@@ -157,7 +158,10 @@ export function MattersPage() {
       ) : null}
 
       {loading ? (
-        <div className="card">{t('common.loading')}</div>
+        <div className="stack" aria-busy="true">
+          <span className="sr-only">{t('common.loading')}</span>
+          <SkeletonList count={5} />
+        </div>
       ) : error ? (
         <div className="card card--error">{error}</div>
       ) : matters.length === 0 ? (

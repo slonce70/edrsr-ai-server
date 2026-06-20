@@ -6,6 +6,7 @@ import { useAuth } from '../state/AuthContext';
 import { useLocale } from '../state/LocaleContext';
 import { useWorkspace } from '../state/WorkspaceContext';
 import { EmptyState } from '../components/EmptyState';
+import { Skeleton, SkeletonCard } from '../components/Skeleton';
 
 type Matter = {
   id: string;
@@ -192,7 +193,20 @@ export function MatterDetailPage() {
     }
   };
 
-  if (loading) return <div className="card">{t('common.loading')}</div>;
+  if (loading)
+    return (
+      <div className="stack" aria-busy="true">
+        <span className="sr-only">{t('common.loading')}</span>
+        <div className="page-header">
+          <div>
+            <Skeleton width="35%" height="1.5rem" />
+            <Skeleton width="20%" height="0.75rem" />
+          </div>
+        </div>
+        <SkeletonCard />
+        <SkeletonCard />
+      </div>
+    );
   if (error) return <div className="card card--error">{error}</div>;
   if (!matter) return <EmptyState title={t('matters.emptyTitle')} />;
 

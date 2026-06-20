@@ -14,6 +14,7 @@ import { ProgressBar } from '../components/ProgressBar';
 import { StatusBadge } from '../components/StatusBadge';
 import { MarkdownView } from '../components/MarkdownView';
 import { ReportStatusBanner } from '../components/ReportStatusBanner';
+import { Skeleton, SkeletonCard } from '../components/Skeleton';
 import { buildRetryBody } from './jobRetry';
 import { buildWordBlob } from '../lib/exportDoc';
 import { mergeJobUpdate } from '../lib/jobUpdate';
@@ -448,7 +449,22 @@ export function JobDetailPage() {
   };
 
   if (loading && !job) {
-    return <div className="card">{t('common.loading')}</div>;
+    return (
+      <div className="stack" aria-busy="true">
+        <span className="sr-only">{t('common.loading')}</span>
+        <div className="page-header">
+          <div>
+            <Skeleton width="35%" height="1.5rem" />
+            <Skeleton width="20%" height="0.75rem" />
+          </div>
+        </div>
+        <div className="grid grid--two">
+          <SkeletonCard />
+          <SkeletonCard />
+        </div>
+        <SkeletonCard />
+      </div>
+    );
   }
 
   if (error && !job) {

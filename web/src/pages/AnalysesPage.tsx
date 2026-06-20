@@ -9,6 +9,7 @@ import { useWebSocket } from '../state/WebSocketContext';
 import { useWorkspace } from '../state/WorkspaceContext';
 import { EmptyState } from '../components/EmptyState';
 import { ProgressBar } from '../components/ProgressBar';
+import { SkeletonList } from '../components/Skeleton';
 import { StatusBadge } from '../components/StatusBadge';
 import { mergeJobUpdate } from '../lib/jobUpdate';
 
@@ -210,7 +211,10 @@ export function AnalysesPage() {
       </div>
 
       {loading ? (
-        <div className="card">{t('analyses.loading')}</div>
+        <div className="stack" aria-busy="true">
+          <span className="sr-only">{t('analyses.loading')}</span>
+          <SkeletonList count={5} />
+        </div>
       ) : error ? (
         <div className="card card--error">{error}</div>
       ) : jobs.length === 0 ? (

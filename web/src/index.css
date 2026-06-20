@@ -27,6 +27,8 @@
   --toast-info-bg: rgba(15, 118, 110, 0.12);
   --toast-info-ink: #115e59;
   --toast-info-border: rgba(15, 118, 110, 0.3);
+  --skeleton-base: #ece4d8;
+  --skeleton-sheen: rgba(255, 255, 255, 0.6);
 }
 
 [data-theme='dark'] {
@@ -52,6 +54,8 @@
   --toast-info-bg: rgba(45, 212, 191, 0.12);
   --toast-info-ink: #99f6e4;
   --toast-info-border: rgba(45, 212, 191, 0.32);
+  --skeleton-base: #232f2d;
+  --skeleton-sheen: rgba(255, 255, 255, 0.08);
 }
 
 *,
@@ -1155,4 +1159,62 @@ select {
 }
 .job-error__message {
   white-space: pre-wrap;
+}
+
+/* loading skeletons */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@keyframes skeletonShimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.skeleton {
+  display: block;
+  width: 100%;
+  height: 1rem;
+  border-radius: 6px;
+  position: relative;
+  overflow: hidden;
+  background-color: var(--skeleton-base);
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--skeleton-sheen) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  animation: skeletonShimmer 1.4s ease-in-out infinite;
+}
+
+.skeleton-text {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.skeleton-card {
+  gap: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+    background-image: none;
+  }
 }
