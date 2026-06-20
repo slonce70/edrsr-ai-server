@@ -1558,6 +1558,13 @@ select {
     overflow: visible;
   }
 
+  /* Single column: the rail stacks below the report, so don't pin/cap it. */
+  .job-layout__rail {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+
   .page-header {
     flex-direction: column;
     align-items: flex-start;
@@ -1583,6 +1590,17 @@ select {
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+/* The metadata rail pins beside the report (report-as-hero) and scrolls
+   internally for long source lists, so an asymmetric column height never
+   leaves a large empty void below the shorter column. */
+.job-layout__rail {
+  position: sticky;
+  top: 16px;
+  align-self: start;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
 }
 
 .report-banner {
@@ -1897,5 +1915,99 @@ select {
 
   .bulk-bar {
     animation: none;
+  }
+}
+
+/* reading progress + back to top (report pages) */
+/* z-index 45: above the sticky header (40) and report-toc (30), but below the
+   sidebar overlay (50), toaster (60) and command palette (60). */
+.reading-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 3px;
+  width: 0;
+  z-index: 45;
+  background: linear-gradient(90deg, var(--accent), var(--accent-strong));
+  border-bottom-right-radius: 2px;
+  transition: width 0.12s ease-out;
+  pointer-events: none;
+}
+
+/* Sits above the toaster stack (bottom-right) so the two never collide. */
+.back-to-top {
+  position: fixed;
+  bottom: 84px;
+  right: 24px;
+  z-index: 45;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease,
+    border-color 0.15s ease;
+}
+
+.back-to-top--visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.back-to-top:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+
+.back-to-top:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow:
+    inset 0 0 0 1px var(--accent),
+    var(--shadow);
+}
+
+@media (max-width: 980px) {
+  /* The toaster goes full-width at bottom: 16px on mobile; lift the button so
+     it clears the toast stack rather than sitting on top of it. */
+  .back-to-top {
+    bottom: 96px;
+    right: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reading-progress {
+    transition: none;
+  }
+
+  .back-to-top {
+    transition:
+      opacity 0.2s ease,
+      border-color 0.15s ease;
+    transform: none;
+  }
+
+  .back-to-top--visible {
+    transform: none;
+  }
+
+  .back-to-top:hover {
+    transform: none;
   }
 }

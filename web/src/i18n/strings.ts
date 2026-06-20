@@ -86,6 +86,8 @@ export const translations = {
       notFoundTitle: 'Сторінку не знайдено',
       notFoundMessage: 'Сторінка, яку ви шукаєте, не існує.',
       goToAnalyses: 'Перейти до аналізів',
+      backToTop: 'Нагору',
+      readingProgress: 'Прогрес читання',
     },
     status: {
       queued: 'У черзі',
@@ -456,6 +458,8 @@ export const translations = {
       notFoundTitle: 'Страница не найдена',
       notFoundMessage: 'Запрошенная страница не существует.',
       goToAnalyses: 'Перейти к анализам',
+      backToTop: 'Наверх',
+      readingProgress: 'Прогресс чтения',
     },
     status: {
       queued: 'В очереди',

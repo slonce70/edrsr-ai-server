@@ -10,8 +10,10 @@ import { useLocale } from '../state/LocaleContext';
 import { useToast } from '../state/ToastContext';
 import { useWebSocket } from '../state/WebSocketContext';
 import { useWorkspace } from '../state/WorkspaceContext';
+import { BackToTop } from '../components/BackToTop';
 import { EmptyState } from '../components/EmptyState';
 import { ProgressBar } from '../components/ProgressBar';
+import { ReadingProgress } from '../components/ReadingProgress';
 import { StatusBadge } from '../components/StatusBadge';
 import { MarkdownView } from '../components/MarkdownView';
 import { ReportSearch } from '../components/ReportSearch';
@@ -520,6 +522,8 @@ export function JobDetailPage() {
 
   return (
     <div className="stack">
+      <ReadingProgress />
+      <BackToTop />
       <div className="page-header">
         <div>
           <Link to="/analyses" className="link">

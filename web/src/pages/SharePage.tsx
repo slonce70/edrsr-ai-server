@@ -10,6 +10,8 @@ import { ReportStatusBanner } from '../components/ReportStatusBanner';
 import { ReportToc } from '../components/ReportToc';
 import { Skeleton, SkeletonCard } from '../components/Skeleton';
 import { EmptyState } from '../components/EmptyState';
+import { BackToTop } from '../components/BackToTop';
+import { ReadingProgress } from '../components/ReadingProgress';
 
 type SharePayload = {
   success: boolean;
@@ -74,6 +76,8 @@ export function SharePage() {
 
   return (
     <div className="share-view">
+      <ReadingProgress />
+      <BackToTop />
       <div className="page-header">
         <div>
           <h1>{data.job.title}</h1>
