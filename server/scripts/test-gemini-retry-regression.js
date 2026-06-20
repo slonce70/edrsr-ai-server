@@ -12,6 +12,7 @@ delete process.env.MAX_RETRIES;
 const {
   clearBatchProcessorTestOverrides,
   createContentGenerator,
+  createFinalAnalysis,
   getBatchSummary,
   setBatchProcessorTestOverrides,
 } = await import('../batchProcessor.js');
@@ -189,10 +190,128 @@ async function testPermissionDeniedKeyIsRemovedFromRotation() {
   );
 }
 
+async function testHardQuotaErrorCooldownsKeyInsteadOfInvalidating() {
+  const usedKeys = [];
+  const { apiKeyManager, generator } = createTestGenerator([
+    async ({ keyIndex }) => {
+      usedKeys.push(keyIndex);
+      const error = new Error(
+        '{"error":{"code":429,"message":"You exceeded your current quota. See https://ai.google.dev/gemini-api/docs/rate-limits#400_errors","status":"RESOURCE_EXHAUSTED"}}'
+      );
+      error.status = 429;
+      throw error;
+    },
+    async ({ keyIndex }) => {
+      usedKeys.push(keyIndex);
+      return { text: 'success after quota cooldown' };
+    },
+  ]);
+
+  const result = await generator('quota regression prompt');
+
+  assert.equal(result, 'success after quota cooldown');
+  assert.equal(
+    apiKeyManager.isInvalid(0),
+    false,
+    'a 429 quota/billing error must NOT permanently invalidate the key — quotas reset, so it is a cooldown'
+  );
+  assert.deepEqual(
+    usedKeys.slice(0, 2),
+    [0, 1],
+    'generateContent should cooldown the quota key and continue with another key'
+  );
+}
+
+async function testCustomFinalAnalysisRepairsMissingCaseCoverage() {
+  const cases = [
+    {
+      caseNumber: '111/111/11',
+      id: '111/111/11',
+      url: 'https://reyestr.court.gov.ua/Review/111111111',
+      decisionDate: '2026-06-01',
+      body: 'Перша справа про передачу на розгляд Великої Палати.',
+    },
+    {
+      caseNumber: '222/222/22',
+      id: '222/222/22',
+      url: 'https://reyestr.court.gov.ua/Review/222222222',
+      decisionDate: '2026-06-02',
+      body: 'Друга справа про відмову у передачі на розгляд обʼєднаної палати.',
+    },
+  ];
+  const calls = [];
+
+  try {
+    setBatchProcessorTestOverrides({
+      generateContent: async (prompt) => {
+        calls.push(prompt);
+        if (calls.length === 1) {
+          return 'Знайдено одну справу: [Справа №111/111/11](https://reyestr.court.gov.ua/Review/111111111) (2026-06-01).';
+        }
+        return [
+          '## Повний звіт',
+          '[Справа №111/111/11](https://reyestr.court.gov.ua/Review/111111111) (2026-06-01) — релевантна.',
+          '[Справа №222/222/22](https://reyestr.court.gov.ua/Review/222222222) (2026-06-02) — релевантна.',
+        ].join('\n');
+      },
+    });
+
+    const result = await createFinalAnalysis(
+      cases,
+      [],
+      'ищу дела где суд передал дело на рассмотрение большой палаты'
+    );
+
+    assert.equal(calls.length, 2, 'missing custom-report coverage should trigger one repair call');
+    assert.match(result, /Review\/111111111/);
+    assert.match(result, /Review\/222222222/);
+    assert.match(calls[1], /НЕ ВКЛЮЧЕНІ У ЧЕРНЕТКУ/i);
+  } finally {
+    clearBatchProcessorTestOverrides();
+  }
+}
+
+async function testCustomFinalAnalysisFailsWhenRepairStillMissesCoverage() {
+  const cases = [
+    {
+      caseNumber: '333/333/33',
+      id: '333/333/33',
+      url: 'https://reyestr.court.gov.ua/Review/333333333',
+      decisionDate: '2026-06-03',
+      body: 'Третя справа про передачу на розгляд палати.',
+    },
+    {
+      caseNumber: '444/444/44',
+      id: '444/444/44',
+      url: 'https://reyestr.court.gov.ua/Review/444444444',
+      decisionDate: '2026-06-04',
+      body: 'Четверта справа про відмову у передачі.',
+    },
+  ];
+
+  try {
+    setBatchProcessorTestOverrides({
+      generateContent: async () =>
+        'Неповний звіт: [Справа №333/333/33](https://reyestr.court.gov.ua/Review/333333333) (2026-06-03).',
+    });
+
+    await assert.rejects(
+      () => createFinalAnalysis(cases, [], 'ищу все релевантные дела по передаче в палату'),
+      /Фінальний AI-звіт неповний/,
+      'custom final analysis should fail instead of saving an incomplete repaired report'
+    );
+  } finally {
+    clearBatchProcessorTestOverrides();
+  }
+}
+
 async function run() {
   await testGenerateContentTriesAllKeys();
   await testCustomPromptFallsBackOnRetryableGeminiError();
   await testPermissionDeniedKeyIsRemovedFromRotation();
+  await testHardQuotaErrorCooldownsKeyInsteadOfInvalidating();
+  await testCustomFinalAnalysisRepairsMissingCaseCoverage();
+  await testCustomFinalAnalysisFailsWhenRepairStillMissesCoverage();
   console.log('Gemini retry regressions passed.');
 }
 

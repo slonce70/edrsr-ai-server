@@ -112,13 +112,44 @@ function createContentGenerator({
               safetySettings,
             },
           });
+          const finishReason = response?.candidates?.[0]?.finishReason;
           const text = response.text;
+
+          // Обрив по ліміту токенів: відповідь неповна. Не приймаємо як успіх —
+          // позначаємо truncated, щоб getBatchSummary роздробив батч на менші частини.
+          if (finishReason === 'MAX_TOKENS') {
+            const truncationError = new Error(
+              `Gemini обірвав відповідь по ліміту токенів (MAX_TOKENS, ${text?.length || 0} символів). Звіт неповний.`
+            );
+            truncationError.truncated = true;
+            throw truncationError;
+          }
+
+          // Блокування контенту (SAFETY/RECITATION/BLOCKLIST/PROHIBITED_CONTENT/SPII/OTHER):
+          // повтор тим самим запитом не допоможе — піднімаємо явну позначену помилку.
+          if (
+            finishReason &&
+            finishReason !== 'STOP' &&
+            finishReason !== 'FINISH_REASON_UNSPECIFIED'
+          ) {
+            const blockedError = new Error(
+              `Gemini заблокував відповідь (finishReason=${finishReason}).`
+            );
+            blockedError.blocked = true;
+            throw blockedError;
+          }
 
           if (!text?.trim()) {
             throw new Error('Gemini повернув порожню відповідь.');
           }
           return text.trim(); // Успіх!
         } catch (error) {
+          // Обрив/блокування — це проблема контенту, а не ключа: не штрафуємо ключ
+          // і не крутимо внутрішній retry (результат детермінований), а пробрасуємо вище.
+          if (error.truncated || error.blocked) {
+            log.warn(`⚠️ [GEMINI] ${error.message}`);
+            throw error;
+          }
           const message = String(error.message || '');
           const statusCode = error.status || error.statusCode || message.match(/\b(\d{3})\b/)?.[1];
 
@@ -128,18 +159,23 @@ function createContentGenerator({
             log.warn(`   HTTP Status: ${statusCode}`);
           }
 
-          const isQuotaError = message.includes('429') || message.includes('RESOURCE_EXHAUSTED');
+          const statusText = String(statusCode || '');
+          const normalizedMessage = message.toLowerCase();
+          const isQuotaError = statusText === '429' || message.includes('RESOURCE_EXHAUSTED');
+          // 429/RESOURCE_EXHAUSTED — це rate limit (квота поновлюється), а НЕ мертвий ключ.
+          // Навіть повідомлення "exceeded your current quota"/"billing" → cooldown, а не перманентний бан.
+          // Перманентно банимо лише за справжніми ознаками мертвого ключа (400/401/403/API_KEY_INVALID).
           const isOverloadError = message.includes('503') || message.includes('overloaded');
           const isEmptyResponse =
             message.includes('порожню відповідь') ||
-            message.toLowerCase().includes('empty response');
+            normalizedMessage.includes('empty response');
           const isPermissionDenied =
-            String(statusCode) === '403' ||
+            statusText === '403' ||
             message.includes('PERMISSION_DENIED') ||
             message.includes('denied access');
           const isInvalidKey =
-            message.includes('400') ||
-            message.includes('401') ||
+            statusText === '400' ||
+            statusText === '401' ||
             message.includes('API_KEY_INVALID') ||
             message.includes('INVALID_ARGUMENT') ||
             isPermissionDenied;
@@ -263,7 +299,12 @@ const isRetryableGeminiError = (message) => {
     msg.includes('fetch failed') ||
     msg.includes('enetwork') ||
     msg.includes('enet') ||
-    msg.includes('econn')
+    msg.includes('econn') ||
+    // Обрив по ліміту токенів → роздробити батч на менші частини (менший вивід вміститься).
+    msg.includes('max_tokens') ||
+    msg.includes('обірвав відповідь') ||
+    // Блокування контенту → ізолювати проблемну справу через дроблення.
+    msg.includes('заблокував відповідь')
   );
 };
 
@@ -278,6 +319,85 @@ const buildFallbackSummary = (batchCases, message) => {
     ...lines,
   ].join('\n');
 };
+
+const isCustomAnalysisPrompt = (userPromptKey) =>
+  Boolean(userPromptKey && !PROMPT_TEMPLATES[userPromptKey]);
+
+const findMissingCaseReferences = (reportText, cases) => {
+  const report = String(reportText || '');
+  return cases.filter((caseItem) => caseItem?.url && !report.includes(caseItem.url));
+};
+
+const buildCoverageRepairPrompt = (cases, userPromptKey, corpus, draftReport, missingCases) => {
+  const missingList = missingCases
+    .map(
+      (caseItem) =>
+        `- Справа №${caseItem.caseNumber || caseItem.id || 'Н/Д'} — ${caseItem.url} (${caseItem.decisionDate || caseItem.date || 'не вказано'})`
+    )
+    .join('\n');
+
+  return `
+# ВИПРАВЛЕННЯ НЕПОВНОГО ЗВІТУ
+
+Ти створив чернетку аналітичного звіту за індивідуальним запитом користувача, але в ній відсутні деякі справи з обовʼязкового списку охоплення.
+
+# КОРИСТУВАЦЬКИЙ ЗАПИТ
+"""
+${userPromptKey}
+"""
+
+# СПРАВИ, ЯКІ НЕ ВКЛЮЧЕНІ У ЧЕРНЕТКУ
+${missingList}
+
+# ПРАВИЛО, ЯКЕ НЕ МОЖНА ПОРУШУВАТИ
+- У фінальному звіті має бути згадана КОЖНА справа зі строгого списку відповідності.
+- Якщо справа релевантна або потенційно релевантна — розпиши її по суті.
+- Якщо справа нерелевантна — включи її в розділ "Перевірені, але нерелевантні" з короткою причиною.
+- Не видаляй уже знайдені релевантні справи з чернетки.
+- Кожна справа має містити точний Markdown-лінк з URL.
+
+# ЧЕРНЕТКА ЗВІТУ
+${draftReport}
+
+# УСІ МАТЕРІАЛИ ДЛЯ ПЕРЕВІРКИ
+<<<BEGIN MATERIALS>>>
+${corpus}
+<<<END MATERIALS>>>
+
+Поверни повний виправлений звіт.
+`;
+};
+
+async function repairCustomReportCoverageIfNeeded(cases, userPromptKey, corpus, finalReport, generator) {
+  if (!isCustomAnalysisPrompt(userPromptKey)) {
+    return finalReport;
+  }
+
+  const missing = findMissingCaseReferences(finalReport, cases);
+  if (missing.length === 0) {
+    return finalReport;
+  }
+
+  logger.warn(
+    `⚠️ Final custom report missed ${missing.length}/${cases.length} case link(s). Requesting coverage repair...`
+  );
+
+  const repairPrompt = buildCoverageRepairPrompt(cases, userPromptKey, corpus, finalReport, missing);
+  const repairedReport = await generator(repairPrompt);
+  const stillMissing = findMissingCaseReferences(repairedReport, cases);
+
+  if (stillMissing.length > 0) {
+    const missingIds = stillMissing
+      .map((caseItem) => caseItem.caseNumber || caseItem.id || caseItem.url)
+      .join(', ');
+    throw new Error(
+      `Фінальний AI-звіт неповний: після repair-виклику відсутні ${stillMissing.length}/${cases.length} справ(и): ${missingIds}`
+    );
+  }
+
+  logger.info(`✅ Coverage repair completed: all ${cases.length} case link(s) present`);
+  return repairedReport;
+}
 
 async function getBatchSummary(
   batchCases,
@@ -469,7 +589,15 @@ async function createFinalAnalysis(cases, allSummaries, userPromptKey) {
   const finalPrompt = createAnalysisPrompt(cases, userPromptKey, corpus);
 
   try {
-    const finalReport = await getContentGenerator()(finalPrompt);
+    const generator = getContentGenerator();
+    const draftReport = await generator(finalPrompt);
+    const finalReport = await repairCustomReportCoverageIfNeeded(
+      cases,
+      userPromptKey,
+      corpus,
+      draftReport,
+      generator
+    );
     logger.info(`✅ Final analysis created: ${finalReport.length} chars`);
     return finalReport;
   } catch (err) {

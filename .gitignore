@@ -76,7 +76,12 @@ temp/
 *credentials*.json
 *secrets*.json
 admin-keys.json
+/connect/
 
 AGENTS.md
 **/AGENTS.md
 .omx/
+
+# Subagent-driven-development transient artifacts (keep the plan .md, drop the working files)
+/docs/superpowers/plans/.phase0-progress.md
+/docs/superpowers/plans/.task-*-report.md

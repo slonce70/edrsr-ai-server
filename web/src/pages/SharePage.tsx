@@ -4,6 +4,7 @@ import { apiRequest } from '../lib/api';
 import { formatDate } from '../lib/format';
 import { useLocale } from '../state/LocaleContext';
 import { MarkdownView } from '../components/MarkdownView';
+import { ReportStatusBanner } from '../components/ReportStatusBanner';
 import { EmptyState } from '../components/EmptyState';
 
 type SharePayload = {
@@ -63,6 +64,7 @@ export function SharePage() {
           </div>
         </div>
         <div className="card__body">
+          <ReportStatusBanner markdown={data.analysis} />
           {data.analysis ? (
             <MarkdownView markdown={data.analysis} />
           ) : (

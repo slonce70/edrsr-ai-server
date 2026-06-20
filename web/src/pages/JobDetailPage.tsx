@@ -11,6 +11,8 @@ import { EmptyState } from '../components/EmptyState';
 import { ProgressBar } from '../components/ProgressBar';
 import { StatusBadge } from '../components/StatusBadge';
 import { MarkdownView } from '../components/MarkdownView';
+import { ReportStatusBanner } from '../components/ReportStatusBanner';
+import { buildRetryBody } from './jobRetry';
 
 type JobDetail = {
   id: string;
@@ -69,7 +71,7 @@ const ACTIVE_STATUSES = new Set([
 export function JobDetailPage() {
   const { jobId } = useParams();
   const { accessToken } = useAuth();
-  const { subscribe, onJobUpdate } = useWebSocket();
+  const { subscribe, onJobUpdate, clientId } = useWebSocket();
   const { t, dateLocale } = useLocale();
   const { activeWorkspaceId } = useWorkspace();
   const navigate = useNavigate();
@@ -87,6 +89,7 @@ export function JobDetailPage() {
   const [shareLoading, setShareLoading] = useState(false);
   const [shareNotice, setShareNotice] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [retrying, setRetrying] = useState(false);
 
   const fetchAnalysis = useCallback(async () => {
     if (!accessToken || !jobId) return;
@@ -351,6 +354,25 @@ export function JobDetailPage() {
     }
   };
 
+  const handleRetry = async () => {
+    if (!accessToken || !jobId) return;
+    setError(null);
+    setRetrying(true);
+    try {
+      await apiRequest(`/retry/${jobId}`, {
+        token: accessToken,
+        method: 'POST',
+        body: buildRetryBody(clientId),
+        workspaceId: activeWorkspaceId || undefined,
+      });
+      navigate('/analyses');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('errors.generic'));
+    } finally {
+      setRetrying(false);
+    }
+  };
+
   if (loading && !job) {
     return <div className="card">{t('common.loading')}</div>;
   }
@@ -423,6 +445,20 @@ export function JobDetailPage() {
                 <strong>{job.prompt ? t('job.promptCustom') : t('job.promptDefault')}</strong>
               </div>
             </div>
+            {job.status === 'error' && job.error_message ? (
+              <div className="card--error job-error">
+                <strong>{t('job.errorReasonTitle')}</strong>
+                <div className="job-error__message">{job.error_message}</div>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={handleRetry}
+                  disabled={retrying || !clientId}
+                >
+                  {retrying ? t('job.retrying') : t('job.retry')}
+                </button>
+              </div>
+            ) : null}
           </div>
         </div>
         <div className="card">
@@ -480,6 +516,7 @@ export function JobDetailPage() {
           </div>
         </div>
         <div className="card__body">
+          <ReportStatusBanner markdown={analysis} />
           {analysis ? (
             <MarkdownView markdown={analysis} />
           ) : (

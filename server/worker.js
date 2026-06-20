@@ -404,18 +404,11 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
       global.gc();
     }
 
-    // Прагнемо зберегти результат аналізу
-    try {
-      await dbService.saveJobResult(jobId, analysis);
-      console.log(`[WORKER] ✅ Результат аналізу збережено для завдання ${jobId}`);
-    } catch (error) {
-      // Якщо завдання було видалено, dbService.saveJobResult тихо проігнорує це
-      // але якщо сталася інша помилка — логую її
-      console.warn(
-        `[WORKER] ⚠️ Попередження під час збереження результату для ${jobId}:`,
-        error.message
-      );
-    }
+    // Зберігаємо результат аналізу. saveJobResult сам тихо ігнорує випадок "завдання видалено",
+    // тож будь-яка помилка тут — це реальний збій збереження. НЕ рапортуємо успіх із втраченим
+    // звітом: пробрасуємо помилку, щоб завдання позначилось як error (з retrySuggested).
+    await dbService.saveJobResult(jobId, analysis);
+    console.log(`[WORKER] ✅ Результат аналізу збережено для завдання ${jobId}`);
 
     const duration = Math.round((Date.now() - startTime) / 1000);
     if (jobTimeout) clearTimeout(jobTimeout);

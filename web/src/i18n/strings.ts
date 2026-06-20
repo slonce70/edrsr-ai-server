@@ -161,6 +161,15 @@ export const translations = {
       report: 'Звіт',
       reportMeta: 'Markdown-звіт, згенерований моделлю.',
       reportEmpty: 'Звіт зʼявиться після завершення.',
+      quality: {
+        partialTitle: '⚠️ Звіт неповний',
+        partialBody:
+          'Аналіз охопив не всі справи або був обірваний моделлю. Перевірте охоплення перед використанням.',
+        coverage: 'Охоплення: {{coverage}}%',
+      },
+      errorReasonTitle: 'Помилка аналізу',
+      retry: 'Повторити аналіз',
+      retrying: 'Запуск повтору...',
       linksEmpty: 'Посилання зʼявляться після старту обробки.',
       updated: 'Оновлено',
       duration: 'Тривалість',
@@ -461,6 +470,15 @@ export const translations = {
       report: 'Отчет',
       reportMeta: 'Markdown-отчет, сформированный моделью.',
       reportEmpty: 'Отчет появится после завершения.',
+      quality: {
+        partialTitle: '⚠️ Отчёт неполный',
+        partialBody:
+          'Анализ охватил не все дела или был оборван моделью. Проверьте охват перед использованием.',
+        coverage: 'Охват: {{coverage}}%',
+      },
+      errorReasonTitle: 'Ошибка анализа',
+      retry: 'Повторить анализ',
+      retrying: 'Запуск повтора...',
       linksEmpty: 'Ссылки появятся после старта обработки.',
       updated: 'Обновлено',
       duration: 'Длительность',

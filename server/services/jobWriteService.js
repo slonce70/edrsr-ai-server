@@ -140,9 +140,16 @@ class JobWriteService {
     }
 
     try {
-      await database.run('DELETE FROM job_results WHERE job_id = $1', [jobId]);
-      const sql = `INSERT INTO job_results (job_id, analysis_text, user_id) VALUES ($1, $2, $3)`;
-      await database.run(sql, [jobId, analysisText, job.user_id || null]);
+      // Атомарно: DELETE+INSERT в одній транзакції. Якщо INSERT впаде після DELETE,
+      // ROLLBACK поверне попередній результат — раніше це був неатомарний DELETE-потім-INSERT,
+      // де збій INSERT знищував готовий звіт назавжди.
+      await database.withTransaction(async (tx) => {
+        await tx.run('DELETE FROM job_results WHERE job_id = $1', [jobId]);
+        await tx.run(
+          `INSERT INTO job_results (job_id, analysis_text, user_id) VALUES ($1, $2, $3)`,
+          [jobId, analysisText, job.user_id || null]
+        );
+      });
       logger.info(
         `[DB] Результат анализа сохранен для задачи ${jobId} (${analysisText.length} символов)`
       );

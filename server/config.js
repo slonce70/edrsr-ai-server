@@ -529,23 +529,25 @@ export const GENERATION_CONFIG = {
   maxOutputTokens: parseInt(process.env.MAX_TOKENS) || 65536,
 };
 
-// Safety settings (using enums from @google/genai)
+// Safety settings: fully DISABLED (threshold OFF, per Google @google/genai docs).
+// Court decisions about crimes/violence/tactics are legitimate legal text but tripped the
+// default BLOCK_MEDIUM_AND_ABOVE filters (finishReason=SAFETY), failing/degrading analyses.
 export const SAFETY_SETTINGS = [
   {
     category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+    threshold: HarmBlockThreshold.OFF,
   },
   {
     category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+    threshold: HarmBlockThreshold.OFF,
   },
   {
     category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+    threshold: HarmBlockThreshold.OFF,
   },
   {
     category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+    threshold: HarmBlockThreshold.OFF,
   },
 ];
 

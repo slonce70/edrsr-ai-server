@@ -41,6 +41,17 @@ function validateBatchProcessing(originalCases, batchSummaries, totalBatches) {
     }
   });
 
+  // Check 2b: a degraded batch (fallback placeholder) means some cases were NOT analysed.
+  // Surface it honestly instead of certifying the report as complete ("100% / всё корректно").
+  batchSummaries.forEach((summary, index) => {
+    if (summary && summary.includes('Частина справ не була проаналізована')) {
+      validation.isValid = false;
+      validation.issues.push(
+        `Етап ${index + 1}: частину справ не проаналізовано (тимчасова помилка AI)`
+      );
+    }
+  });
+
   // Check 3: Calculate coverage percentage - fixed logic
   // Coverage is 100% if the process is valid and it was either a single batch or all summaries were generated.
   validation.coverage =
