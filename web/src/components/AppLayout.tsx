@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { APP_NAME } from '../lib/config';
 import { createJobNotifyState, reduceJobEvent } from '../lib/jobNotifications';
 import { resolveInitialTheme, type Theme } from '../lib/theme';
+import { Brand } from '../components/Brand';
 import { CommandPalette } from '../components/CommandPalette';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { KeyboardShortcuts } from '../components/KeyboardShortcuts';
@@ -104,13 +105,7 @@ function AppLayoutInner() {
       />
       <aside className={`sidebar${isSidebarOpen ? ' sidebar--open' : ''}`}>
         <div className="sidebar__header">
-          <div className="brand">
-            <div className="brand__mark">EA</div>
-            <div>
-              <div className="brand__name">{APP_NAME}</div>
-              <div className="brand__tag">{t('app.sidebarTagline')}</div>
-            </div>
-          </div>
+          <Brand />
           <button
             type="button"
             className="icon-button sidebar__close"

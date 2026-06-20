@@ -18,7 +18,7 @@ describe('ErrorBoundary', () => {
     expect(screen.getByText('safe child')).toBeInTheDocument();
   });
 
-  it('renders the fallback when a child throws', () => {
+  it('renders the default fallback with reload + recovery link when a child throws', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     render(
       <ErrorBoundary>
@@ -26,5 +26,21 @@ describe('ErrorBoundary', () => {
       </ErrorBoundary>
     );
     expect(screen.getByRole('button', { name: /reload|перезавантажити/i })).toBeInTheDocument();
+    // Recovery action: a link back to the dashboard so the user isn't stuck.
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/dashboard');
+  });
+
+  it('renders a custom fallback instead of the default when provided', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    render(
+      <ErrorBoundary fallback={<div>custom public fallback</div>}>
+        <Boom />
+      </ErrorBoundary>
+    );
+    expect(screen.getByText('custom public fallback')).toBeInTheDocument();
+    // The default reload button must NOT render when a custom fallback is used.
+    expect(
+      screen.queryByRole('button', { name: /reload|перезавантажити/i })
+    ).not.toBeInTheDocument();
   });
 });

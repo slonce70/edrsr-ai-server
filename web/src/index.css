@@ -1347,6 +1347,44 @@ select {
   padding: 24px;
 }
 
+/* Public SharePage masthead: a professional brand lockup above the report so
+   the client deliverable reads as authoritative, not a bare dump. */
+.share-masthead {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Understated brand footer for the public report (legal deliverable). */
+.share-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+  margin-top: 4px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.share-footer__brand {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.share-footer__note {
+  color: var(--muted);
+}
+
+/* Public render-crash fallback uses the same shell so the brand stays visible. */
+.share-view--error {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
 .chat {
   display: grid;
   gap: 12px;
@@ -2067,6 +2105,22 @@ select {
      phones (the count + button stay sized by their own flex basis). */
   .report-search input {
     flex: 1 1 100%;
+  }
+
+  /* Public SharePage (Finding 32): trim padding and let the masthead/footer
+     wrap so the brand lockup never overflows at narrow widths. */
+  .share-view {
+    padding: 16px;
+  }
+
+  .share-masthead {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .share-footer {
+    flex-direction: column;
+    gap: 4px;
   }
 }
 

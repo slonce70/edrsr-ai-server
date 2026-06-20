@@ -1,6 +1,8 @@
 import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppLayout } from './components/AppLayout';
+import { Brand } from './components/Brand';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { useAuth } from './state/AuthContext';
 import { useLocale } from './state/LocaleContext';
 
@@ -54,6 +56,24 @@ function RouteFallback() {
   );
 }
 
+// Self-contained fallback for the PUBLIC /share route: no auth, no links into
+// the private app. If a malformed shared report throws during render the client
+// sees a branded "couldn't be displayed" card instead of a blank white app.
+function SharePublicFallback() {
+  const { t } = useLocale();
+  return (
+    <div className="share-view share-view--error">
+      <Brand />
+      <div className="card">
+        <div className="card__body center" role="alert">
+          <h1>{t('share.renderErrorTitle')}</h1>
+          <p>{t('share.renderErrorMessage')}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ProtectedLayout() {
   const { user, isLoading } = useAuth();
   const { t } = useLocale();
@@ -78,7 +98,14 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/reset" element={<ResetPasswordPage />} />
-        <Route path="/share/:token" element={<SharePage />} />
+        <Route
+          path="/share/:token"
+          element={
+            <ErrorBoundary fallback={<SharePublicFallback />}>
+              <SharePage />
+            </ErrorBoundary>
+          }
+        />
         <Route element={<ProtectedLayout />}>
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardPage />} />

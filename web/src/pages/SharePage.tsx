@@ -6,6 +6,8 @@ import { renderMarkdown } from '../lib/markdown';
 import { buildSourcesFooterHtml, buildWordBlob, PRINT_STYLE } from '../lib/exportDoc';
 import { downloadBlob } from '../lib/download';
 import { useDocumentTitle } from '../lib/useDocumentTitle';
+import { APP_NAME } from '../lib/config';
+import { Brand } from '../components/Brand';
 import { useLocale } from '../state/LocaleContext';
 import { useToast } from '../state/ToastContext';
 import { ReportSearch } from '../components/ReportSearch';
@@ -219,6 +221,9 @@ export function SharePage() {
     <div className="share-view">
       <ReadingProgress />
       <BackToTop />
+      <header className="share-masthead">
+        <Brand />
+      </header>
       <div className="page-header">
         <div>
           <h1>{data.job.title}</h1>
@@ -296,6 +301,11 @@ export function SharePage() {
           </Link>
         </div>
       </div>
+
+      <footer className="share-footer">
+        <span className="share-footer__brand">{t('share.preparedWith', { app: APP_NAME })}</span>
+        <span className="share-footer__note">{t('share.footerNote')}</span>
+      </footer>
     </div>
   );
 }
