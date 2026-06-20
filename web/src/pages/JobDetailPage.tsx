@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { KeyboardEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { apiRequest } from '../lib/api';
 import { formatDate, formatDateShort, formatDurationSeconds, formatStatus } from '../lib/format';
@@ -13,6 +14,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import { MarkdownView } from '../components/MarkdownView';
 import { ReportStatusBanner } from '../components/ReportStatusBanner';
 import { buildRetryBody } from './jobRetry';
+import { buildWordBlob } from '../lib/exportDoc';
 import { mergeJobUpdate } from '../lib/jobUpdate';
 import type { JobQuality } from '../lib/analysisQuality';
 
@@ -86,6 +88,8 @@ export function JobDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState('');
+  const [pendingMessage, setPendingMessage] = useState('');
+  const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const [matter, setMatter] = useState<{ id: string; title: string } | null>(null);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [shareDays, setShareDays] = useState(14);
@@ -201,22 +205,38 @@ export function JobDetailPage() {
     return () => window.clearInterval(interval);
   }, [job, jobId, accessToken, fetchStatus]);
 
+  useEffect(() => {
+    const container = chatScrollRef.current;
+    if (container) container.scrollTop = container.scrollHeight;
+  }, [chat, pendingMessage]);
+
   const handleSend = async () => {
-    if (!accessToken || !jobId || !message.trim()) return;
+    const trimmed = message.trim();
+    if (!accessToken || !jobId || !trimmed || sending) return;
+    setPendingMessage(trimmed);
+    setMessage('');
     setSending(true);
     try {
       await apiRequest(`/chat/${jobId}`, {
         token: accessToken,
         method: 'POST',
-        body: { message: message.trim() },
+        body: { message: trimmed },
         workspaceId: activeWorkspaceId || undefined,
       });
-      setMessage('');
-      fetchChat();
+      await fetchChat();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send message');
+      setMessage(trimmed);
     } finally {
+      setPendingMessage('');
       setSending(false);
+    }
+  };
+
+  const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      void handleSend();
     }
   };
 
@@ -230,10 +250,41 @@ export function JobDetailPage() {
     URL.revokeObjectURL(url);
   };
 
+  const downloadBlob = (filename: string, blob: Blob) => {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handleDownloadReport = () => {
     const safeTitle = job?.title ? job.title.replace(/[^a-zA-Z0-9_-]+/g, '_') : 'report';
     const content = analysis || t('job.reportEmpty');
     downloadText(`${safeTitle}.txt`, content);
+  };
+
+  const handleDownloadWord = async () => {
+    const safeTitle = job?.title ? job.title.replace(/[^a-zA-Z0-9_-]+/g, '_') : 'report';
+    if (!analysis) {
+      downloadText(`${safeTitle}.txt`, t('job.reportEmpty'));
+      return;
+    }
+    try {
+      const html = await renderMarkdown(analysis);
+      const meta = `${t('job.created', {
+        date: formatDate(job?.created_at, dateLocale),
+      })} | ${progressLabel}`;
+      const blob = buildWordBlob({
+        title: job?.title || t('job.report'),
+        meta,
+        bodyHtml: html,
+      });
+      downloadBlob(`${safeTitle}.doc`, blob);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('errors.generic'));
+    }
   };
 
   const handleDownloadLinks = async () => {
@@ -430,6 +481,9 @@ export function JobDetailPage() {
           <button className="btn btn-ghost" onClick={handleDownloadLinks}>
             {t('job.downloadLinks')}
           </button>
+          <button className="btn btn-ghost" onClick={handleDownloadWord}>
+            {t('job.downloadWord')}
+          </button>
           <button className="btn btn-primary" onClick={handleDownloadReport}>
             {t('job.downloadReport')}
           </button>
@@ -611,33 +665,48 @@ export function JobDetailPage() {
           </div>
         </div>
         <div className="card__body">
-          <div className="chat">
-            {chat.length === 0 ? (
+          <div className="chat" ref={chatScrollRef}>
+            {chat.length === 0 && !(sending && pendingMessage) ? (
               <div className="muted">{t('job.chatEmpty')}</div>
             ) : (
-              chat.map((entry, index) => (
-                <div
-                  key={`${entry.role}-${index}`}
-                  className={`chat__row chat__row--${entry.role}`}
-                >
-                  <div className="chat__bubble">
-                    <div className="chat__role">
-                      {entry.role === 'ai' ? t('job.chatRoleAi') : t('job.chatRoleUser')}
+              <>
+                {chat.map((entry, index) => (
+                  <div
+                    key={`${entry.role}-${index}`}
+                    className={`chat__row chat__row--${entry.role}`}
+                  >
+                    <div className="chat__bubble">
+                      <div className="chat__role">
+                        {entry.role === 'ai' ? t('job.chatRoleAi') : t('job.chatRoleUser')}
+                      </div>
+                      <MarkdownView markdown={entry.content} />
                     </div>
-                    <div>{entry.content}</div>
                   </div>
-                </div>
-              ))
+                ))}
+                {sending && pendingMessage ? (
+                  <div className="chat__row chat__row--user">
+                    <div className="chat__bubble">
+                      <div className="chat__role">{t('job.chatRoleUser')}</div>
+                      <MarkdownView markdown={pendingMessage} />
+                    </div>
+                  </div>
+                ) : null}
+              </>
             )}
           </div>
           <div className="chat__composer">
             <textarea
               value={message}
               onChange={(event) => setMessage(event.target.value)}
+              onKeyDown={handleComposerKeyDown}
               placeholder={t('job.chatPlaceholder')}
               rows={3}
             />
-            <button className="btn btn-primary" onClick={handleSend} disabled={sending}>
+            <button
+              className="btn btn-primary"
+              onClick={handleSend}
+              disabled={sending || !message.trim()}
+            >
               {sending ? t('common.loading') : t('job.chatSend')}
             </button>
           </div>
