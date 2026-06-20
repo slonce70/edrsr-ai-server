@@ -1,11 +1,16 @@
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { renderMarkdown } from '../lib/markdown';
 
 type MarkdownViewProps = {
   markdown?: string | null;
 };
 
-export function MarkdownView({ markdown }: MarkdownViewProps) {
+// Memoized: the rendered report can hold live DOM Ranges (e.g. the in-report
+// search highlights). Re-rendering this component re-applies dangerouslySetInnerHTML
+// and replaces the text nodes, which would collapse any Range pointing into them.
+// Since the output depends only on `markdown`, memo() keeps the DOM stable when an
+// unrelated parent state change (search query/active match) triggers a re-render.
+export const MarkdownView = memo(function MarkdownView({ markdown }: MarkdownViewProps) {
   const [html, setHtml] = useState('');
 
   useEffect(() => {
@@ -26,4 +31,4 @@ export function MarkdownView({ markdown }: MarkdownViewProps) {
   }, [markdown]);
 
   return <div className="markdown" dangerouslySetInnerHTML={{ __html: html }} />;
-}
+});
