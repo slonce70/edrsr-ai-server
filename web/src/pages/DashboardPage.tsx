@@ -109,10 +109,10 @@ export function DashboardPage() {
   }, [fetchOverview, recent, stats.active]);
 
   const statCards = [
-    { label: t('dashboard.statTotal'), value: stats.total },
-    { label: t('dashboard.statCompleted'), value: stats.completed },
-    { label: t('dashboard.statActive'), value: stats.active },
-    { label: t('dashboard.statErrors'), value: stats.error },
+    { label: t('dashboard.statTotal'), value: stats.total, to: '/analyses' },
+    { label: t('dashboard.statCompleted'), value: stats.completed, to: '/analyses?status=completed' },
+    { label: t('dashboard.statActive'), value: stats.active, to: '/analyses' },
+    { label: t('dashboard.statErrors'), value: stats.error, to: '/analyses?status=error' },
   ];
 
   return (
@@ -158,10 +158,10 @@ export function DashboardPage() {
         <>
           <div className="stats-grid">
             {statCards.map((card) => (
-              <div key={card.label} className="card stat-card">
+              <Link key={card.label} to={card.to} className="card stat-card stat-card--link">
                 <div className="stat-card__value">{card.value}</div>
                 <div className="stat-card__label">{card.label}</div>
-              </div>
+              </Link>
             ))}
           </div>
 

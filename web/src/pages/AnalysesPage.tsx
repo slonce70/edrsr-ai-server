@@ -1,5 +1,5 @@
 import { type MouseEvent, useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { apiRequest } from '../lib/api';
 import { formatDateShort, formatStatus } from '../lib/format';
 import { useDocumentTitle } from '../lib/useDocumentTitle';
@@ -34,9 +34,10 @@ export function AnalysesPage() {
   const { success, error: toastError } = useToast();
   const { activeWorkspaceId } = useWorkspace();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   useDocumentTitle(t('analyses.title'));
   const [jobs, setJobs] = useState<JobSummary[]>([]);
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState(() => searchParams.get('status') || '');
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
