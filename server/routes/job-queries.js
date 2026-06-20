@@ -52,6 +52,20 @@ export default function createJobQueriesRouter({ resolveWorkspaceFromQuery }) {
     }
   });
 
+  router.get('/overview', async (req, res, next) => {
+    try {
+      const workspace = await resolveWorkspaceFromQuery(req, res);
+      if (req.query.workspaceId && !workspace) return;
+      const overview = await jobQueryService.getOverview({
+        userId: workspace ? null : req.user?.id || null,
+        workspaceId: workspace?.id || null,
+      });
+      return res.json({ success: true, overview });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
   router.get('/status/:id', async (req, res, next) => {
     try {
       const include = []

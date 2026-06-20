@@ -85,6 +85,7 @@ const serviceContracts = [
       'getLastRelevantJob',
       'getProcessedUrls',
       'getProcessedMembership',
+      'getOverview',
     ],
   ],
   [

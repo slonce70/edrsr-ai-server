@@ -328,6 +328,77 @@ class JobQueryService {
     return results.map((row) => row.url);
   }
 
+  async getOverview({ userId = null, workspaceId = null } = {}) {
+    // Build the scope predicate exactly once, mirroring the GET /jobs access model:
+    // when a workspace is resolved filter by workspace_id, otherwise by user_id.
+    // $1 is reserved for the scope value so every query reuses the same params array.
+    let scopeClause = '';
+    const params = [];
+    if (workspaceId) {
+      scopeClause = 'workspace_id = $1';
+      params.push(workspaceId);
+    } else if (userId) {
+      scopeClause = 'user_id = $1';
+      params.push(userId);
+    }
+    const whereScope = scopeClause ? `WHERE ${scopeClause}` : '';
+    const andScope = scopeClause ? `AND ${scopeClause}` : '';
+
+    const totalRow = await database.get(
+      `SELECT COUNT(*)::int AS total FROM jobs ${whereScope}`,
+      params
+    );
+
+    const statusRows = await database.all(
+      `SELECT status, COUNT(*)::int AS count FROM jobs ${whereScope} GROUP BY status`,
+      params
+    );
+
+    const thisWeekRow = await database.get(
+      `SELECT COUNT(*)::int AS count FROM jobs
+       WHERE created_at >= now() - interval '7 days' ${andScope}`,
+      params
+    );
+
+    const todayRow = await database.get(
+      `SELECT COUNT(*)::int AS count FROM jobs
+       WHERE created_at >= date_trunc('day', now()) ${andScope}`,
+      params
+    );
+
+    const matterRows = await database.all(
+      `SELECT matter_id, COUNT(*)::int AS count FROM jobs
+       WHERE matter_id IS NOT NULL ${andScope}
+       GROUP BY matter_id
+       ORDER BY count DESC
+       LIMIT 8`,
+      params
+    );
+
+    const recent = await database.all(
+      `SELECT id, status, progress, total_links, processed_links, created_at, updated_at, title, matter_id
+       FROM jobs
+       ${whereScope}
+       ORDER BY created_at DESC
+       LIMIT 8`,
+      params
+    );
+
+    const statusCounts = {};
+    for (const row of statusRows) {
+      statusCounts[row.status] = row.count;
+    }
+
+    return {
+      total: totalRow?.total || 0,
+      statusCounts,
+      thisWeek: thisWeekRow?.count || 0,
+      today: todayRow?.count || 0,
+      byMatter: matterRows,
+      recent,
+    };
+  }
+
   async getProcessedMembership(urls = [], userId = null) {
     if (!Array.isArray(urls) || urls.length === 0) return [];
     const sql = userId
