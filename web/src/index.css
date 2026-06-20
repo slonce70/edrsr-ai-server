@@ -1133,6 +1133,15 @@ select {
   background: var(--panel-muted);
   border: 1px solid var(--border);
   border-radius: 10px;
+  /* Stick to the top of the viewport so the TOC stays reachable while reading a
+     long report. The search box (rendered after the TOC) scrolls away with the
+     content, which is acceptable. Its own max-height + internal scroll keeps a
+     long TOC compact. */
+  position: sticky;
+  top: 16px;
+  z-index: 2;
+  max-height: calc(100vh - 32px);
+  overflow: auto;
 }
 
 .report-toc__summary {
@@ -1181,6 +1190,21 @@ select {
 
 .report-toc__link:hover {
   color: var(--accent-strong);
+}
+
+.report-toc__link--active {
+  color: var(--accent-strong);
+  font-weight: 600;
+  box-shadow: inset 2px 0 0 var(--accent);
+  padding-left: 8px;
+}
+
+.report-toc__link--active.report-toc__link--h2 {
+  padding-left: 20px;
+}
+
+.report-toc__link--active.report-toc__link--h3 {
+  padding-left: 34px;
 }
 
 .report-toc__link--h2 {
@@ -1455,6 +1479,13 @@ select {
 
   .job-layout {
     grid-template-columns: 1fr;
+  }
+
+  /* Sticky TOC is annoying on small single-column screens: keep it in flow. */
+  .report-toc {
+    position: static;
+    max-height: none;
+    overflow: visible;
   }
 
   .page-header {

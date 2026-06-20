@@ -1,5 +1,50 @@
 import { describe, it, expect } from 'vitest';
-import { slugify, extractToc, assignHeadingIds } from './reportToc';
+import { slugify, extractToc, assignHeadingIds, pickActiveId } from './reportToc';
+
+describe('pickActiveId', () => {
+  it('returns null for an empty list', () => {
+    expect(pickActiveId([])).toBeNull();
+  });
+
+  it('picks the last heading scrolled past the activation line', () => {
+    const headings = [
+      { id: 'a', top: -200 },
+      { id: 'b', top: -40 },
+      { id: 'c', top: 300 },
+    ];
+    // a and b are above the line (0), c is below -> b is current.
+    expect(pickActiveId(headings)).toBe('b');
+  });
+
+  it('honours a custom offset (e.g. scroll-margin-top)', () => {
+    const headings = [
+      { id: 'a', top: -10 },
+      { id: 'b', top: 50 },
+      { id: 'c', top: 300 },
+    ];
+    // With offset 90, both a (-10) and b (50) are at/above the line -> b.
+    expect(pickActiveId(headings, 90)).toBe('b');
+    // With offset 0, only a is above -> a.
+    expect(pickActiveId(headings, 0)).toBe('a');
+  });
+
+  it('falls back to the first heading when none have been passed yet', () => {
+    const headings = [
+      { id: 'a', top: 120 },
+      { id: 'b', top: 400 },
+    ];
+    expect(pickActiveId(headings)).toBe('a');
+  });
+
+  it('returns the last heading when everything is scrolled above', () => {
+    const headings = [
+      { id: 'a', top: -500 },
+      { id: 'b', top: -300 },
+      { id: 'c', top: -100 },
+    ];
+    expect(pickActiveId(headings)).toBe('c');
+  });
+});
 
 describe('slugify', () => {
   it('lowercases, trims and dashes non-alphanumeric runs', () => {

@@ -59,6 +59,35 @@ export function assignHeadingIds(headings: { text: string; level: number }[]): T
  * Extract a Table of Contents from markdown. Parses ATX headings (#, ##, ###)
  * at line starts, ignoring any inside fenced code blocks, returns only h1-h3.
  */
+/**
+ * Pick the "active" heading id for scroll-spy from a list of headings and their
+ * current top offsets (relative to the viewport top, e.g. boundingClientRect.top).
+ *
+ * Rule: the active heading is the LAST one whose top has scrolled at/above the
+ * activation line (`offset`, default 0 = viewport top). That is the section the
+ * reader is currently inside. When nothing has been passed yet (we are still
+ * above the first heading), fall back to the first heading so the TOC is never
+ * blank while the report is in view. Returns null only for an empty list.
+ *
+ * Pure + deterministic so it can be unit-tested without a DOM.
+ */
+export function pickActiveId(
+  headings: { id: string; top: number }[],
+  offset = 0,
+): string | null {
+  if (headings.length === 0) return null;
+  let activeId = headings[0].id;
+  for (const heading of headings) {
+    // A small epsilon keeps a heading "active" the moment it reaches the line.
+    if (heading.top <= offset + 1) {
+      activeId = heading.id;
+    } else {
+      break;
+    }
+  }
+  return activeId;
+}
+
 export function extractToc(markdown: string | null | undefined): TocItem[] {
   if (!markdown) return [];
 
