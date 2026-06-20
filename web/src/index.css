@@ -1105,6 +1105,133 @@ select {
   gap: 12px;
 }
 
+/* suggested starter questions (empty chat + report present) */
+.chat__suggestions-wrap {
+  display: grid;
+  gap: 8px;
+}
+
+.chat__suggestions-title {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.chat__suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chat__suggestion {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--panel-muted);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 13px;
+  line-height: 1.3;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.chat__suggestion:hover {
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+
+.chat__suggestion:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* per-answer copy button */
+.chat__bubble {
+  position: relative;
+}
+
+.chat__copy {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0.35;
+  transition: opacity 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.chat__bubble:hover .chat__copy,
+.chat__bubble:focus-within .chat__copy,
+.chat__copy:hover,
+.chat__copy:focus-visible {
+  opacity: 1;
+}
+
+.chat__copy:hover,
+.chat__copy:focus-visible {
+  color: var(--accent-strong);
+  border-color: var(--accent);
+}
+
+.chat__copy:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* AI typing indicator */
+.chat__typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 18px;
+}
+
+.chat__typing span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+  opacity: 0.5;
+  animation: chat-typing 1.2s infinite ease-in-out;
+}
+
+.chat__typing span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.chat__typing span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes chat-typing {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat__typing span {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
 /* in-report text search */
 .report-search-wrap {
   display: flex;

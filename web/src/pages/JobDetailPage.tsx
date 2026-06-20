@@ -194,8 +194,8 @@ export function JobDetailPage() {
     if (container) container.scrollTop = container.scrollHeight;
   }, [chat, pendingMessage]);
 
-  const handleSend = async () => {
-    const trimmed = message.trim();
+  const submitMessage = async (text: string) => {
+    const trimmed = text.trim();
     if (!accessToken || !jobId || !trimmed || sending) return;
     setPendingMessage(trimmed);
     setMessage('');
@@ -216,6 +216,29 @@ export function JobDetailPage() {
       setSending(false);
     }
   };
+
+  const handleSend = () => submitMessage(message);
+
+  const handleSuggestion = (text: string) => {
+    void submitMessage(text);
+  };
+
+  const handleCopyAnswer = async (content: string) => {
+    try {
+      await navigator.clipboard.writeText(content);
+      success(t('job.answerCopied'));
+    } catch {
+      toastError(t('errors.generic'));
+    }
+  };
+
+  const chatSuggestions = useMemo(
+    () =>
+      [t('job.suggest1'), t('job.suggest2'), t('job.suggest3'), t('job.suggest4')].filter(
+        Boolean
+      ),
+    [t]
+  );
 
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -627,7 +650,28 @@ export function JobDetailPage() {
             <div className="card__body">
               <div className="chat" ref={chatScrollRef}>
                 {chat.length === 0 && !(sending && pendingMessage) ? (
-                  <div className="muted">{t('job.chatEmpty')}</div>
+                  <>
+                    <div className="muted">{t('job.chatEmpty')}</div>
+                    {analysis && !sending ? (
+                      <div className="chat__suggestions-wrap">
+                        <div className="chat__suggestions-title">
+                          {t('job.suggestionsTitle')}
+                        </div>
+                        <div className="chat__suggestions">
+                          {chatSuggestions.map((suggestion) => (
+                            <button
+                              key={suggestion}
+                              type="button"
+                              className="chat__suggestion"
+                              onClick={() => handleSuggestion(suggestion)}
+                            >
+                              {suggestion}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </>
                 ) : (
                   <>
                     {chat.map((entry, index) => (
@@ -639,6 +683,30 @@ export function JobDetailPage() {
                           <div className="chat__role">
                             {entry.role === 'ai' ? t('job.chatRoleAi') : t('job.chatRoleUser')}
                           </div>
+                          {entry.role === 'ai' ? (
+                            <button
+                              type="button"
+                              className="chat__copy"
+                              onClick={() => handleCopyAnswer(entry.content)}
+                              aria-label={t('job.copyAnswer')}
+                              title={t('job.copyAnswer')}
+                            >
+                              <svg
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden="true"
+                              >
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                              </svg>
+                            </button>
+                          ) : null}
                           <MarkdownView markdown={entry.content} />
                         </div>
                       </div>
@@ -648,6 +716,19 @@ export function JobDetailPage() {
                         <div className="chat__bubble">
                           <div className="chat__role">{t('job.chatRoleUser')}</div>
                           <MarkdownView markdown={pendingMessage} />
+                        </div>
+                      </div>
+                    ) : null}
+                    {sending ? (
+                      <div className="chat__row chat__row--ai">
+                        <div className="chat__bubble">
+                          <div className="chat__role">{t('job.chatRoleAi')}</div>
+                          <div className="chat__typing" aria-hidden="true">
+                            <span />
+                            <span />
+                            <span />
+                          </div>
+                          <span className="sr-only">{t('job.aiTyping')}</span>
                         </div>
                       </div>
                     ) : null}
