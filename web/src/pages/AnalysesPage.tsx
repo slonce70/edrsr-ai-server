@@ -10,7 +10,7 @@ import {
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { apiRequest } from '../lib/api';
 import { clear as clearSelection, intersect, isAllSelected, selectAll, toggle } from '../lib/selection';
-import { formatDateShort, formatStatus } from '../lib/format';
+import { formatDateShort, formatStatus, statusLabels } from '../lib/format';
 import { useDocumentTitle } from '../lib/useDocumentTitle';
 import { useAuth } from '../state/AuthContext';
 import { useLocale } from '../state/LocaleContext';
@@ -454,19 +454,7 @@ export function AnalysesPage() {
                     <div className="card__title">{job.title || t('analyses.untitled')}</div>
                     <div className="card__meta">
                       {formatDateShort(job.created_at, dateLocale)} •{' '}
-                      {formatStatus(job.status, {
-                        queued: t('status.queued'),
-                        retrying: t('status.retrying'),
-                        processing: t('status.processing'),
-                        downloading: t('status.downloading'),
-                        analyzing: t('status.analyzing'),
-                        completed: t('status.completed'),
-                        error: t('status.error'),
-                        failed: t('status.failed'),
-                        cancelled: t('status.cancelled'),
-                        pending: t('status.pending'),
-                        unknown: t('status.unknown'),
-                      })}
+                      {formatStatus(job.status, statusLabels(t))}
                     </div>
                   </div>
                 </div>

@@ -203,7 +203,10 @@ export function SettingsPage() {
 
           {membersError ? <div className="form__error">{membersError}</div> : null}
           {membersLoading ? (
-            <div className="muted">{t('common.loading')}</div>
+            <div className="muted" aria-busy="true">
+              <span className="sr-only">{t('common.loading')}</span>
+              {t('common.loading')}
+            </div>
           ) : (
             <div className="list list--compact">
               {members.map((member) => (

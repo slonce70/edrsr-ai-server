@@ -7,6 +7,7 @@ import { useLocale } from '../state/LocaleContext';
 import { useToast } from '../state/ToastContext';
 import { useWorkspace } from '../state/WorkspaceContext';
 import { EmptyState } from '../components/EmptyState';
+import { SkeletonList } from '../components/Skeleton';
 
 type Prompt = {
   id: string;
@@ -345,7 +346,10 @@ export function PromptsPage() {
       {listError ? <div className="card card--error">{listError}</div> : null}
 
       {isLoadingList ? (
-        <div className="card">{t('prompts.loading')}</div>
+        <div className="stack" aria-busy="true">
+          <span className="sr-only">{t('prompts.loading')}</span>
+          <SkeletonList count={5} />
+        </div>
       ) : visiblePrompts.length === 0 ? (
         <EmptyState
           title={isSharedView ? t('prompts.sharedEmptyTitle') : t('prompts.emptyTitle')}

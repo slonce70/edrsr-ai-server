@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { apiRequest } from '../lib/api';
-import { formatDate, formatDateShort, formatDurationSeconds, formatStatus } from '../lib/format';
+import { formatDate, formatDateShort, formatDurationSeconds, formatStatus, statusLabels } from '../lib/format';
 import { renderMarkdown } from '../lib/markdown';
 import { useDocumentTitle } from '../lib/useDocumentTitle';
 import { useAuth } from '../state/AuthContext';
@@ -856,19 +856,7 @@ export function JobDetailPage() {
                         </div>
                       </div>
                       <span className={`badge badge-${normalizedStatus}`}>
-                        {formatStatus(normalizedStatus, {
-                          queued: t('status.queued'),
-                          retrying: t('status.retrying'),
-                          processing: t('status.processing'),
-                          downloading: t('status.downloading'),
-                          analyzing: t('status.analyzing'),
-                          completed: t('status.completed'),
-                          error: t('status.error'),
-                          failed: t('status.failed'),
-                          cancelled: t('status.cancelled'),
-                          pending: t('status.pending'),
-                          unknown: t('status.unknown'),
-                        })}
+                        {formatStatus(normalizedStatus, statusLabels(t))}
                       </span>
                     </div>
                   );

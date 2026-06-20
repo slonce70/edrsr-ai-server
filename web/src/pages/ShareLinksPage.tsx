@@ -4,6 +4,7 @@ import { apiRequest } from '../lib/api';
 import { formatDate } from '../lib/format';
 import { useDocumentTitle } from '../lib/useDocumentTitle';
 import { EmptyState } from '../components/EmptyState';
+import { SkeletonList } from '../components/Skeleton';
 import { useAuth } from '../state/AuthContext';
 import { useLocale } from '../state/LocaleContext';
 import { useToast } from '../state/ToastContext';
@@ -107,7 +108,10 @@ export function ShareLinksPage() {
       </div>
 
       {loading ? (
-        <div className="card">{t('common.loading')}</div>
+        <div className="stack" aria-busy="true">
+          <span className="sr-only">{t('common.loading')}</span>
+          <SkeletonList count={5} />
+        </div>
       ) : error ? (
         <div className="card card--error">{error}</div>
       ) : linksWithStatus.length === 0 ? (

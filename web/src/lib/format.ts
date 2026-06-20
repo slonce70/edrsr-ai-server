@@ -7,6 +7,26 @@ export function formatStatus(
   return labels[status] || status;
 }
 
+// Canonical, locale-resolved status label map shared by every formatStatus call
+// site (StatusBadge, AnalysesPage, JobDetailPage, MatterDetailPage). Keeping a
+// single source prevents a renamed/added status from silently falling back to
+// its raw English string in some places but not others.
+export function statusLabels(t: (key: string) => string): Record<string, string> {
+  return {
+    queued: t('status.queued'),
+    retrying: t('status.retrying'),
+    processing: t('status.processing'),
+    downloading: t('status.downloading'),
+    analyzing: t('status.analyzing'),
+    completed: t('status.completed'),
+    error: t('status.error'),
+    failed: t('status.failed'),
+    cancelled: t('status.cancelled'),
+    pending: t('status.pending'),
+    unknown: t('status.unknown'),
+  };
+}
+
 export function formatDate(value?: string | number | null, locale = 'uk-UA') {
   if (!value) return '—';
   const date = typeof value === 'string' ? new Date(value) : new Date(value);

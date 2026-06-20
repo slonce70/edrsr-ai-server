@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { apiRequest } from '../lib/api';
-import { formatDateShort, formatStatus } from '../lib/format';
+import { formatDateShort, formatStatus, statusLabels } from '../lib/format';
 import { useDocumentTitle } from '../lib/useDocumentTitle';
 import { useAuth } from '../state/AuthContext';
 import { useLocale } from '../state/LocaleContext';
@@ -288,7 +288,10 @@ export function MatterDetailPage() {
 
             {attachError ? <div className="form__error">{attachError}</div> : null}
             {attachLoading ? (
-              <div className="muted">{t('common.loading')}</div>
+              <div className="muted" aria-busy="true">
+                <span className="sr-only">{t('common.loading')}</span>
+                {t('common.loading')}
+              </div>
             ) : availableJobs.length === 0 ? (
               <EmptyState
                 title={t('matters.attachEmptyTitle')}
@@ -324,19 +327,7 @@ export function MatterDetailPage() {
                         </Link>
                         <div className="meta">
                           {formatDateShort(job.created_at, dateLocale)} •{' '}
-                          {formatStatus(job.status, {
-                            queued: t('status.queued'),
-                            retrying: t('status.retrying'),
-                            processing: t('status.processing'),
-                            downloading: t('status.downloading'),
-                            analyzing: t('status.analyzing'),
-                            completed: t('status.completed'),
-                            error: t('status.error'),
-                            failed: t('status.failed'),
-                            cancelled: t('status.cancelled'),
-                            pending: t('status.pending'),
-                            unknown: t('status.unknown'),
-                          })}
+                          {formatStatus(job.status, statusLabels(t))}
                         </div>
                         <div className="meta">{locationLabel}</div>
                       </div>
@@ -376,19 +367,7 @@ export function MatterDetailPage() {
                     </Link>
                     <div className="meta">
                       {formatDateShort(job.created_at, dateLocale)} •{' '}
-                      {formatStatus(job.status, {
-                        queued: t('status.queued'),
-                        retrying: t('status.retrying'),
-                        processing: t('status.processing'),
-                        downloading: t('status.downloading'),
-                        analyzing: t('status.analyzing'),
-                        completed: t('status.completed'),
-                        error: t('status.error'),
-                        failed: t('status.failed'),
-                        cancelled: t('status.cancelled'),
-                        pending: t('status.pending'),
-                        unknown: t('status.unknown'),
-                      })}
+                      {formatStatus(job.status, statusLabels(t))}
                     </div>
                   </div>
                   <button className="btn btn-ghost" onClick={() => handleRemoveJob(job.id)}>
