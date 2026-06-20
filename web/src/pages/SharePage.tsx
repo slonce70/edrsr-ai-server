@@ -7,6 +7,7 @@ import { useLocale } from '../state/LocaleContext';
 import { useToast } from '../state/ToastContext';
 import { MarkdownView } from '../components/MarkdownView';
 import { ReportStatusBanner } from '../components/ReportStatusBanner';
+import { ReportToc } from '../components/ReportToc';
 import { Skeleton, SkeletonCard } from '../components/Skeleton';
 import { EmptyState } from '../components/EmptyState';
 
@@ -96,6 +97,7 @@ export function SharePage() {
           ) : null}
         </div>
         <div className="card__body">
+          <ReportToc markdown={data.analysis} />
           <ReportStatusBanner markdown={data.analysis} />
           {data.analysis ? (
             <MarkdownView markdown={data.analysis} />

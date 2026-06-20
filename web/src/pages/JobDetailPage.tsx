@@ -15,6 +15,7 @@ import { ProgressBar } from '../components/ProgressBar';
 import { StatusBadge } from '../components/StatusBadge';
 import { MarkdownView } from '../components/MarkdownView';
 import { ReportStatusBanner } from '../components/ReportStatusBanner';
+import { ReportToc } from '../components/ReportToc';
 import { Skeleton, SkeletonCard } from '../components/Skeleton';
 import { buildRetryBody } from './jobRetry';
 import { buildWordBlob } from '../lib/exportDoc';
@@ -601,6 +602,7 @@ export function JobDetailPage() {
               ) : null}
             </div>
             <div className="card__body">
+              <ReportToc markdown={analysis} />
               <ReportStatusBanner markdown={analysis} quality={job.quality} />
               {analysis ? (
                 <MarkdownView markdown={analysis} />

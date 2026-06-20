@@ -344,6 +344,9 @@ export const translations = {
       memberRemoved: 'Учасника видалено',
       roleUpdated: 'Роль оновлено',
     },
+    report: {
+      contents: 'Зміст',
+    },
     errors: {
       invalidCredentials: 'Невірний email або пароль.',
       emailNotConfirmed: 'Email не підтверджено.',
@@ -687,6 +690,9 @@ export const translations = {
       memberAdded: 'Участник добавлен',
       memberRemoved: 'Участник удалён',
       roleUpdated: 'Роль обновлена',
+    },
+    report: {
+      contents: 'Содержание',
     },
     errors: {
       invalidCredentials: 'Неверный email или пароль.',
