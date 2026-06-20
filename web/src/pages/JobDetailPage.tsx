@@ -252,9 +252,34 @@ export function JobDetailPage() {
     }
   };
 
+  const buildSourcesFooterText = useCallback(() => {
+    if (links.length === 0) return '';
+    const coverage = deriveCompleteness({
+      processedLinks: job?.processed_links,
+      totalLinks: job?.total_links,
+      links,
+      qualityPartial: job?.quality?.partial === true,
+    });
+    const lines = [`${t('job.exportSourcesTitle')}:`];
+    links.forEach((link) => {
+      const date = link.decision_date ? ` · ${link.decision_date}` : '';
+      lines.push(`- ${link.url}${date}`);
+    });
+    if (coverage.total > 0) {
+      lines.push('');
+      lines.push(
+        `${t('job.exportCoverage', {
+          processed: coverage.processed,
+          total: coverage.total,
+        })}${job?.quality?.partial === true ? t('job.exportIncomplete') : ''}`,
+      );
+    }
+    return `\n\n${lines.join('\n')}`;
+  }, [job?.processed_links, job?.total_links, job?.quality?.partial, links, t]);
+
   const handleDownloadReport = () => {
     const safeTitle = job?.title ? job.title.replace(/[^a-zA-Z0-9_-]+/g, '_') : 'report';
-    const content = analysis || t('job.reportEmpty');
+    const content = analysis ? `${analysis}${buildSourcesFooterText()}` : t('job.reportEmpty');
     downloadText(`${safeTitle}.txt`, content);
   };
 
@@ -621,16 +646,16 @@ export function JobDetailPage() {
           ) : null}
         </div>
         <div className="page-header__actions">
+          <button className="btn btn-primary" onClick={handleDownloadWord}>
+            {t('job.downloadWord')}
+          </button>
           <button className="btn btn-ghost" onClick={handlePrint}>
             {t('job.printPdf')}
           </button>
           <button className="btn btn-ghost" onClick={handleDownloadLinks}>
             {t('job.downloadLinks')}
           </button>
-          <button className="btn btn-ghost" onClick={handleDownloadWord}>
-            {t('job.downloadWord')}
-          </button>
-          <button className="btn btn-primary" onClick={handleDownloadReport}>
+          <button className="btn btn-ghost" onClick={handleDownloadReport}>
             {t('job.downloadReport')}
           </button>
         </div>

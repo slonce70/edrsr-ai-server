@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildSourcesFooterHtml, buildWordHtml } from './exportDoc';
+import { buildSourcesFooterHtml, buildWordHtml, PRINT_STYLE } from './exportDoc';
 
 describe('buildWordHtml', () => {
   it('escapes the title and does not emit it raw', () => {
@@ -53,6 +53,21 @@ describe('buildWordHtml', () => {
       bodyHtml: '<p>x</p>',
     });
     expect(html).toContain("<div class='meta'>a &amp; b &lt;c&gt;</div>");
+  });
+
+  it('styles report tables (borders + header shading) in the doc <style>', () => {
+    const html = buildWordHtml({ title: 'T', bodyHtml: '<table><tr><td>x</td></tr></table>' });
+    expect(html).toMatch(/border-collapse/);
+    expect(html).toMatch(/th[\s\S]*border/);
+    expect(html).toMatch(/thead th\{background:#f6f8fa/);
+  });
+});
+
+describe('PRINT_STYLE', () => {
+  it('styles report tables with borders and header shading', () => {
+    expect(PRINT_STYLE).toMatch(/border-collapse/);
+    expect(PRINT_STYLE).toMatch(/th[\s\S]*border/);
+    expect(PRINT_STYLE).toMatch(/thead th\{background:#f6f8fa/);
   });
 });
 

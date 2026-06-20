@@ -181,11 +181,11 @@ export function SharePage() {
           </div>
           {data.analysis ? (
             <div className="card__actions">
+              <button type="button" className="btn btn-primary" onClick={handleDownloadWord}>
+                {t('job.downloadWord')}
+              </button>
               <button type="button" className="btn btn-ghost" onClick={handlePrint}>
                 {t('job.printPdf')}
-              </button>
-              <button type="button" className="btn btn-ghost" onClick={handleDownloadWord}>
-                {t('job.downloadWord')}
               </button>
               <button type="button" className="btn btn-ghost" onClick={handleCopyReport}>
                 {t('job.copyReport')}

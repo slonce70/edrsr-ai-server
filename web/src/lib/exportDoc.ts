@@ -21,6 +21,9 @@ export const PRINT_STYLE =
   '.meta{color:#555; font-size:12px; margin-bottom:24px;} ' +
   'pre,code{white-space:pre-wrap;} ' +
   'a{color:#0f766e;} ' +
+  'table{width:100%; border-collapse:collapse; margin:0 0 14px; font-size:14px;} ' +
+  'th,td{border:1px solid #d0d7de; padding:8px 12px; text-align:left; vertical-align:top;} ' +
+  'thead th{background:#f6f8fa; font-weight:600;} ' +
   '.sources-footer{margin-top:24px;} ' +
   '.sources-footer ol{padding-left:20px;} ' +
   '.sources-footer li{margin-bottom:4px; word-break:break-all;}';
@@ -31,7 +34,10 @@ const DOC_STYLE =
   'h1,h2,h3,h4{color:#0f172a;}' +
   '.meta{color:#555; font-size:12px; margin-bottom:24px;}' +
   'pre,code{white-space:pre-wrap; color:#0f766e;}' +
-  'a{color:#0f766e;}';
+  'a{color:#0f766e;}' +
+  'table{width:100%; border-collapse:collapse; margin:0 0 14px; font-size:14px;}' +
+  'th,td{border:1px solid #d0d7de; padding:8px 12px; text-align:left; vertical-align:top; color:#1f2937;}' +
+  'thead th{background:#f6f8fa; font-weight:600;}';
 
 export function buildWordHtml(opts: WordDocOptions): string {
   const title = escapeHtml(opts.title);

@@ -246,7 +246,7 @@ export const translations = {
       sources: 'Джерела',
       sourcesCount: '{{count}} посилань',
       report: 'Звіт',
-      reportMeta: 'Markdown-звіт, згенерований моделлю.',
+      reportMeta: 'Структурований аналітичний звіт.',
       reportEmpty: 'Звіт зʼявиться після завершення.',
       quality: {
         partialTitle: '⚠️ Звіт неповний',
@@ -674,7 +674,7 @@ export const translations = {
       sources: 'Источники',
       sourcesCount: '{{count}} ссылок',
       report: 'Отчет',
-      reportMeta: 'Markdown-отчет, сформированный моделью.',
+      reportMeta: 'Структурированный аналитический отчёт.',
       reportEmpty: 'Отчет появится после завершения.',
       quality: {
         partialTitle: '⚠️ Отчёт неполный',
