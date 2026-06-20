@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { useLocale } from '../state/LocaleContext';
-import { findMatches } from '../lib/reportSearch';
+import { findMatchesLowered } from '../lib/reportSearch';
 import { MarkdownView } from './MarkdownView';
 
 type ReportSearchProps = {
@@ -34,10 +34,20 @@ type TextNodeEntry = {
   start: number;
 };
 
+// A snapshot of the live report DOM, walked once per render of the report.
+// `lowered` is precomputed so the per-keystroke search never re-lowercases the
+// whole report. `entries` maps global offsets back to (textNode, localOffset).
+type ReportCache = {
+  text: string;
+  lowered: string;
+  entries: TextNodeEntry[];
+};
+
 // Walk all text nodes under `root`, concatenating their text into one string
 // while recording each node's start offset in that concatenation. This lets us
 // map a global character offset back to a specific (textNode, localOffset).
-function collectTextNodes(root: Node): { text: string; entries: TextNodeEntry[] } {
+// Also precomputes the lowercased haystack so per-keystroke search can skip it.
+function collectTextNodes(root: Node): ReportCache {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   const entries: TextNodeEntry[] = [];
   let text = '';
@@ -48,7 +58,7 @@ function collectTextNodes(root: Node): { text: string; entries: TextNodeEntry[] 
     text += node.data;
     current = walker.nextNode();
   }
-  return { text, entries };
+  return { text, lowered: text.toLowerCase(), entries };
 }
 
 // Locate the text node that contains the global `offset` and return the local
@@ -68,6 +78,15 @@ export function ReportSearch({ markdown }: ReportSearchProps) {
   const { t } = useLocale();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const rangesRef = useRef<Range[]>([]);
+  // Cached snapshot of the walked report DOM. Rebuilt only when the report
+  // re-renders (markdown changes), NOT on every keystroke — the memoized
+  // MarkdownView keeps the DOM (and these Text nodes) stable across search-state
+  // re-renders, so the cache is safe to reuse between keystrokes.
+  const cacheRef = useRef<ReportCache | null>(null);
+  // Bumped each time the cache effect locks in a new snapshot, so the search
+  // effect re-runs against the freshly-walked DOM (matches the old behavior
+  // where highlights appeared once the async report finished rendering).
+  const [cacheVersion, setCacheVersion] = useState(0);
   const [query, setQuery] = useState('');
   const [matchCount, setMatchCount] = useState(0);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -99,14 +118,17 @@ export function ReportSearch({ markdown }: ReportSearchProps) {
     target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, []);
 
-  // Rebuild all match ranges whenever the query or the rendered report changes.
+  // Rebuild match ranges for the current `query` against the CACHED report DOM
+  // snapshot. The expensive TreeWalker walk + full-string lowercase happen once
+  // per report render (see the cache effect below), not per keystroke — only
+  // the literal search + Range construction run here.
   const buildHighlights = useCallback(() => {
     rangesRef.current = [];
     clearHighlights();
 
-    const root = containerRef.current;
+    const cache = cacheRef.current;
     const trimmed = query.trim();
-    if (!root || !trimmed) {
+    if (!cache || !trimmed) {
       setMatchCount(0);
       setActiveIndex(0);
       return;
@@ -120,12 +142,13 @@ export function ReportSearch({ markdown }: ReportSearchProps) {
       return;
     }
 
-    const { text, entries } = collectTextNodes(root);
-    const matches = findMatches(text, trimmed);
+    // Match against the pre-lowered cached haystack; semantics are identical to
+    // findMatches (case-insensitive, literal, non-overlapping).
+    const matches = findMatchesLowered(cache.lowered, cache.text.length, trimmed);
     const ranges: Range[] = [];
     for (const match of matches) {
-      const startLoc = locate(entries, match.start);
-      const endLoc = locate(entries, match.end);
+      const startLoc = locate(cache.entries, match.start);
+      const endLoc = locate(cache.entries, match.end);
       if (!startLoc || !endLoc) continue;
       try {
         const range = new Range();
@@ -145,12 +168,58 @@ export function ReportSearch({ markdown }: ReportSearchProps) {
     if (ranges.length > 0) scrollToActive(ranges, nextIndex);
   }, [query, applyActiveHighlight, scrollToActive]);
 
+  // Build (and refresh) the report-DOM cache only when the report re-renders.
+  // MarkdownView renders the report ASYNC, so we cannot walk synchronously here;
+  // instead we poll on rAF (capped) until the rendered text settles, then snapshot
+  // it. Keying on `markdown` guarantees we never reuse stale/detached Text nodes:
+  // when the report changes, the old cache is discarded and rebuilt against the
+  // fresh DOM. The cache is cleared on unmount.
+  useEffect(() => {
+    let rafId = 0;
+    let attempts = 0;
+    let lastText = '';
+    let stableFrames = 0;
+
+    const snapshot = () => {
+      const root = containerRef.current;
+      if (!root) {
+        cacheRef.current = null;
+        return;
+      }
+      const next = collectTextNodes(root);
+      // The async MarkdownView may not have committed its HTML on the first
+      // frames. Wait until the walked text stops changing (or we hit the cap)
+      // before locking in the snapshot, so we never cache a partial report.
+      if (next.text !== lastText) {
+        lastText = next.text;
+        stableFrames = 0;
+      } else {
+        stableFrames += 1;
+      }
+      cacheRef.current = next;
+      // Notify the search effect that a fresh snapshot is available.
+      setCacheVersion((v) => v + 1);
+      if (stableFrames < 2 && attempts < 30) {
+        attempts += 1;
+        rafId = requestAnimationFrame(snapshot);
+      }
+    };
+
+    snapshot();
+
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      cacheRef.current = null;
+    };
+  }, [markdown]);
+
   // Debounce rebuilds slightly so typing stays smooth; also re-run when the
-  // report itself re-renders (markdown changes).
+  // cache is (re)built — i.e. when the report finishes rendering — so the new
+  // snapshot is searched against the current query.
   useEffect(() => {
     const handle = window.setTimeout(buildHighlights, 150);
     return () => window.clearTimeout(handle);
-  }, [buildHighlights, markdown]);
+  }, [buildHighlights, cacheVersion]);
 
   // Critical cleanup: CSS.highlights is document-global. Remove our entries on
   // unmount so navigating away never leaves stale highlights behind.

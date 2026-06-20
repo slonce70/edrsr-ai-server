@@ -30,6 +30,8 @@ export function ReportToc({ markdown }: ReportTocProps) {
 
     let observer: IntersectionObserver | null = null;
     let rafId = 0;
+    let scrollRafId = 0;
+    let scrollQueued = false;
     let retries = 0;
     let scrollTarget: HTMLElement | Window | null = null;
 
@@ -41,6 +43,21 @@ export function ReportToc({ markdown }: ReportTocProps) {
         })
         .filter((entry): entry is { id: string; top: number } => entry !== null);
       setActiveId(pickActiveId(positions, ACTIVE_OFFSET));
+    };
+
+    // rAF-throttle the raw scroll handler: collapse bursts of scroll events into
+    // one `recompute` per frame so we never thrash layout by calling
+    // getBoundingClientRect per heading on every event. The IO callback stays
+    // direct (it already coalesces); `pickActiveId` is pure so the result is
+    // identical — just computed fewer times. Uses a dedicated raf id so it never
+    // collides with the `setup()` heading-availability retry loop above.
+    const onScroll = () => {
+      if (scrollQueued) return;
+      scrollQueued = true;
+      scrollRafId = requestAnimationFrame(() => {
+        scrollQueued = false;
+        recompute();
+      });
     };
 
     const setup = () => {
@@ -69,7 +86,7 @@ export function ReportToc({ markdown }: ReportTocProps) {
       // Recompute on raw scroll too, so the highlight stays correct while
       // scrolling through long stretches with no observer boundary crossings.
       scrollTarget = window;
-      scrollTarget.addEventListener('scroll', recompute, { passive: true });
+      scrollTarget.addEventListener('scroll', onScroll, { passive: true });
 
       // Initial paint (e.g. deep-linked hash, or report already scrolled).
       recompute();
@@ -79,8 +96,9 @@ export function ReportToc({ markdown }: ReportTocProps) {
 
     return () => {
       if (rafId) cancelAnimationFrame(rafId);
+      if (scrollRafId) cancelAnimationFrame(scrollRafId);
       observer?.disconnect();
-      scrollTarget?.removeEventListener('scroll', recompute);
+      scrollTarget?.removeEventListener('scroll', onScroll);
     };
   }, [items]);
 
