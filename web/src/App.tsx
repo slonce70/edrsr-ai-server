@@ -4,6 +4,9 @@ import { AppLayout } from './components/AppLayout';
 import { useAuth } from './state/AuthContext';
 import { useLocale } from './state/LocaleContext';
 
+const DashboardPage = lazy(() =>
+  import('./pages/DashboardPage').then((module) => ({ default: module.DashboardPage }))
+);
 const AnalysesPage = lazy(() =>
   import('./pages/AnalysesPage').then((module) => ({ default: module.AnalysesPage }))
 );
@@ -78,6 +81,7 @@ export default function App() {
         <Route path="/share/:token" element={<SharePage />} />
         <Route element={<ProtectedLayout />}>
           <Route index element={<Navigate to="/analyses" replace />} />
+          <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/analyses" element={<AnalysesPage />} />
           <Route path="/analyses/:jobId" element={<JobDetailPage />} />
           <Route path="/create" element={<CreateAnalysisPage />} />

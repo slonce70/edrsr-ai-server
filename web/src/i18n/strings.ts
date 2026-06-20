@@ -17,6 +17,7 @@ export const translations = {
       sidebarTagline: 'Юридичний аналітичний простір',
     },
     nav: {
+      dashboard: 'Огляд',
       analyses: 'Аналізи',
       create: 'Створити',
       matters: 'Справи',
@@ -25,6 +26,18 @@ export const translations = {
       settings: 'Налаштування',
       openMenu: 'Відкрити меню',
       closeMenu: 'Закрити меню',
+    },
+    dashboard: {
+      title: 'Огляд',
+      subtitle: 'Зведення ваших аналізів',
+      statTotal: 'Усього',
+      statCompleted: 'Завершено',
+      statActive: 'У роботі',
+      statErrors: 'Помилки',
+      recent: 'Останні аналізи',
+      viewAll: 'Усі аналізи',
+      emptyTitle: 'Аналізів ще немає',
+      emptyMessage: 'Створіть перший аналіз, щоб побачити зведення.',
     },
     theme: {
       toggle: 'Тема',
@@ -337,6 +350,7 @@ export const translations = {
       sidebarTagline: 'Юридический аналитический простор',
     },
     nav: {
+      dashboard: 'Обзор',
       analyses: 'Анализы',
       create: 'Создать',
       matters: 'Дела',
@@ -345,6 +359,18 @@ export const translations = {
       settings: 'Настройки',
       openMenu: 'Открыть меню',
       closeMenu: 'Закрыть меню',
+    },
+    dashboard: {
+      title: 'Обзор',
+      subtitle: 'Сводка ваших анализов',
+      statTotal: 'Всего',
+      statCompleted: 'Завершено',
+      statActive: 'В работе',
+      statErrors: 'Ошибки',
+      recent: 'Последние анализы',
+      viewAll: 'Все анализы',
+      emptyTitle: 'Анализов пока нет',
+      emptyMessage: 'Создайте первый анализ, чтобы увидеть сводку.',
     },
     theme: {
       toggle: 'Тема',

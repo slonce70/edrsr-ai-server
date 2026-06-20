@@ -28,6 +28,7 @@ export function AppLayout() {
   }, [theme]);
 
   const navItems = [
+    { to: '/dashboard', label: t('nav.dashboard') },
     { to: '/analyses', label: t('nav.analyses') },
     { to: '/create', label: t('nav.create') },
     { to: '/matters', label: t('nav.matters') },

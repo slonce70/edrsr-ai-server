@@ -1251,3 +1251,26 @@ select {
     background-image: none;
   }
 }
+
+/* dashboard overview */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px;
+}
+
+.stat-card {
+  gap: 8px;
+}
+
+.stat-card__value {
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--ink);
+}
+
+.stat-card__label {
+  font-size: 13px;
+  color: var(--muted);
+}
