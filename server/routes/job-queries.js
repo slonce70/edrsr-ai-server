@@ -81,6 +81,12 @@ export default function createJobQueriesRouter({ resolveWorkspaceFromQuery }) {
           : await jobQueryService.getJobLinksLight(req.params.id, userId);
       }
 
+      if (base.status === 'completed') {
+        base.quality = workspace
+          ? await jobQueryService.getJobQualityForWorkspace(req.params.id, workspace.id)
+          : await jobQueryService.getJobQuality(req.params.id, userId);
+      }
+
       return res.json(base);
     } catch (error) {
       return next(error);

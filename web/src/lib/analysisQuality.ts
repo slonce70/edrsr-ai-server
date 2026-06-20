@@ -1,6 +1,14 @@
 export type AnalysisQualityLevel = 'ok' | 'partial';
 export type AnalysisQuality = { level: AnalysisQualityLevel; coverage: number | null };
 
+export type JobQuality = {
+  analyzed: boolean;
+  total: number;
+  cited: number;
+  coverage: number | null;
+  partial: boolean;
+};
+
 // Markers emitted by the backend quality footer / fallback summaries.
 // NOTE: do NOT use 'ЗВІТ КОНТРОЛЮ ЯКОСТІ' — it appears on EVERY report.
 const SKIPPED_BATCH = 'Частина справ не була проаналізована';

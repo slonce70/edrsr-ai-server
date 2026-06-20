@@ -1,4 +1,5 @@
 import database from '../database/connection.js';
+import { computeReportCoverage } from '../quality/coverage.js';
 
 const escapeLike = (value) => String(value || '').replace(/[\\%_]/g, '\\$&');
 
@@ -110,15 +111,15 @@ class JobQueryService {
 
   async getJobLight(jobId, userId = null) {
     const sql = userId
-      ? `SELECT id, title, status, progress, processed_links, total_links, prompt, created_at, updated_at, duration, workspace_id, matter_id FROM jobs WHERE id = $1 AND user_id = $2`
-      : `SELECT id, title, status, progress, processed_links, total_links, prompt, created_at, updated_at, duration, workspace_id, matter_id FROM jobs WHERE id = $1`;
+      ? `SELECT id, title, status, progress, processed_links, total_links, prompt, created_at, updated_at, duration, workspace_id, matter_id, error_message FROM jobs WHERE id = $1 AND user_id = $2`
+      : `SELECT id, title, status, progress, processed_links, total_links, prompt, created_at, updated_at, duration, workspace_id, matter_id, error_message FROM jobs WHERE id = $1`;
     const params = userId ? [jobId, userId] : [jobId];
     return await database.get(sql, params);
   }
 
   async getJobLightForWorkspace(jobId, workspaceId) {
     return await database.get(
-      `SELECT id, title, status, progress, processed_links, total_links, prompt, created_at, updated_at, duration, workspace_id, matter_id, user_id
+      `SELECT id, title, status, progress, processed_links, total_links, prompt, created_at, updated_at, duration, workspace_id, matter_id, user_id, error_message
        FROM jobs
        WHERE id = $1 AND workspace_id = $2`,
       [jobId, workspaceId]
@@ -235,6 +236,28 @@ class JobQueryService {
       [jobId, workspaceId]
     );
     return row ? row.analysis_text : null;
+  }
+
+  async getJobQuality(jobId, userId = null) {
+    const analysis = await this.getJobResult(jobId, userId);
+    if (!analysis) return null;
+    const rows = await database.all(
+      userId
+        ? 'SELECT url FROM job_links WHERE job_id = $1 AND user_id = $2'
+        : 'SELECT url FROM job_links WHERE job_id = $1',
+      userId ? [jobId, userId] : [jobId]
+    );
+    return computeReportCoverage(analysis, rows.map((r) => r.url));
+  }
+
+  async getJobQualityForWorkspace(jobId, workspaceId) {
+    const analysis = await this.getJobResultForWorkspace(jobId, workspaceId);
+    if (!analysis) return null;
+    const rows = await database.all(
+      'SELECT jl.url FROM job_links jl JOIN jobs j ON j.id = jl.job_id WHERE jl.job_id = $1 AND j.workspace_id = $2',
+      [jobId, workspaceId]
+    );
+    return computeReportCoverage(analysis, rows.map((r) => r.url));
   }
 
   async getLinksContent(jobId, userId = null) {

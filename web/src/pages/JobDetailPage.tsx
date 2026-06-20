@@ -14,6 +14,7 @@ import { MarkdownView } from '../components/MarkdownView';
 import { ReportStatusBanner } from '../components/ReportStatusBanner';
 import { buildRetryBody } from './jobRetry';
 import { mergeJobUpdate } from '../lib/jobUpdate';
+import type { JobQuality } from '../lib/analysisQuality';
 
 type JobDetail = {
   id: string;
@@ -28,6 +29,7 @@ type JobDetail = {
   duration?: number | null;
   error_message?: string | null;
   matter_id?: string | null;
+  quality?: JobQuality | null;
 };
 
 type LinkInfo = {
@@ -530,7 +532,7 @@ export function JobDetailPage() {
           </div>
         </div>
         <div className="card__body">
-          <ReportStatusBanner markdown={analysis} />
+          <ReportStatusBanner markdown={analysis} quality={job.quality} />
           {analysis ? (
             <MarkdownView markdown={analysis} />
           ) : (
