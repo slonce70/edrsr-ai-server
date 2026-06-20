@@ -346,6 +346,11 @@ export const translations = {
     },
     report: {
       contents: 'Зміст',
+      searchPlaceholder: 'Пошук у звіті',
+      searchCount: '{{current}}/{{total}}',
+      searchPrev: 'Попереднє',
+      searchNext: 'Наступне',
+      searchNone: 'Нічого не знайдено',
     },
     errors: {
       invalidCredentials: 'Невірний email або пароль.',
@@ -693,6 +698,11 @@ export const translations = {
     },
     report: {
       contents: 'Содержание',
+      searchPlaceholder: 'Поиск в отчёте',
+      searchCount: '{{current}}/{{total}}',
+      searchPrev: 'Предыдущее',
+      searchNext: 'Следующее',
+      searchNone: 'Ничего не найдено',
     },
     errors: {
       invalidCredentials: 'Неверный email или пароль.',

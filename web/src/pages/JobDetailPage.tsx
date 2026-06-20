@@ -14,6 +14,7 @@ import { EmptyState } from '../components/EmptyState';
 import { ProgressBar } from '../components/ProgressBar';
 import { StatusBadge } from '../components/StatusBadge';
 import { MarkdownView } from '../components/MarkdownView';
+import { ReportSearch } from '../components/ReportSearch';
 import { ReportStatusBanner } from '../components/ReportStatusBanner';
 import { ReportToc } from '../components/ReportToc';
 import { Skeleton, SkeletonCard } from '../components/Skeleton';
@@ -605,7 +606,7 @@ export function JobDetailPage() {
               <ReportToc markdown={analysis} />
               <ReportStatusBanner markdown={analysis} quality={job.quality} />
               {analysis ? (
-                <MarkdownView markdown={analysis} />
+                <ReportSearch markdown={analysis} />
               ) : (
                 <div className="muted">{t('job.reportEmpty')}</div>
               )}

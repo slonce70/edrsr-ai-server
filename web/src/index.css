@@ -1035,6 +1035,73 @@ select {
   gap: 12px;
 }
 
+/* in-report text search */
+.report-search-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.report-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.report-search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--ink);
+}
+
+.report-search input:focus {
+  outline: 2px solid rgba(15, 118, 110, 0.2);
+  border-color: rgba(15, 118, 110, 0.5);
+}
+
+.report-search__count {
+  flex: 0 0 auto;
+  min-width: 3.5rem;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.report-search .btn {
+  padding: 8px 12px;
+  line-height: 1;
+}
+
+/*
+ * Non-destructive highlighting via the CSS Custom Highlight API. These
+ * ::highlight() pseudo-elements colour the search match ranges without
+ * touching the report DOM. Explicit translucent rgba is used because
+ * ::highlight() cannot reliably read CSS custom properties for background in
+ * all engines — these teal/amber tints read well on both light and dark.
+ */
+::highlight(report-search) {
+  background-color: rgba(217, 119, 6, 0.32);
+  color: inherit;
+}
+
+::highlight(report-search-active) {
+  background-color: rgba(15, 118, 110, 0.45);
+  color: inherit;
+}
+
+[data-theme='dark'] ::highlight(report-search) {
+  background-color: rgba(251, 191, 36, 0.38);
+}
+
+[data-theme='dark'] ::highlight(report-search-active) {
+  background-color: rgba(45, 212, 191, 0.45);
+}
+
 .markdown {
   line-height: 1.7;
   font-size: 15px;
