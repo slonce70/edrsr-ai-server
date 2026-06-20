@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { apiRequest } from '../lib/api';
+import { useDocumentTitle } from '../lib/useDocumentTitle';
 import { useAuth } from '../state/AuthContext';
 import { useLocale } from '../state/LocaleContext';
 import { useWebSocket } from '../state/WebSocketContext';
@@ -90,6 +91,7 @@ export function CreateAnalysisPage() {
   const { activeWorkspaceId } = useWorkspace();
   const navigate = useNavigate();
   const location = useLocation();
+  useDocumentTitle(t('create.title'));
   const [rawInput, setRawInput] = useState('');
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [sharedPrompts, setSharedPrompts] = useState<Prompt[]>([]);

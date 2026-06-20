@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { apiRequest } from '../lib/api';
+import { useDocumentTitle } from '../lib/useDocumentTitle';
 import { useAuth } from '../state/AuthContext';
 import { useLocale } from '../state/LocaleContext';
 import { useWorkspace } from '../state/WorkspaceContext';
@@ -26,6 +27,7 @@ export function PromptsPage() {
   const { accessToken } = useAuth();
   const { t, dateLocale } = useLocale();
   const { activeWorkspaceId, workspaces } = useWorkspace();
+  useDocumentTitle(t('prompts.title'));
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [sharedPrompts, setSharedPrompts] = useState<Prompt[]>([]);
   const [form, setForm] = useState(emptyForm);

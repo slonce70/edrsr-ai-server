@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { apiRequest } from '../lib/api';
 import { formatDate } from '../lib/format';
+import { useDocumentTitle } from '../lib/useDocumentTitle';
 import { EmptyState } from '../components/EmptyState';
 import { useAuth } from '../state/AuthContext';
 import { useLocale } from '../state/LocaleContext';
@@ -12,6 +13,7 @@ export function ShareLinksPage() {
   const { accessToken } = useAuth();
   const { t, dateLocale } = useLocale();
   const { activeWorkspaceId } = useWorkspace();
+  useDocumentTitle(t('share.manageTitle'));
   const [links, setLinks] = useState<ShareLink[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

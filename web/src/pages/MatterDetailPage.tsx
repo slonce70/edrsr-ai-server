@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { apiRequest } from '../lib/api';
 import { formatDateShort, formatStatus } from '../lib/format';
+import { useDocumentTitle } from '../lib/useDocumentTitle';
 import { useAuth } from '../state/AuthContext';
 import { useLocale } from '../state/LocaleContext';
 import { useWorkspace } from '../state/WorkspaceContext';
@@ -35,6 +36,7 @@ export function MatterDetailPage() {
   const { activeWorkspaceId } = useWorkspace();
   const navigate = useNavigate();
   const [matter, setMatter] = useState<Matter | null>(null);
+  useDocumentTitle(matter?.title || t('nav.matters'));
   const [jobs, setJobs] = useState<MatterJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

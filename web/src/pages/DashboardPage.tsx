@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { apiRequest } from '../lib/api';
 import { computeJobStats, type JobStats } from '../lib/dashboardStats';
 import { formatDateShort } from '../lib/format';
+import { useDocumentTitle } from '../lib/useDocumentTitle';
 import { useAuth } from '../state/AuthContext';
 import { useLocale } from '../state/LocaleContext';
 import { useToast } from '../state/ToastContext';
@@ -40,6 +41,7 @@ export function DashboardPage() {
   const { error: toastError } = useToast();
   const { activeWorkspaceId } = useWorkspace();
   const navigate = useNavigate();
+  useDocumentTitle(t('dashboard.title'));
   const [stats, setStats] = useState<JobStats>(ZERO_STATS);
   const [recent, setRecent] = useState<JobSummary[]>([]);
   const [loading, setLoading] = useState(true);

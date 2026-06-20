@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { apiRequest } from '../lib/api';
+import { useDocumentTitle } from '../lib/useDocumentTitle';
 import { useAuth } from '../state/AuthContext';
 import { useLocale } from '../state/LocaleContext';
 import { useWorkspace } from '../state/WorkspaceContext';
@@ -25,6 +26,7 @@ export function MattersPage() {
   const { accessToken } = useAuth();
   const { t } = useLocale();
   const { activeWorkspaceId } = useWorkspace();
+  useDocumentTitle(t('matters.title'));
   const [matters, setMatters] = useState<MatterSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

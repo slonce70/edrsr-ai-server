@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { apiRequest } from '../lib/api';
 import { API_BASE } from '../lib/config';
+import { useDocumentTitle } from '../lib/useDocumentTitle';
 import { useAuth } from '../state/AuthContext';
 import { useLocale } from '../state/LocaleContext';
 import { useWorkspace } from '../state/WorkspaceContext';
@@ -19,6 +20,7 @@ export function SettingsPage() {
   const { accessToken, user } = useAuth();
   const { t } = useLocale();
   const { workspaces, activeWorkspaceId, setActiveWorkspaceId } = useWorkspace();
+  useDocumentTitle(t('settings.title'));
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [memberEmail, setMemberEmail] = useState('');

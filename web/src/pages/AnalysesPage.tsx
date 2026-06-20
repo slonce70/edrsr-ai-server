@@ -2,6 +2,7 @@ import { type MouseEvent, useCallback, useEffect, useMemo, useState } from 'reac
 import { Link, useNavigate } from 'react-router-dom';
 import { apiRequest } from '../lib/api';
 import { formatDateShort, formatStatus } from '../lib/format';
+import { useDocumentTitle } from '../lib/useDocumentTitle';
 import { useAuth } from '../state/AuthContext';
 import { useLocale } from '../state/LocaleContext';
 import { useToast } from '../state/ToastContext';
@@ -33,6 +34,7 @@ export function AnalysesPage() {
   const { success, error: toastError } = useToast();
   const { activeWorkspaceId } = useWorkspace();
   const navigate = useNavigate();
+  useDocumentTitle(t('analyses.title'));
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [statusFilter, setStatusFilter] = useState('');
   const [searchInput, setSearchInput] = useState('');

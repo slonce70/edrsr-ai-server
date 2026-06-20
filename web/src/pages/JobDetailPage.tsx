@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { apiRequest } from '../lib/api';
 import { formatDate, formatDateShort, formatDurationSeconds, formatStatus } from '../lib/format';
 import { renderMarkdown } from '../lib/markdown';
+import { useDocumentTitle } from '../lib/useDocumentTitle';
 import { useAuth } from '../state/AuthContext';
 import { useLocale } from '../state/LocaleContext';
 import { useToast } from '../state/ToastContext';
@@ -56,6 +57,7 @@ export function JobDetailPage() {
   const { activeWorkspaceId } = useWorkspace();
   const navigate = useNavigate();
   const [job, setJob] = useState<JobDetail | null>(null);
+  useDocumentTitle(job?.title || t('analyses.untitled'));
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [links, setLinks] = useState<LinkInfo[]>([]);
   const [chat, setChat] = useState<ChatMessage[]>([]);
