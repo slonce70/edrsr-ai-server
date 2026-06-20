@@ -2236,3 +2236,25 @@ select {
     transform: none;
   }
 }
+
+/* Responsive fix: the two-pane report layout MUST collapse to a single column on
+   tablet/phone. This block is placed LAST so it reliably overrides the base
+   .job-layout / .job-layout__rail rules (equal specificity → later source order wins;
+   the earlier @media block above was being undone by the base rules declared after it). */
+@media (max-width: 980px) {
+  .job-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .job-layout__rail {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .report-toc {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+}
