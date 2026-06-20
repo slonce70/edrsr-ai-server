@@ -5,7 +5,7 @@ import { formatDate } from '../lib/format';
 import { useDocumentTitle } from '../lib/useDocumentTitle';
 import { useLocale } from '../state/LocaleContext';
 import { useToast } from '../state/ToastContext';
-import { MarkdownView } from '../components/MarkdownView';
+import { ReportSearch } from '../components/ReportSearch';
 import { ReportStatusBanner } from '../components/ReportStatusBanner';
 import { ReportToc } from '../components/ReportToc';
 import { Skeleton, SkeletonCard } from '../components/Skeleton';
@@ -100,7 +100,7 @@ export function SharePage() {
           <ReportToc markdown={data.analysis} />
           <ReportStatusBanner markdown={data.analysis} />
           {data.analysis ? (
-            <MarkdownView markdown={data.analysis} />
+            <ReportSearch markdown={data.analysis} />
           ) : (
             <div className="muted">{t('job.reportEmpty')}</div>
           )}
