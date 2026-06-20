@@ -4,6 +4,7 @@ import { APP_NAME } from '../lib/config';
 import { resolveInitialTheme, type Theme } from '../lib/theme';
 import { CommandPalette } from '../components/CommandPalette';
 import { ErrorBoundary } from '../components/ErrorBoundary';
+import { KeyboardShortcuts } from '../components/KeyboardShortcuts';
 import { useAuth } from '../state/AuthContext';
 import { useLocale } from '../state/LocaleContext';
 import { useWebSocket } from '../state/WebSocketContext';
@@ -140,6 +141,15 @@ export function AppLayout() {
             </button>
             <button
               type="button"
+              className="btn btn-ghost shortcuts-hint"
+              aria-label={t('shortcuts.title')}
+              title={t('shortcuts.title')}
+              onClick={() => window.dispatchEvent(new Event('open-shortcuts-help'))}
+            >
+              ?
+            </button>
+            <button
+              type="button"
               className="btn btn-ghost"
               aria-label={t('theme.toggle')}
               title={t('theme.toggle')}
@@ -171,6 +181,7 @@ export function AppLayout() {
         onToggleTheme={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
         theme={theme}
       />
+      <KeyboardShortcuts />
     </div>
   );
 }
