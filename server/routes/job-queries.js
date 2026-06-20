@@ -2,6 +2,12 @@ import express from 'express';
 
 import jobQueryService from '../services/jobQueryService.js';
 
+// matter_id is a UUID column on jobs. Passing a non-UUID straight into the
+// parameterized query would trigger a Postgres "invalid input syntax for type
+// uuid" cast error, so we only forward the filter when the value matches the
+// canonical UUID shape — otherwise the filter is silently ignored (no error).
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function shouldBypassProcessedUrlFilter(req) {
   if (process.env.DISABLE_EXTENSION_PROCESSED_URL_FILTER !== 'true') return false;
   const origin = String(req.headers.origin || '');
@@ -13,14 +19,16 @@ export default function createJobQueriesRouter({ resolveWorkspaceFromQuery }) {
 
   router.get('/jobs', async (req, res, next) => {
     try {
-      const { limit, page, status = '', search = '', sort = '' } = req.query;
+      const { limit, page, status = '', search = '', sort = '', matterId = '' } = req.query;
       const workspace = await resolveWorkspaceFromQuery(req, res);
       if (req.query.workspaceId && !workspace) return;
+      const safeMatterId =
+        typeof matterId === 'string' && UUID_RE.test(matterId) ? matterId : '';
       const maxLimit = parseInt(process.env.JOBS_MAX_LIMIT || '100', 10);
       const numericLimit = Math.min(parseInt(limit, 10) || maxLimit, maxLimit);
       const finalLimit = limit === 'all' ? maxLimit : numericLimit;
 
-      const wantPaged = typeof page !== 'undefined' || status || search;
+      const wantPaged = typeof page !== 'undefined' || status || search || safeMatterId;
       if (limit === 'all' && !wantPaged) {
         const jobs = workspace
           ? await jobQueryService.getRecentJobsForWorkspace(workspace.id, 'all')
@@ -35,6 +43,7 @@ export default function createJobQueriesRouter({ resolveWorkspaceFromQuery }) {
         status: typeof status === 'string' ? status : '',
         search: typeof search === 'string' ? search : '',
         sort: typeof sort === 'string' ? sort : '',
+        matterId: safeMatterId,
         userId: workspace ? null : req.user?.id || null,
         workspaceId: workspace?.id || null,
       });

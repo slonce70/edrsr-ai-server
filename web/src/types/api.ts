@@ -10,6 +10,7 @@ export type JobSummary = {
   created_at: string;
   updated_at: string;
   duration?: number | null;
+  matter_id?: string | null;
 };
 
 export type JobDetail = {

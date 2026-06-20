@@ -55,6 +55,7 @@ class JobQueryService {
     status = '',
     search = '',
     sort = '',
+    matterId = '',
     userId = null,
     workspaceId = null,
   } = {}) {
@@ -93,6 +94,14 @@ class JobQueryService {
       const safeSearch = `%${escapeLike(search)}%`;
       where.push(`(title ILIKE $${idx} OR prompt ILIKE $${idx})`);
       params.push(safeSearch);
+      idx++;
+    }
+    // Optional matter filter. matter_id is a UUID column on jobs (tenant-scoped
+    // above via workspace_id/user_id), so the predicate is parameterized and the
+    // value is appended at the current $-index — keeping LIMIT/OFFSET in line.
+    if (matterId) {
+      where.push(`matter_id = $${idx}`);
+      params.push(matterId);
       idx++;
     }
 

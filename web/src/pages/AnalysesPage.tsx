@@ -24,7 +24,9 @@ import { SkeletonList } from '../components/Skeleton';
 import { StatusBadge } from '../components/StatusBadge';
 import { mergeJobUpdate } from '../lib/jobUpdate';
 import { ACTIVE_STATUS_KEYS } from '../lib/overviewStats';
-import type { JobSummary } from '../types/api';
+import type { JobSummary, MattersListResponse } from '../types/api';
+
+type MatterOption = MattersListResponse['matters'][number];
 
 const PAGE_SIZE = 20;
 
@@ -58,6 +60,8 @@ export function AnalysesPage() {
   useDocumentTitle(t('analyses.title'));
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [statusFilter, setStatusFilter] = useState(() => searchParams.get('status') || '');
+  const [matterFilter, setMatterFilter] = useState(() => searchParams.get('matter') || '');
+  const [matters, setMatters] = useState<MatterOption[]>([]);
   const [sortBy, setSortBy] = useState(DEFAULT_SORT);
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
@@ -94,11 +98,12 @@ export function AnalysesPage() {
   const buildParamString = useCallback(() => {
     const next = new URLSearchParams();
     if (statusFilter) next.set('status', statusFilter);
+    if (matterFilter) next.set('matter', matterFilter);
     if (search) next.set('search', search);
     if (sortBy && sortBy !== DEFAULT_SORT) next.set('sort', sortBy);
     if (page > 1) next.set('page', String(page));
     return next.toString();
-  }, [statusFilter, search, sortBy, page]);
+  }, [statusFilter, matterFilter, search, sortBy, page]);
 
   // Hydrate all filter state from the URL once on mount (covers reload,
   // shareable links, and the dashboard's ?status= deep-link). Validates page
@@ -119,7 +124,7 @@ export function AnalysesPage() {
     if (Number.isInteger(urlPage) && urlPage > 0) {
       setPage(urlPage);
     }
-    // statusFilter is already initialized from the URL via useState.
+    // statusFilter and matterFilter are already initialized from the URL via useState.
   }, [searchParams]);
 
   // Write the non-default filter subset back to the URL so filters/sort/search/
@@ -137,11 +142,41 @@ export function AnalysesPage() {
     const current = searchParams.toString();
     if (nextString === current) return;
     setSearchParams(new URLSearchParams(nextString), { replace: true });
-  }, [statusFilter, search, sortBy, page, buildParamString, searchParams, setSearchParams]);
+  }, [statusFilter, matterFilter, search, sortBy, page, buildParamString, searchParams, setSearchParams]);
+
+  // Load the workspace's matters to populate the Matter filter dropdown, reusing
+  // the same GET /matters endpoint the create page uses. Matters are
+  // workspace-scoped, so this only runs with an active workspace; without one
+  // the list stays empty and the filter renders only "All matters".
+  useEffect(() => {
+    if (!accessToken || !activeWorkspaceId) {
+      setMatters([]);
+      return;
+    }
+    let cancelled = false;
+    apiRequest<MattersListResponse>('/matters', {
+      token: accessToken,
+      workspaceId: activeWorkspaceId,
+    })
+      .then((data) => {
+        if (!cancelled) setMatters(data.matters || []);
+      })
+      .catch(() => {
+        if (!cancelled) setMatters([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, activeWorkspaceId]);
 
   const totalPages = useMemo(() => {
     return Math.max(1, Math.ceil(total / PAGE_SIZE));
   }, [total]);
+
+  const selectedMatter = useMemo(
+    () => matters.find((matter) => matter.id === matterFilter) || null,
+    [matters, matterFilter]
+  );
 
   const visibleIds = useMemo(() => jobs.map((job) => job.id), [jobs]);
   const allSelected = isAllSelected(selected, visibleIds);
@@ -161,6 +196,7 @@ export function AnalysesPage() {
           status: statusFilter || undefined,
           search: search || undefined,
           sort: sortBy || undefined,
+          matterId: matterFilter || undefined,
         },
       });
       setJobs(data.jobs || []);
@@ -171,7 +207,7 @@ export function AnalysesPage() {
     } finally {
       setLoading(false);
     }
-  }, [accessToken, activeWorkspaceId, page, search, statusFilter, sortBy, t]);
+  }, [accessToken, activeWorkspaceId, page, search, statusFilter, matterFilter, sortBy, t]);
 
   useEffect(() => {
     fetchJobs();
@@ -227,6 +263,7 @@ export function AnalysesPage() {
     setSearchInput('');
     setSearch('');
     setStatusFilter('');
+    setMatterFilter('');
     setSortBy('created_at_desc');
     setPage(1);
   };
@@ -375,6 +412,25 @@ export function AnalysesPage() {
             <option value="pending">{t('status.pending')}</option>
           </select>
         </label>
+        {matters.length > 0 || matterFilter ? (
+          <label className="field">
+            <span>{t('analyses.matterFilter')}</span>
+            <select
+              value={matterFilter}
+              onChange={(event) => {
+                setMatterFilter(event.target.value);
+                setPage(1);
+              }}
+            >
+              <option value="">{t('analyses.allMatters')}</option>
+              {matters.map((matter) => (
+                <option key={matter.id} value={matter.id}>
+                  {matter.title}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
         <label className="field">
           <span>{t('analyses.sortLabel')}</span>
           <select
@@ -407,6 +463,25 @@ export function AnalysesPage() {
           </label>
         ) : null}
       </div>
+
+      {matterFilter ? (
+        <div className="active-filters">
+          <span className="pill">
+            {t('analyses.matterFilter')}: {selectedMatter?.title || matterFilter}
+            <button
+              type="button"
+              className="pill__clear"
+              aria-label={t('analyses.allMatters')}
+              onClick={() => {
+                setMatterFilter('');
+                setPage(1);
+              }}
+            >
+              ×
+            </button>
+          </span>
+        </div>
+      ) : null}
 
       {selected.size > 0 ? (
         <div className="bulk-bar" role="region" aria-label={t('analyses.selectedCount', { count: selected.size })}>
