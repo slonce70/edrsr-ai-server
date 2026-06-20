@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { APP_NAME } from '../lib/config';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 import { useAuth } from '../state/AuthContext';
 import { useLocale } from '../state/LocaleContext';
 import { useWebSocket } from '../state/WebSocketContext';
@@ -12,6 +13,7 @@ export function AppLayout() {
   const { t, locale, setLocale, labels } = useLocale();
   const { workspaces, activeWorkspaceId, setActiveWorkspaceId } = useWorkspace();
   const [isSidebarOpen, setSidebarOpen] = useState(false);
+  const location = useLocation();
 
   const navItems = [
     { to: '/analyses', label: t('nav.analyses') },
@@ -127,7 +129,9 @@ export function AppLayout() {
           </div>
         </header>
         <main className="page">
-          <Outlet />
+          <ErrorBoundary key={location.pathname}>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
     </div>

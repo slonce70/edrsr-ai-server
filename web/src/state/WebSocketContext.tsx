@@ -9,6 +9,7 @@ import {
   useState,
 } from 'react';
 import { getWsUrl } from '../lib/config';
+import { framesToReplay } from './wsSubscriptions';
 import { useAuth } from './AuthContext';
 
 type JobUpdatePayload = Record<string, unknown> & { id?: string; type?: string };
@@ -28,6 +29,8 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
   const wsRef = useRef<WebSocket | null>(null);
   const listenersRef = useRef(new Set<(payload: JobUpdatePayload) => void>());
+  const subscriptionsRef = useRef(new Map<string, string | null>());
+  const sentRef = useRef(new Set<string>());
   const retryDelayRef = useRef(2000);
   const reconnectRef = useRef<number | null>(null);
   const connectRef = useRef<(() => void) | null>(null);
@@ -63,6 +66,11 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
       retryDelayRef.current = 2000;
       setStatus('connected');
       ws.send(JSON.stringify({ type: 'auth', token: accessToken }));
+      sentRef.current.clear();
+      for (const frame of framesToReplay(subscriptionsRef.current)) {
+        ws.send(JSON.stringify(frame));
+        sentRef.current.add(frame.jobId);
+      }
     });
 
     ws.addEventListener('message', (event) => {
@@ -83,6 +91,7 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
     ws.addEventListener('close', () => {
       setStatus('disconnected');
       wsRef.current = null;
+      sentRef.current.clear();
       if (!accessToken) return;
       const delay = retryDelayRef.current;
       retryDelayRef.current = Math.min(30000, Math.floor(retryDelayRef.current * 1.5));
@@ -122,9 +131,12 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
   }, [accessToken, connect, cleanupSocket]);
 
   const subscribe = useCallback((jobId: string, workspaceId?: string | null) => {
+    subscriptionsRef.current.set(jobId, workspaceId ?? null);
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (sentRef.current.has(jobId)) return;
     ws.send(JSON.stringify({ type: 'subscribe', jobId, workspaceId: workspaceId || undefined }));
+    sentRef.current.add(jobId);
   }, []);
 
   const onJobUpdate = useCallback((handler: (payload: JobUpdatePayload) => void) => {

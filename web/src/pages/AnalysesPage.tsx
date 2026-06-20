@@ -9,6 +9,7 @@ import { useWorkspace } from '../state/WorkspaceContext';
 import { EmptyState } from '../components/EmptyState';
 import { ProgressBar } from '../components/ProgressBar';
 import { StatusBadge } from '../components/StatusBadge';
+import { mergeJobUpdate } from '../lib/jobUpdate';
 
 const PAGE_SIZE = 20;
 
@@ -90,7 +91,11 @@ export function AnalysesPage() {
   useEffect(() => {
     return onJobUpdate((payload) => {
       if (!payload?.id || payload.type === 'CHAT_UPDATE') return;
-      setJobs((prev) => prev.map((job) => (job.id === payload.id ? { ...job, ...payload } : job)));
+      setJobs((prev) =>
+        prev.map((job) =>
+          job.id === payload.id ? mergeJobUpdate(job, payload as Record<string, unknown>) : job
+        )
+      );
     });
   }, [onJobUpdate]);
 

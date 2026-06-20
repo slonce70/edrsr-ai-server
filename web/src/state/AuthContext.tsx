@@ -9,6 +9,7 @@ import {
   storeDevSession,
 } from '../lib/dev-auth';
 import { supabase } from '../lib/supabaseClient';
+import { setUnauthorizedHandler } from '../lib/authBridge';
 
 type AuthContextValue = {
   session: Session | null;
@@ -57,9 +58,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(false);
     });
 
+    // Bridge api.ts 401s to a single refresh-and-retry; sign out locally if the
+    // session cannot be refreshed so dead-token pollers stop firing.
+    setUnauthorizedHandler(async () => {
+      const { data } = await supabase.auth.refreshSession();
+      if (data.session?.access_token) return data.session.access_token;
+      await supabase.auth.signOut({ scope: 'local' });
+      return null;
+    });
+
     return () => {
       active = false;
       subscription.subscription.unsubscribe();
+      setUnauthorizedHandler(null);
     };
   }, []);
 

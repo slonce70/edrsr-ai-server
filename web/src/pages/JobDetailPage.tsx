@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { apiRequest } from '../lib/api';
 import { formatDate, formatDateShort, formatDurationSeconds, formatStatus } from '../lib/format';
@@ -13,6 +13,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import { MarkdownView } from '../components/MarkdownView';
 import { ReportStatusBanner } from '../components/ReportStatusBanner';
 import { buildRetryBody } from './jobRetry';
+import { mergeJobUpdate } from '../lib/jobUpdate';
 
 type JobDetail = {
   id: string;
@@ -71,7 +72,7 @@ const ACTIVE_STATUSES = new Set([
 export function JobDetailPage() {
   const { jobId } = useParams();
   const { accessToken } = useAuth();
-  const { subscribe, onJobUpdate, clientId } = useWebSocket();
+  const { subscribe, onJobUpdate, clientId, status } = useWebSocket();
   const { t, dateLocale } = useLocale();
   const { activeWorkspaceId } = useWorkspace();
   const navigate = useNavigate();
@@ -162,6 +163,17 @@ export function JobDetailPage() {
     if (jobId) subscribe(jobId, activeWorkspaceId);
   }, [activeWorkspaceId, jobId, subscribe]);
 
+  const prevStatusRef = useRef(status);
+  useEffect(() => {
+    const prev = prevStatusRef.current;
+    prevStatusRef.current = status;
+    if (!jobId || !accessToken) return;
+    if (status === 'connected' && prev !== 'connected') {
+      fetchStatus();
+      fetchChat();
+    }
+  }, [status, jobId, accessToken, fetchStatus, fetchChat]);
+
   useEffect(() => {
     return onJobUpdate((payload: JobUpdatePayload) => {
       if (payload.type === 'CHAT_UPDATE') {
@@ -169,7 +181,9 @@ export function JobDetailPage() {
         return;
       }
       if (!payload.id || payload.id !== jobId) return;
-      setJob((prev) => (prev ? { ...prev, ...payload } : prev));
+      setJob((prev) =>
+        prev ? mergeJobUpdate(prev, payload as Record<string, unknown>) : prev
+      );
       if (payload.status === 'completed') {
         fetchAnalysis();
       }

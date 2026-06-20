@@ -1,4 +1,5 @@
 import { API_BASE } from './config';
+import { requestTokenRefresh } from './authBridge';
 
 type QueryValue = string | number | boolean | null | undefined | Array<string | number | boolean>;
 
@@ -47,9 +48,6 @@ async function parseJsonSafe(res: Response) {
 
 export async function apiRequest<T = unknown>(path: string, options: RequestOptions = {}) {
   const { method = 'GET', token, body, query, signal, workspaceId } = options;
-  const headers: Record<string, string> = {};
-  if (token) headers.Authorization = `Bearer ${token}`;
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
 
   const finalQuery = { ...(query || {}) } as Record<string, QueryValue>;
   // Portal routes keep stable REST paths and pass workspace context via query.
@@ -58,12 +56,31 @@ export async function apiRequest<T = unknown>(path: string, options: RequestOpti
     finalQuery.workspaceId = workspaceId;
   }
   const qs = buildQuery(finalQuery);
-  const res = await fetch(`${API_BASE}${path}${qs}`, {
-    method,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
-    signal,
-  });
+  const url = `${API_BASE}${path}${qs}`;
+
+  const doFetch = (authToken?: string | null) => {
+    const headers: Record<string, string> = {};
+    if (authToken) headers.Authorization = `Bearer ${authToken}`;
+    if (body !== undefined) headers['Content-Type'] = 'application/json';
+    return fetch(url, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal,
+    });
+  };
+
+  let res = await doFetch(token);
+
+  // On a 401 with an existing token, attempt a single refresh-and-retry.
+  // Never refresh more than once; if no fresh token is returned, fall through
+  // to the normal error path below.
+  if (res.status === 401 && token) {
+    const newToken = await requestTokenRefresh();
+    if (newToken) {
+      res = await doFetch(newToken);
+    }
+  }
 
   if (!res.ok) {
     const info = await parseJsonSafe(res);
