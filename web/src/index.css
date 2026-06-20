@@ -351,11 +351,21 @@ select {
   background: var(--panel-muted);
   color: var(--ink);
   cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.15s ease;
 }
 
 .icon-button:hover {
   background: var(--panel);
   border-color: rgba(15, 118, 110, 0.4);
+}
+
+.icon-button:active {
+  transform: scale(0.94);
 }
 
 .icon-button:focus-visible {
@@ -441,17 +451,20 @@ select {
 .card--link {
   transition:
     transform 0.2s ease,
-    box-shadow 0.2s ease;
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
   cursor: pointer;
 }
 
 .card--link:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow);
+  border-color: rgba(15, 118, 110, 0.45);
 }
 
-.card--link:hover {
-  border-color: rgba(15, 118, 110, 0.45);
+.card--link:active {
+  transform: translateY(0);
+  box-shadow: var(--shadow-soft);
 }
 
 .card--link:focus-visible {
@@ -596,11 +609,19 @@ select {
   text-align: left;
   cursor: pointer;
   background: var(--panel-muted);
+  transition:
+    background-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .list__row--button:hover {
   background: var(--panel);
   box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.list__row--button:active {
+  background: var(--panel-muted);
 }
 
 .list__row--active {
@@ -631,6 +652,9 @@ select {
   border-radius: 12px;
   background: var(--panel);
   color: var(--ink);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .field textarea {
@@ -656,8 +680,29 @@ select {
   font-weight: 600;
   cursor: pointer;
   transition:
-    transform 0.2s ease,
-    box-shadow 0.2s ease;
+    transform 0.15s ease,
+    box-shadow 0.2s ease,
+    background-color 0.2s ease,
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+}
+
+/* tactile hover lift + press — transform/shadow only, no reflow */
+.btn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-soft);
+}
+
+.btn:active {
+  transform: translateY(1px) scale(0.98);
+}
+
+/* disabled stays flat: no lift, no press */
+.btn:disabled:hover,
+.btn:disabled:active {
+  transform: none;
+  box-shadow: none;
 }
 
 /* consistent keyboard focus rings (a11y) */
@@ -685,6 +730,7 @@ select {
 
 .btn-primary:hover {
   background: linear-gradient(135deg, var(--accent-strong), var(--accent-strong));
+  box-shadow: var(--shadow);
 }
 
 .btn-danger {
@@ -893,6 +939,19 @@ select {
   cursor: pointer;
   color: var(--accent-strong);
   font-weight: 600;
+  transition:
+    background-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.15s ease;
+}
+
+.file:hover {
+  box-shadow: inset 0 0 0 1px rgba(15, 118, 110, 0.4);
+}
+
+.file:active {
+  transform: scale(0.98);
 }
 
 .file input {
@@ -981,6 +1040,16 @@ select {
   padding: 6px 12px;
   font-size: 12px;
   cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.tab:not(.tab--active):hover {
+  color: var(--ink);
+  border-color: rgba(15, 118, 110, 0.4);
 }
 
 .tab--active {
@@ -1031,6 +1100,15 @@ select {
   border: 1px solid var(--border);
   background: var(--panel);
   font-size: 12px;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.locale-switch:hover {
+  border-color: rgba(15, 118, 110, 0.4);
 }
 
 .share-link {
@@ -1132,12 +1210,17 @@ select {
   font-size: 13px;
   line-height: 1.3;
   cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease,
+    transform 0.15s ease;
 }
 
 .chat__suggestion:hover {
   border-color: var(--accent);
   color: var(--accent-strong);
+}
+
+.chat__suggestion:active {
+  transform: scale(0.97);
 }
 
 .chat__suggestion:focus-visible {
@@ -1253,6 +1336,9 @@ select {
   border-radius: 12px;
   background: var(--panel);
   color: var(--ink);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .report-search input:focus {
@@ -1915,6 +2001,11 @@ select {
   box-shadow: var(--shadow-soft);
 }
 
+.stat-card--link:active {
+  transform: translateY(0);
+  box-shadow: var(--shadow-soft);
+}
+
 .stat-card--link:focus-visible {
   outline: 2px solid rgba(15, 118, 110, 0.5);
   outline-offset: 2px;
@@ -2134,6 +2225,14 @@ select {
   cursor: pointer;
   color: var(--ink);
   font-size: 15px;
+  transition:
+    background-color 0.12s ease,
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+.cmdk-item:hover {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
 .cmdk-item--active {
@@ -2499,5 +2598,41 @@ select {
     position: static;
     max-height: none;
     overflow: visible;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Reduced motion: neutralize the micro-interaction transforms/transitions added
+   in the polish pass. Placed last so it wins by source order regardless of where
+   the base rules are declared. Colour/border/opacity feedback on hover/focus is
+   retained (just made instant); only motion is removed.
+--------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .btn,
+  .btn:hover,
+  .btn:active,
+  .card--link,
+  .card--link:hover,
+  .card--link:active,
+  .stat-card--link,
+  .stat-card--link:hover,
+  .stat-card--link:active,
+  .icon-button,
+  .icon-button:active,
+  .list__row--button,
+  .list__row--button:active,
+  .chat__suggestion,
+  .chat__suggestion:active,
+  .cmdk-item,
+  .file,
+  .file:active,
+  .tab,
+  .locale-switch,
+  .field input,
+  .field textarea,
+  .field select,
+  .report-search input {
+    transition: none;
+    transform: none;
   }
 }
