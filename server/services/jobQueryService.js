@@ -184,25 +184,35 @@ class JobQueryService {
     // case-insensitive match, with internal whitespace collapsed. position() on
     // the lowercased text/term locates the first hit; greatest(1, pos-60) keeps
     // substring()'s start in range. All values are parameterized.
+    // De-duplicate by job: a job with >1 job_results row (legacy data) would
+    // otherwise appear once per result row. DISTINCT ON (j.id) collapses to one
+    // row per job and REQUIRES j.id to lead its ORDER BY, so we do that in an
+    // inner query, then re-order the de-duplicated set by created_at DESC for
+    // display in the outer query. LIMIT is applied last to the final set.
     const rows = await database.all(
-      `SELECT j.id,
-              j.title,
-              j.status,
-              j.created_at,
-              regexp_replace(
-                trim(
-                  substring(
-                    jr.analysis_text
-                    FROM greatest(1, position(lower($${posIdx}) IN lower(jr.analysis_text)) - 60)
-                    FOR 160
-                  )
-                ),
-                '\\s+', ' ', 'g'
-              ) AS snippet
-       FROM job_results jr
-       JOIN jobs j ON j.id = jr.job_id
-       ${whereClause}
-       ORDER BY j.created_at DESC
+      `SELECT t.id, t.title, t.status, t.created_at, t.snippet
+       FROM (
+         SELECT DISTINCT ON (j.id)
+                j.id,
+                j.title,
+                j.status,
+                j.created_at,
+                regexp_replace(
+                  trim(
+                    substring(
+                      jr.analysis_text
+                      FROM greatest(1, position(lower($${posIdx}) IN lower(jr.analysis_text)) - 60)
+                      FOR 160
+                    )
+                  ),
+                  '\\s+', ' ', 'g'
+                ) AS snippet
+         FROM job_results jr
+         JOIN jobs j ON j.id = jr.job_id
+         ${whereClause}
+         ORDER BY j.id, j.created_at DESC
+       ) t
+       ORDER BY t.created_at DESC
        LIMIT $${idx}`,
       [...params, safeLimit]
     );

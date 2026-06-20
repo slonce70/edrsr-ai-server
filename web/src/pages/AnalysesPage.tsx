@@ -106,19 +106,17 @@ export function AnalysesPage() {
     onConfirm: () => void;
   } | null>(null);
   const selectAllRef = useRef<HTMLInputElement>(null);
-  // Guard so the URL hydration runs exactly once on mount. Without it, the
-  // write-back effect below (setSearchParams -> re-render) would re-hydrate and
-  // fight the user's current filter/sort/search/page state.
-  const hydratedRef = useRef(false);
-  // Skips the write-back effect's first invocation. On mount the hydrate effect
-  // schedules state updates that haven't applied yet to the current render, so
-  // an immediate write-back would build the URL from stale pre-hydration state
-  // and clobber the very params we just hydrated. We let the next render (which
-  // sees the hydrated state) own the first write.
-  const skipFirstSyncRef = useRef(true);
+  // The exact query string WE last wrote to the URL. The write-back effect
+  // skips when its computed string equals this, which (a) prevents the
+  // setSearchParams -> re-render -> write-back loop and (b) means an
+  // externally-set URL (the active-jobs chip, back/forward, a second deep-link)
+  // is reconciled INTO state by the effect below and then written back as a
+  // no-op — never clobbered. Initialized below from the hydrated initial URL so
+  // the first write-back run is a no-op.
+  const lastWrittenRef = useRef<string | null>(null);
 
   // Build the canonical, defaults-omitted query string for the current filters.
-  // Used both by the write-back effect and to skip the first redundant write.
+  // Used both by the write-back effect and to seed lastWrittenRef.
   const buildParamString = useCallback(() => {
     const next = new URLSearchParams();
     if (statusFilter) next.set('status', statusFilter);
@@ -129,44 +127,67 @@ export function AnalysesPage() {
     return next.toString();
   }, [statusFilter, matterFilter, search, sortBy, page]);
 
-  // Hydrate all filter state from the URL once on mount (covers reload,
-  // shareable links, and the dashboard's ?status= deep-link). Validates page
-  // and sort; status passes through (the API tolerates unknown values).
+  // Seed lastWrittenRef once, before any effect runs, with the canonical string
+  // for the INITIAL filter state (status/matter from the useState initializers,
+  // sort/search/page read from the URL here). This makes the first write-back a
+  // no-op so we never clobber the URL the page loaded with. Using a lazy ref
+  // initializer keeps this to exactly one evaluation.
+  if (lastWrittenRef.current === null) {
+    const seed = new URLSearchParams();
+    if (statusFilter) seed.set('status', statusFilter);
+    if (matterFilter) seed.set('matter', matterFilter);
+    const seedSearch = searchParams.get('search') || '';
+    if (seedSearch) seed.set('search', seedSearch);
+    const seedSort = searchParams.get('sort') || '';
+    if ((SORT_KEYS as readonly string[]).includes(seedSort) && seedSort !== DEFAULT_SORT) {
+      seed.set('sort', seedSort);
+    }
+    const seedPage = Number.parseInt(searchParams.get('page') || '', 10);
+    if (Number.isInteger(seedPage) && seedPage > 1) seed.set('page', String(seedPage));
+    lastWrittenRef.current = seed.toString();
+  }
+
+  // Reconcile URL -> filter state on EVERY searchParams change (not just once).
+  // This is what makes the active-jobs chip / external ?status= deep-links /
+  // back-forward flow into state: when the URL changes, each filter is updated
+  // idempotently with a functional setState that only fires on a real diff, so
+  // there is no needless re-render and no loop. (#4)
   useEffect(() => {
-    if (hydratedRef.current) return;
-    hydratedRef.current = true;
+    const urlStatus = searchParams.get('status') || '';
+    setStatusFilter((prev) => (prev !== urlStatus ? urlStatus : prev));
+
+    const urlMatter = searchParams.get('matter') || '';
+    setMatterFilter((prev) => (prev !== urlMatter ? urlMatter : prev));
+
     const urlSearch = searchParams.get('search') || '';
-    if (urlSearch) {
-      setSearch(urlSearch);
-      setSearchInput(urlSearch);
-    }
-    const urlSort = searchParams.get('sort') || '';
-    if ((SORT_KEYS as readonly string[]).includes(urlSort)) {
-      setSortBy(urlSort);
-    }
-    const urlPage = Number.parseInt(searchParams.get('page') || '', 10);
-    if (Number.isInteger(urlPage) && urlPage > 0) {
-      setPage(urlPage);
-    }
-    // statusFilter and matterFilter are already initialized from the URL via useState.
+    setSearch((prev) => (prev !== urlSearch ? urlSearch : prev));
+    setSearchInput((prev) => (prev !== urlSearch ? urlSearch : prev));
+
+    const rawSort = searchParams.get('sort') || '';
+    const urlSort = (SORT_KEYS as readonly string[]).includes(rawSort) ? rawSort : DEFAULT_SORT;
+    setSortBy((prev) => (prev !== urlSort ? urlSort : prev));
+
+    // Honor an explicit ?page= deep-link (e.g. ?status=x&page=2); the chip URL
+    // has no page param, so urlPage resolves to 1 and a filter change starts on
+    // page 1 as intended.
+    const parsedPage = Number.parseInt(searchParams.get('page') || '', 10);
+    const urlPage = Number.isInteger(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+    setPage((prev) => (prev !== urlPage ? urlPage : prev));
   }, [searchParams]);
 
   // Write the non-default filter subset back to the URL so filters/sort/search/
   // page survive reload and are shareable. `replace: true` keeps per-keystroke
-  // changes out of history. The "only write when different from the current
-  // search string" guard prevents the setSearchParams -> re-render -> effect
-  // loop: after the first write the recomputed string matches and we skip.
+  // changes out of history. This effect depends ONLY on the filter state (NOT
+  // on searchParams), so it never fires with stale state when the URL changes
+  // externally. The lastWrittenRef guard makes it write only on genuine state
+  // changes and reduces a reconciled external URL to a no-op (no clobber, no
+  // loop). (#4)
   useEffect(() => {
-    if (!hydratedRef.current) return;
-    if (skipFirstSyncRef.current) {
-      skipFirstSyncRef.current = false;
-      return;
-    }
     const nextString = buildParamString();
-    const current = searchParams.toString();
-    if (nextString === current) return;
+    if (nextString === lastWrittenRef.current) return;
+    lastWrittenRef.current = nextString;
     setSearchParams(new URLSearchParams(nextString), { replace: true });
-  }, [statusFilter, matterFilter, search, sortBy, page, buildParamString, searchParams, setSearchParams]);
+  }, [statusFilter, matterFilter, search, sortBy, page, buildParamString, setSearchParams]);
 
   // Load the workspace's matters to populate the Matter filter dropdown, reusing
   // the same GET /matters endpoint the create page uses. Matters are
@@ -205,6 +226,16 @@ export function AnalysesPage() {
   const visibleIds = useMemo(() => jobs.map((job) => job.id), [jobs]);
   const allSelected = isAllSelected(selected, visibleIds);
   const someSelected = selected.size > 0 && !allSelected;
+
+  // Stable boolean for the active-jobs poll. `jobs` is a fresh array on every
+  // WS frame (onJobUpdate merge), so depending the interval effect on `jobs`
+  // directly tore it down + recreated it on every frame. Gating on this
+  // memoized boolean keeps the interval steady — it only changes when the
+  // presence of an active job actually flips (#3).
+  const hasActive = useMemo(
+    () => jobs.some((job) => (ACTIVE_STATUS_KEYS as readonly string[]).includes(job.status)),
+    [jobs]
+  );
 
   const fetchJobs = useCallback(async () => {
     if (!accessToken) return;
@@ -254,14 +285,12 @@ export function AnalysesPage() {
   }, [onJobUpdate]);
 
   useEffect(() => {
-    const activeStatuses: readonly string[] = ACTIVE_STATUS_KEYS;
-    const hasActive = jobs.some((job) => activeStatuses.includes(job.status));
     if (!hasActive) return undefined;
     const interval = window.setInterval(() => {
       fetchJobs();
     }, 10000);
     return () => window.clearInterval(interval);
-  }, [fetchJobs, jobs]);
+  }, [fetchJobs, hasActive]);
 
   // Prune stale ids whenever the visible jobs change (page/filter/search/refetch)
   // so selection stays scoped to the current page.

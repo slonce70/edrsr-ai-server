@@ -91,6 +91,33 @@ export function JobDetailPage() {
   const [titleDraft, setTitleDraft] = useState('');
   const [savingTitle, setSavingTitle] = useState(false);
 
+  // This route component is REUSED across jobId changes — navigating
+  // /analyses/A -> /analyses/B (via Cmd+K palette, a Link, or the active-jobs
+  // chip) does NOT unmount it, so job-scoped state and refs leak between jobs.
+  // Reset every fetched-data slot + flag whenever the viewed jobId changes so
+  // the new job always starts from a clean slate. Critically this clears
+  // analysisRef.current; otherwise the `!analysisRef.current` guard in
+  // fetchStatus stays falsy and fetchAnalysis(B) is never called, leaving job
+  // B showing job A's report body (#1). Clearing job also lets a 404 surface
+  // the not-found EmptyState instead of hiding behind the stale job (#5).
+  // Runs before the fetchStatus/fetchChat effect so the fresh fetch sees the
+  // reset state. (editingTitle / share form inputs are intentionally left
+  // alone — they are user-driven, not fetched job data.)
+  useEffect(() => {
+    setJob(null);
+    setAnalysis(null);
+    analysisRef.current = null;
+    setLinks([]);
+    setChat([]);
+    setReportError(false);
+    setNotFound(false);
+    setError(null);
+    setLoading(true);
+    setMatter(null);
+    setShareUrl(null);
+    setShareNotice(null);
+  }, [jobId]);
+
   const fetchAnalysis = useCallback(async () => {
     if (!accessToken || !jobId) return;
     setReportError(false);

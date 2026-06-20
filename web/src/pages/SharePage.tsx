@@ -30,7 +30,7 @@ type SharePayload = {
     total_links: number;
   };
   analysis?: string | null;
-  links?: { url: string; evidence_snippet?: string | null }[];
+  links?: { url: string; decision_date?: string | null; evidence_snippet?: string | null }[];
   quality?: JobQuality | null;
 };
 
@@ -94,12 +94,23 @@ export function SharePage() {
   const buildShareSourcesFooter = () => {
     if (!data) return '';
     const total = data.job.total_links;
+    // Mirror JobDetailPage's coverage note: when there are links, append the
+    // "(incomplete report)" suffix for partial reports so the shared export is
+    // flagged the same way the lawyer-side report is (#7).
     const coverageNote =
       typeof total === 'number' && total > 0
-        ? t('job.exportCoverage', { processed: data.job.processed_links, total })
+        ? `${t('job.exportCoverage', { processed: data.job.processed_links, total })}${
+            data.quality?.partial === true ? t('job.exportIncomplete') : ''
+          }`
         : undefined;
     return buildSourcesFooterHtml({
-      links: (data.links || []).map((link) => ({ url: link.url, decision_date: undefined })),
+      // Pass decision_date through so shared/printed reports list source dates,
+      // matching the lawyer-side JobDetail footer (#6). The backend returns
+      // decision_date on share links.
+      links: (data.links || []).map((link) => ({
+        url: link.url,
+        decision_date: link.decision_date,
+      })),
       coverageNote,
       labels: { sourcesTitle: t('job.exportSourcesTitle') },
     });
@@ -133,6 +144,9 @@ export function SharePage() {
     try {
       html = await renderMarkdown(data.analysis);
     } catch {
+      // Close the popup we just opened; returning without doing so leaks a
+      // blank print window on render failure (#10).
+      if (printWindow) printWindow.close();
       toastError(t('errors.generic'));
       return;
     }
