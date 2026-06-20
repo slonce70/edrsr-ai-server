@@ -586,232 +586,237 @@ export function JobDetailPage() {
         </div>
       </div>
 
-      <div className="grid grid--two">
-        <div className="card">
-          <div className="card__header">
-            <div>
-              <div className="card__title">{t('job.status')}</div>
-              <div className="card__meta">{progressLabel}</div>
+      <div className="job-layout">
+        <div className="job-layout__main">
+          <div className="card">
+            <div className="card__header">
+              <div>
+                <div className="card__title">{t('job.report')}</div>
+                <div className="card__meta">{t('job.reportMeta')}</div>
+              </div>
+              {analysis ? (
+                <button type="button" className="btn btn-ghost" onClick={handleCopyReport}>
+                  {t('job.copyReport')}
+                </button>
+              ) : null}
             </div>
-            <StatusBadge status={job.status} />
+            <div className="card__body">
+              <ReportStatusBanner markdown={analysis} quality={job.quality} />
+              {analysis ? (
+                <MarkdownView markdown={analysis} />
+              ) : (
+                <div className="muted">{t('job.reportEmpty')}</div>
+              )}
+            </div>
           </div>
-          <div className="card__body">
-            <ProgressBar value={job.progress} />
-            <div className="stats">
+
+          <div className="card">
+            <div className="card__header">
               <div>
-                <span>{t('job.updated')}</span>
-                <strong>{formatDate(job.updated_at, dateLocale)}</strong>
-              </div>
-              <div>
-                <span>{t('job.duration')}</span>
-                <strong>{formatDurationSeconds(job.duration ?? null)}</strong>
-              </div>
-              <div>
-                <span>{t('job.prompt')}</span>
-                <strong>{job.prompt ? t('job.promptCustom') : t('job.promptDefault')}</strong>
+                <div className="card__title">{t('job.chatTitle')}</div>
+                <div className="card__meta">{t('job.chatMeta')}</div>
               </div>
             </div>
-            {job.status === 'error' && job.error_message ? (
-              <div className="card--error job-error">
-                <strong>{t('job.errorReasonTitle')}</strong>
-                <div className="job-error__message">{job.error_message}</div>
+            <div className="card__body">
+              <div className="chat" ref={chatScrollRef}>
+                {chat.length === 0 && !(sending && pendingMessage) ? (
+                  <div className="muted">{t('job.chatEmpty')}</div>
+                ) : (
+                  <>
+                    {chat.map((entry, index) => (
+                      <div
+                        key={`${entry.role}-${index}`}
+                        className={`chat__row chat__row--${entry.role}`}
+                      >
+                        <div className="chat__bubble">
+                          <div className="chat__role">
+                            {entry.role === 'ai' ? t('job.chatRoleAi') : t('job.chatRoleUser')}
+                          </div>
+                          <MarkdownView markdown={entry.content} />
+                        </div>
+                      </div>
+                    ))}
+                    {sending && pendingMessage ? (
+                      <div className="chat__row chat__row--user">
+                        <div className="chat__bubble">
+                          <div className="chat__role">{t('job.chatRoleUser')}</div>
+                          <MarkdownView markdown={pendingMessage} />
+                        </div>
+                      </div>
+                    ) : null}
+                  </>
+                )}
+              </div>
+              <div className="chat__composer">
+                <textarea
+                  value={message}
+                  onChange={(event) => setMessage(event.target.value)}
+                  onKeyDown={handleComposerKeyDown}
+                  placeholder={t('job.chatPlaceholder')}
+                  rows={3}
+                />
                 <button
-                  type="button"
                   className="btn btn-primary"
-                  onClick={handleRetry}
-                  disabled={retrying || !clientId}
+                  onClick={handleSend}
+                  disabled={sending || !message.trim()}
                 >
-                  {retrying ? t('job.retrying') : t('job.retry')}
+                  {sending ? t('common.loading') : t('job.chatSend')}
                 </button>
               </div>
-            ) : null}
-          </div>
-        </div>
-        <div className="card">
-          <div className="card__header">
-            <div>
-              <div className="card__title">{t('job.sources')}</div>
-              <div className="card__meta">{t('job.sourcesCount', { count: links.length })}</div>
             </div>
           </div>
-          <div className="card__body list list--compact">
-            {links.length === 0 ? (
-              <div className="muted">{t('job.linksEmpty')}</div>
-            ) : (
-              links.map((link) => {
-                const normalizedStatus = link.status === 'processed' ? 'completed' : link.status;
+        </div>
 
-                return (
-                  <div key={link.url} className="list__row">
-                    <div>
-                      <a href={link.url} target="_blank" rel="noreferrer" className="link">
-                        {link.url}
-                      </a>
-                      <div className="meta">
-                        {formatDateShort(link.decision_date || null, dateLocale)}
-                      </div>
-                    </div>
-                    <span className={`badge badge-${normalizedStatus}`}>
-                      {formatStatus(normalizedStatus, {
-                        queued: t('status.queued'),
-                        retrying: t('status.retrying'),
-                        processing: t('status.processing'),
-                        downloading: t('status.downloading'),
-                        analyzing: t('status.analyzing'),
-                        completed: t('status.completed'),
-                        error: t('status.error'),
-                        failed: t('status.failed'),
-                        cancelled: t('status.cancelled'),
-                        pending: t('status.pending'),
-                        unknown: t('status.unknown'),
-                      })}
-                    </span>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="card__header">
-          <div>
-            <div className="card__title">{t('job.report')}</div>
-            <div className="card__meta">{t('job.reportMeta')}</div>
-          </div>
-          {analysis ? (
-            <button type="button" className="btn btn-ghost" onClick={handleCopyReport}>
-              {t('job.copyReport')}
-            </button>
-          ) : null}
-        </div>
-        <div className="card__body">
-          <ReportStatusBanner markdown={analysis} quality={job.quality} />
-          {analysis ? (
-            <MarkdownView markdown={analysis} />
-          ) : (
-            <div className="muted">{t('job.reportEmpty')}</div>
-          )}
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="card__header">
-          <div>
-            <div className="card__title">{t('job.evidenceTitle')}</div>
-            <div className="card__meta">{t('job.evidenceMeta')}</div>
-          </div>
-        </div>
-        <div className="card__body list">
-          {evidenceLinks.length === 0 ? (
-            <div className="muted">{t('job.evidenceEmpty')}</div>
-          ) : (
-            evidenceLinks.map((link) => (
-              <div key={`evidence-${link.url}`} className="list__row list__row--stack">
-                <a href={link.url} target="_blank" rel="noreferrer" className="link">
-                  {link.url}
-                </a>
-                <div className="snippet">{link.evidence_snippet}</div>
+        <aside className="job-layout__rail">
+          <div className="card">
+            <div className="card__header">
+              <div>
+                <div className="card__title">{t('job.status')}</div>
+                <div className="card__meta">{progressLabel}</div>
               </div>
-            ))
-          )}
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="card__header">
-          <div>
-            <div className="card__title">{t('share.title')}</div>
-            <div className="card__meta">{t('share.subtitle')}</div>
-          </div>
-        </div>
-        <div className="card__body stack">
-          <label className="field">
-            <span>{t('share.expiresIn')}</span>
-            <select
-              value={shareDays}
-              onChange={(event) => setShareDays(Number(event.target.value))}
-            >
-              <option value={7}>7</option>
-              <option value={14}>14</option>
-              <option value={30}>30</option>
-            </select>
-          </label>
-          <button
-            className="btn btn-primary"
-            onClick={handleCreateShareLink}
-            disabled={shareLoading}
-          >
-            {shareLoading ? t('common.loading') : t('share.create')}
-          </button>
-          {shareUrl ? (
-            <div className="share-link">
-              <input value={shareUrl} readOnly />
-              <button className="btn btn-ghost" onClick={handleCopyShare}>
-                {t('common.copy')}
-              </button>
+              <StatusBadge status={job.status} />
             </div>
-          ) : null}
-          {shareNotice ? <div className="form__notice">{shareNotice}</div> : null}
-          <div className="muted">{t('share.publicNote')}</div>
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="card__header">
-          <div>
-            <div className="card__title">{t('job.chatTitle')}</div>
-            <div className="card__meta">{t('job.chatMeta')}</div>
-          </div>
-        </div>
-        <div className="card__body">
-          <div className="chat" ref={chatScrollRef}>
-            {chat.length === 0 && !(sending && pendingMessage) ? (
-              <div className="muted">{t('job.chatEmpty')}</div>
-            ) : (
-              <>
-                {chat.map((entry, index) => (
-                  <div
-                    key={`${entry.role}-${index}`}
-                    className={`chat__row chat__row--${entry.role}`}
+            <div className="card__body">
+              <ProgressBar value={job.progress} />
+              <div className="stats">
+                <div>
+                  <span>{t('job.updated')}</span>
+                  <strong>{formatDate(job.updated_at, dateLocale)}</strong>
+                </div>
+                <div>
+                  <span>{t('job.duration')}</span>
+                  <strong>{formatDurationSeconds(job.duration ?? null)}</strong>
+                </div>
+                <div>
+                  <span>{t('job.prompt')}</span>
+                  <strong>{job.prompt ? t('job.promptCustom') : t('job.promptDefault')}</strong>
+                </div>
+              </div>
+              {job.status === 'error' && job.error_message ? (
+                <div className="card--error job-error">
+                  <strong>{t('job.errorReasonTitle')}</strong>
+                  <div className="job-error__message">{job.error_message}</div>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={handleRetry}
+                    disabled={retrying || !clientId}
                   >
-                    <div className="chat__bubble">
-                      <div className="chat__role">
-                        {entry.role === 'ai' ? t('job.chatRoleAi') : t('job.chatRoleUser')}
+                    {retrying ? t('job.retrying') : t('job.retry')}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="card__header">
+              <div>
+                <div className="card__title">{t('job.sources')}</div>
+                <div className="card__meta">{t('job.sourcesCount', { count: links.length })}</div>
+              </div>
+            </div>
+            <div className="card__body list list--compact">
+              {links.length === 0 ? (
+                <div className="muted">{t('job.linksEmpty')}</div>
+              ) : (
+                links.map((link) => {
+                  const normalizedStatus = link.status === 'processed' ? 'completed' : link.status;
+
+                  return (
+                    <div key={link.url} className="list__row">
+                      <div>
+                        <a href={link.url} target="_blank" rel="noreferrer" className="link">
+                          {link.url}
+                        </a>
+                        <div className="meta">
+                          {formatDateShort(link.decision_date || null, dateLocale)}
+                        </div>
                       </div>
-                      <MarkdownView markdown={entry.content} />
+                      <span className={`badge badge-${normalizedStatus}`}>
+                        {formatStatus(normalizedStatus, {
+                          queued: t('status.queued'),
+                          retrying: t('status.retrying'),
+                          processing: t('status.processing'),
+                          downloading: t('status.downloading'),
+                          analyzing: t('status.analyzing'),
+                          completed: t('status.completed'),
+                          error: t('status.error'),
+                          failed: t('status.failed'),
+                          cancelled: t('status.cancelled'),
+                          pending: t('status.pending'),
+                          unknown: t('status.unknown'),
+                        })}
+                      </span>
                     </div>
-                  </div>
-                ))}
-                {sending && pendingMessage ? (
-                  <div className="chat__row chat__row--user">
-                    <div className="chat__bubble">
-                      <div className="chat__role">{t('job.chatRoleUser')}</div>
-                      <MarkdownView markdown={pendingMessage} />
-                    </div>
-                  </div>
-                ) : null}
-              </>
-            )}
+                  );
+                })
+              )}
+            </div>
           </div>
-          <div className="chat__composer">
-            <textarea
-              value={message}
-              onChange={(event) => setMessage(event.target.value)}
-              onKeyDown={handleComposerKeyDown}
-              placeholder={t('job.chatPlaceholder')}
-              rows={3}
-            />
-            <button
-              className="btn btn-primary"
-              onClick={handleSend}
-              disabled={sending || !message.trim()}
-            >
-              {sending ? t('common.loading') : t('job.chatSend')}
-            </button>
+
+          <div className="card">
+            <div className="card__header">
+              <div>
+                <div className="card__title">{t('job.evidenceTitle')}</div>
+                <div className="card__meta">{t('job.evidenceMeta')}</div>
+              </div>
+            </div>
+            <div className="card__body list">
+              {evidenceLinks.length === 0 ? (
+                <div className="muted">{t('job.evidenceEmpty')}</div>
+              ) : (
+                evidenceLinks.map((link) => (
+                  <div key={`evidence-${link.url}`} className="list__row list__row--stack">
+                    <a href={link.url} target="_blank" rel="noreferrer" className="link">
+                      {link.url}
+                    </a>
+                    <div className="snippet">{link.evidence_snippet}</div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
-        </div>
+
+          <div className="card">
+            <div className="card__header">
+              <div>
+                <div className="card__title">{t('share.title')}</div>
+                <div className="card__meta">{t('share.subtitle')}</div>
+              </div>
+            </div>
+            <div className="card__body stack">
+              <label className="field">
+                <span>{t('share.expiresIn')}</span>
+                <select
+                  value={shareDays}
+                  onChange={(event) => setShareDays(Number(event.target.value))}
+                >
+                  <option value={7}>7</option>
+                  <option value={14}>14</option>
+                  <option value={30}>30</option>
+                </select>
+              </label>
+              <button
+                className="btn btn-primary"
+                onClick={handleCreateShareLink}
+                disabled={shareLoading}
+              >
+                {shareLoading ? t('common.loading') : t('share.create')}
+              </button>
+              {shareUrl ? (
+                <div className="share-link">
+                  <input value={shareUrl} readOnly />
+                  <button className="btn btn-ghost" onClick={handleCopyShare}>
+                    {t('common.copy')}
+                  </button>
+                </div>
+              ) : null}
+              {shareNotice ? <div className="form__notice">{shareNotice}</div> : null}
+              <div className="muted">{t('share.publicNote')}</div>
+            </div>
+          </div>
+        </aside>
       </div>
 
       <div className="card card--danger">

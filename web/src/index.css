@@ -1320,6 +1320,10 @@ select {
     grid-template-columns: 1fr;
   }
 
+  .job-layout {
+    grid-template-columns: 1fr;
+  }
+
   .page-header {
     flex-direction: column;
     align-items: flex-start;
@@ -1331,6 +1335,20 @@ select {
     bottom: 16px;
     width: auto;
   }
+}
+
+.job-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.job-layout__main,
+.job-layout__rail {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 }
 
 .report-banner {
