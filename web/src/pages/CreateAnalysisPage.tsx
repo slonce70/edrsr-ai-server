@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { apiRequest } from '../lib/api';
+import { analyzeLinkInput } from '../lib/linkInput';
 import { useDocumentTitle } from '../lib/useDocumentTitle';
 import { useAuth } from '../state/AuthContext';
 import { useLocale } from '../state/LocaleContext';
@@ -76,14 +77,6 @@ function findPromptLabel(groups: Record<string, Record<string, string>> | undefi
   return null;
 }
 
-function extractLinks(text: string) {
-  const matches = text.match(/https?:\/\/[^\s,;]+/gi) || [];
-  const cleaned = matches
-    .map((url) => url.replace(/[),.]+$/g, '').trim())
-    .filter((url) => /reyestr\.court\.gov\.ua\/Review\//i.test(url));
-  return Array.from(new Set(cleaned));
-}
-
 export function CreateAnalysisPage() {
   const { accessToken } = useAuth();
   const { clientId, status } = useWebSocket();
@@ -106,7 +99,8 @@ export function CreateAnalysisPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const detectedLinks = useMemo(() => extractLinks(rawInput), [rawInput]);
+  const inputStats = useMemo(() => analyzeLinkInput(rawInput), [rawInput]);
+  const detectedLinks = inputStats.valid;
   const promptDefinitions = useMemo(
     () => pickDefinitionsForLocale(promptDefinitionsRaw, locale),
     [promptDefinitionsRaw, locale]
@@ -273,6 +267,12 @@ export function CreateAnalysisPage() {
               </label>
               <div className="muted">
                 {t('create.detectedMeta', { count: detectedLinks.length, max: MAX_LINKS })}
+                {inputStats.ignored > 0
+                  ? ` · ${t('create.ignoredLinks', { count: inputStats.ignored })}`
+                  : ''}
+                {inputStats.duplicates > 0
+                  ? ` · ${t('create.duplicateLinks', { count: inputStats.duplicates })}`
+                  : ''}
               </div>
             </div>
           </div>
