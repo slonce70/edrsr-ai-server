@@ -1856,6 +1856,104 @@ select {
   color: var(--muted);
 }
 
+/* secondary stats row (this week / today) */
+.dashboard-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: -4px;
+}
+
+.dashboard-meta__item strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* status distribution bar */
+.status-bar {
+  display: flex;
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--status-neutral-bg);
+}
+
+.status-bar__seg {
+  height: 100%;
+  min-width: 2px;
+  transition: width 0.25s ease;
+}
+
+.status-bar__seg--completed {
+  background: var(--status-success-ink);
+}
+
+.status-bar__seg--active {
+  background: var(--status-busy-ink);
+}
+
+.status-bar__seg--error {
+  background: var(--status-error-ink);
+}
+
+.status-bar__seg--other {
+  background: var(--status-neutral-ink);
+}
+
+.status-bar__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.status-bar__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-bar__legend-item strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.status-bar__dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.status-bar__dot--completed {
+  background: var(--status-success-ink);
+}
+
+.status-bar__dot--active {
+  background: var(--status-busy-ink);
+}
+
+.status-bar__dot--error {
+  background: var(--status-error-ink);
+}
+
+.status-bar__dot--other {
+  background: var(--status-neutral-ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-bar__seg {
+    transition: none;
+  }
+}
+
 /* ---------------------------------------------------------------------------
    Command palette (Cmd/Ctrl+K)
 --------------------------------------------------------------------------- */

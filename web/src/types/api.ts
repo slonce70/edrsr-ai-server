@@ -91,3 +91,24 @@ export type ShareLinksResponse = {
 };
 
 export type ShareStatus = 'active' | 'expired' | 'revoked';
+
+export type OverviewRecent = {
+  id: string;
+  status: string;
+  progress: number;
+  total_links: number;
+  processed_links: number;
+  created_at: string;
+  updated_at: string;
+  title: string;
+  matter_id?: string | null;
+};
+
+export type Overview = {
+  total: number;
+  statusCounts: Record<string, number>;
+  thisWeek: number;
+  today: number;
+  byMatter: { matter_id: string; count: number }[];
+  recent: OverviewRecent[];
+};

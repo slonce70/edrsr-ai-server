@@ -1,8 +1,14 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { apiRequest } from '../lib/api';
 import { computeJobStats, type JobStats } from '../lib/dashboardStats';
 import { formatDateShort } from '../lib/format';
+import {
+  ACTIVE_STATUS_KEYS,
+  activeCount,
+  statusSegments,
+  type StatusSegmentKey,
+} from '../lib/overviewStats';
 import { useDocumentTitle } from '../lib/useDocumentTitle';
 import { useAuth } from '../state/AuthContext';
 import { useLocale } from '../state/LocaleContext';
@@ -12,28 +18,28 @@ import { EmptyState } from '../components/EmptyState';
 import { ProgressBar } from '../components/ProgressBar';
 import { Skeleton, SkeletonList } from '../components/Skeleton';
 import { StatusBadge } from '../components/StatusBadge';
-import type { JobSummary } from '../types/api';
+import type { Overview, OverviewRecent } from '../types/api';
 
-type JobsResponse = {
+type OverviewResponse = {
   success: boolean;
-  jobs: JobSummary[];
-  pagination?: {
-    page: number;
-    limit: number;
-    total: number;
-  };
+  overview: Overview;
 };
 
-const ACTIVE_STATUSES = [
-  'queued',
-  'retrying',
-  'processing',
-  'downloading',
-  'analyzing',
-  'pending',
-];
+const EMPTY_OVERVIEW: Overview = {
+  total: 0,
+  statusCounts: {},
+  thisWeek: 0,
+  today: 0,
+  byMatter: [],
+  recent: [],
+};
 
-const ZERO_STATS: JobStats = { total: 0, completed: 0, error: 0, active: 0 };
+const SEGMENT_LABEL_KEYS: Record<StatusSegmentKey, string> = {
+  completed: 'dashboard.statCompleted',
+  active: 'dashboard.statActive',
+  error: 'dashboard.statErrors',
+  other: 'dashboard.statOther',
+};
 
 export function DashboardPage() {
   const { accessToken } = useAuth();
@@ -42,8 +48,7 @@ export function DashboardPage() {
   const { activeWorkspaceId } = useWorkspace();
   const navigate = useNavigate();
   useDocumentTitle(t('dashboard.title'));
-  const [stats, setStats] = useState<JobStats>(ZERO_STATS);
-  const [recent, setRecent] = useState<JobSummary[]>([]);
+  const [overview, setOverview] = useState<Overview>(EMPTY_OVERVIEW);
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,36 +59,11 @@ export function DashboardPage() {
     setError(null);
     try {
       const workspaceId = activeWorkspaceId || undefined;
-      const [totalRes, completedRes, errorRes, recentRes] = await Promise.all([
-        apiRequest<JobsResponse>('/jobs', {
-          token: accessToken,
-          workspaceId,
-          query: { limit: 1 },
-        }),
-        apiRequest<JobsResponse>('/jobs', {
-          token: accessToken,
-          workspaceId,
-          query: { limit: 1, status: 'completed' },
-        }),
-        apiRequest<JobsResponse>('/jobs', {
-          token: accessToken,
-          workspaceId,
-          query: { limit: 1, status: 'error' },
-        }),
-        apiRequest<JobsResponse>('/jobs', {
-          token: accessToken,
-          workspaceId,
-          query: { limit: 5 },
-        }),
-      ]);
-      setStats(
-        computeJobStats({
-          total: totalRes.pagination?.total || 0,
-          completed: completedRes.pagination?.total || 0,
-          error: errorRes.pagination?.total || 0,
-        })
-      );
-      setRecent(recentRes.jobs || []);
+      const res = await apiRequest<OverviewResponse>('/overview', {
+        token: accessToken,
+        workspaceId,
+      });
+      setOverview(res.overview || EMPTY_OVERVIEW);
       setLoaded(true);
     } catch (err) {
       const message = err instanceof Error ? err.message : t('errors.generic');
@@ -98,22 +78,49 @@ export function DashboardPage() {
     fetchOverview();
   }, [fetchOverview]);
 
+  const stats = useMemo<JobStats>(() => {
+    const counts = overview.statusCounts;
+    return computeJobStats({
+      total: overview.total,
+      completed: counts.completed || 0,
+      error: (counts.error || 0) + (counts.failed || 0),
+    });
+  }, [overview]);
+
+  const segments = useMemo(
+    () => statusSegments(overview.statusCounts, overview.total),
+    [overview]
+  );
+
+  const activeStatusSet: readonly string[] = ACTIVE_STATUS_KEYS;
+  const hasActive =
+    activeCount(overview.statusCounts) > 0 ||
+    overview.recent.some((job) => activeStatusSet.includes(job.status));
+
   useEffect(() => {
-    const hasActive =
-      stats.active > 0 || recent.some((job) => ACTIVE_STATUSES.includes(job.status));
     if (!hasActive) return undefined;
     const interval = window.setInterval(() => {
       fetchOverview();
     }, 10000);
     return () => window.clearInterval(interval);
-  }, [fetchOverview, recent, stats.active]);
+  }, [fetchOverview, hasActive]);
 
   const statCards = [
     { label: t('dashboard.statTotal'), value: stats.total, to: '/analyses' },
-    { label: t('dashboard.statCompleted'), value: stats.completed, to: '/analyses?status=completed' },
+    {
+      label: t('dashboard.statCompleted'),
+      value: stats.completed,
+      to: '/analyses?status=completed',
+    },
     { label: t('dashboard.statActive'), value: stats.active, to: '/analyses' },
     { label: t('dashboard.statErrors'), value: stats.error, to: '/analyses?status=error' },
   ];
+
+  const distributionSummary = segments
+    .map((segment) => `${t(SEGMENT_LABEL_KEYS[segment.key])}: ${segment.count}`)
+    .join(', ');
+
+  const recent: OverviewRecent[] = overview.recent;
 
   return (
     <div className="stack">
@@ -164,6 +171,47 @@ export function DashboardPage() {
               </Link>
             ))}
           </div>
+
+          <div className="dashboard-meta">
+            <span className="dashboard-meta__item">
+              {t('dashboard.thisWeek')}: <strong>{overview.thisWeek}</strong>
+            </span>
+            <span className="dashboard-meta__item">
+              {t('dashboard.today')}: <strong>{overview.today}</strong>
+            </span>
+          </div>
+
+          {overview.total > 0 && segments.length > 0 ? (
+            <div className="card">
+              <div className="card__header">
+                <div className="card__title">{t('dashboard.distribution')}</div>
+              </div>
+              <div
+                className="status-bar"
+                role="img"
+                aria-label={`${t('dashboard.distribution')}: ${distributionSummary}`}
+              >
+                {segments.map((segment) => (
+                  <div
+                    key={segment.key}
+                    className={`status-bar__seg status-bar__seg--${segment.key}`}
+                    style={{ width: `${segment.pct}%` }}
+                  />
+                ))}
+              </div>
+              <ul className="status-bar__legend" aria-hidden="true">
+                {segments.map((segment) => (
+                  <li key={segment.key} className="status-bar__legend-item">
+                    <span
+                      className={`status-bar__dot status-bar__dot--${segment.key}`}
+                    />
+                    {t(SEGMENT_LABEL_KEYS[segment.key])}
+                    <strong>{segment.count}</strong>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
 
           <div className="card">
             <div className="card__header">
