@@ -57,6 +57,48 @@ export function buildWordBlob(opts: WordDocOptions): Blob {
   return new Blob([html], { type: 'application/msword' });
 }
 
+// One already-rendered report destined for the combined bundle. `bodyHtml` is
+// the sanitized markdown HTML; `footerHtml` is the optional sources footer.
+type BundleReport = {
+  title: string;
+  meta?: string;
+  bodyHtml: string;
+  footerHtml?: string;
+};
+
+type BundleOptions = {
+  title: string;
+  meta?: string;
+  reports: BundleReport[];
+};
+
+// Renders the per-report section that prefixes each report in a bundle: a
+// heading with the report title and a small meta line. Pure + HTML-escaped.
+function buildReportSection(report: BundleReport): string {
+  const heading = `<h1>${escapeHtml(report.title)}</h1>`;
+  const metaBlock = report.meta
+    ? `<div class='meta'>${escapeHtml(report.meta)}</div>`
+    : '';
+  const footer = report.footerHtml || '';
+  return `<section>${heading}${metaBlock}${report.bodyHtml}${footer}</section>`;
+}
+
+// Builds ONE Word doc string containing all selected reports. Each report
+// becomes a section; a page break is inserted BETWEEN sections (never before
+// the first) so each report starts on a fresh page. The whole bundle wraps in a
+// SINGLE <html> doc via buildWordHtml, not N docs. Pure — unit-testable.
+export function buildBundleHtml(opts: BundleOptions): string {
+  const bodyHtml = opts.reports
+    .map(buildReportSection)
+    .join("<div style='page-break-before:always'></div>");
+  return buildWordHtml({ title: opts.title, meta: opts.meta, bodyHtml });
+}
+
+// Same bundle, wrapped as a single downloadable Blob.
+export function buildBundleBlob(opts: BundleOptions): Blob {
+  return new Blob([buildBundleHtml(opts)], { type: 'application/msword' });
+}
+
 type SourcesFooterOptions = {
   links: { url: string; decision_date?: string | null }[];
   coverageNote?: string;

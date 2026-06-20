@@ -10,7 +10,10 @@ import {
 import { Link, useSearchParams } from 'react-router-dom';
 import { apiRequest } from '../lib/api';
 import { clear as clearSelection, intersect, isAllSelected, selectAll, toggle } from '../lib/selection';
-import { formatDateShort, formatStatus, statusLabels } from '../lib/format';
+import { formatDate, formatDateShort, formatStatus, statusLabels } from '../lib/format';
+import { buildBundleBlob } from '../lib/exportDoc';
+import { renderMarkdown } from '../lib/markdown';
+import { downloadBlob } from '../lib/download';
 import { useDocumentTitle } from '../lib/useDocumentTitle';
 import { useAuth } from '../state/AuthContext';
 import { useLocale } from '../state/LocaleContext';
@@ -35,6 +38,11 @@ import type {
 type MatterOption = MattersListResponse['matters'][number];
 
 const PAGE_SIZE = 20;
+
+// Cap on how many reports go into a single combined .doc bundle. Keeps the
+// sequential fetch loop and the resulting file bounded; selections above this
+// export the first N and warn.
+const MAX_BULK_EXPORT = 25;
 
 const DEFAULT_SORT = 'created_at_desc';
 const SORT_KEYS = [
@@ -90,6 +98,7 @@ export function AnalysesPage() {
   // selection never silently spans pages the user can't see.
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkExporting, setBulkExporting] = useState(false);
   // Holds the message + confirmed action for the styled confirm dialog that
   // replaces the blocking window.confirm(). Null when no dialog is open.
   const [pendingConfirm, setPendingConfirm] = useState<{
@@ -446,6 +455,75 @@ export function AnalysesPage() {
     });
   };
 
+  // Combine the selected reports into ONE Word doc ("appeal bundle"). Each
+  // selected job's report body is fetched via the same GET /jobs/:id/analysis
+  // endpoint JobDetail uses; that endpoint returns only the analysis text (no
+  // links/coverage), so sections are analysis-only — no per-job sources footer
+  // and no N extra /status fetches. Fetches run sequentially to keep API load
+  // bounded; a per-report failure is skipped, never aborts the bundle.
+  const handleBulkExport = async () => {
+    if (!accessToken || bulkExporting) return;
+    const allIds = visibleIds.filter((id) => selected.has(id));
+    if (allIds.length === 0) return;
+
+    const exceeded = allIds.length > MAX_BULK_EXPORT;
+    const ids = exceeded ? allIds.slice(0, MAX_BULK_EXPORT) : allIds;
+    if (exceeded) {
+      toastError(t('analyses.bulkExportTooMany', { max: MAX_BULK_EXPORT }));
+    }
+
+    setBulkExporting(true);
+    const jobById = new Map(jobs.map((job) => [job.id, job]));
+    const reports: { title: string; meta?: string; bodyHtml: string }[] = [];
+    let failed = 0;
+    for (const id of ids) {
+      const job = jobById.get(id);
+      try {
+        const data = await apiRequest<{ success: boolean; analysis: string }>(
+          `/jobs/${id}/analysis`,
+          { token: accessToken, workspaceId: activeWorkspaceId || undefined }
+        );
+        const text = data.analysis || '';
+        if (!text) {
+          failed += 1;
+          continue;
+        }
+        const bodyHtml = await renderMarkdown(text);
+        reports.push({
+          title: job?.title || t('analyses.untitled'),
+          meta: t('job.created', { date: formatDate(job?.created_at, dateLocale) }),
+          bodyHtml,
+        });
+      } catch {
+        failed += 1;
+      }
+    }
+
+    setBulkExporting(false);
+
+    if (reports.length === 0) {
+      toastError(failed > 0 ? t('analyses.bulkExportFailed') : t('analyses.bulkExportEmpty'));
+      return;
+    }
+
+    const date = formatDateShort(new Date().toISOString(), dateLocale);
+    const blob = buildBundleBlob({
+      title: t('analyses.bulkExportTitle'),
+      meta: t('analyses.bulkExportMeta', { count: reports.length, date }),
+      reports,
+    });
+    downloadBlob(`edrsr-bundle-${new Date().toISOString().slice(0, 10)}.doc`, blob);
+    setSelected(clearSelection());
+
+    if (failed === 0) {
+      success(t('analyses.bulkExportDone', { count: reports.length }));
+    } else {
+      toastError(
+        t('analyses.bulkExportPartial', { ok: reports.length, total: ids.length, failed })
+      );
+    }
+  };
+
   return (
     <div className="stack">
       <div className="page-header">
@@ -659,14 +737,22 @@ export function AnalysesPage() {
             <button
               className="btn btn-ghost"
               onClick={handleClearSelection}
-              disabled={bulkDeleting}
+              disabled={bulkDeleting || bulkExporting}
             >
               {t('analyses.clearSelection')}
             </button>
             <button
+              className="btn btn-ghost"
+              onClick={handleBulkExport}
+              disabled={bulkDeleting || bulkExporting}
+              aria-busy={bulkExporting}
+            >
+              {bulkExporting ? t('analyses.bulkExporting') : t('analyses.bulkExport')}
+            </button>
+            <button
               className="btn btn-danger"
               onClick={handleBulkDelete}
-              disabled={bulkDeleting}
+              disabled={bulkDeleting || bulkExporting}
             >
               {t('analyses.bulkDelete')}
             </button>

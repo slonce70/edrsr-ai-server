@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { buildSourcesFooterHtml, buildWordHtml, PRINT_STYLE } from './exportDoc';
+import {
+  buildBundleBlob,
+  buildBundleHtml,
+  buildSourcesFooterHtml,
+  buildWordHtml,
+  PRINT_STYLE,
+} from './exportDoc';
 
 describe('buildWordHtml', () => {
   it('escapes the title and does not emit it raw', () => {
@@ -68,6 +74,75 @@ describe('PRINT_STYLE', () => {
     expect(PRINT_STYLE).toMatch(/border-collapse/);
     expect(PRINT_STYLE).toMatch(/th[\s\S]*border/);
     expect(PRINT_STYLE).toMatch(/thead th\{background:#f6f8fa/);
+  });
+});
+
+describe('buildBundleHtml', () => {
+  const reports = [
+    { title: 'First report', meta: 'created A', bodyHtml: '<p>alpha body</p>' },
+    { title: 'Second report', meta: 'created B', bodyHtml: '<p>beta body</p>' },
+    { title: 'Third report', bodyHtml: '<p>gamma body</p>' },
+  ];
+
+  it('wraps the whole bundle in exactly one html doc', () => {
+    const html = buildBundleHtml({ title: 'Bundle', reports });
+    expect(html.match(/<html /g)?.length).toBe(1);
+    expect(html.match(/<\/html>/g)?.length).toBe(1);
+    expect(html.match(/<body>/g)?.length).toBe(1);
+  });
+
+  it('contains every report title and body', () => {
+    const html = buildBundleHtml({ title: 'Bundle', reports });
+    expect(html).toContain('First report');
+    expect(html).toContain('Second report');
+    expect(html).toContain('Third report');
+    expect(html).toContain('alpha body');
+    expect(html).toContain('beta body');
+    expect(html).toContain('gamma body');
+  });
+
+  it('inserts a page break between sections but not before the first', () => {
+    const html = buildBundleHtml({ title: 'Bundle', reports });
+    const breaks = html.match(/page-break-before:always/g) || [];
+    // N reports -> N-1 page breaks (separators only).
+    expect(breaks.length).toBe(reports.length - 1);
+    // The first section must precede the first page break.
+    const firstBreak = html.indexOf('page-break-before:always');
+    expect(html.indexOf('First report')).toBeLessThan(firstBreak);
+  });
+
+  it('uses the bundle title as the doc h1 and includes the bundle meta', () => {
+    const html = buildBundleHtml({ title: 'Appeal bundle', meta: '3 reports · 2026', reports });
+    expect(html).toContain('<h1>Appeal bundle</h1>');
+    expect(html).toContain("<div class='meta'>3 reports · 2026</div>");
+  });
+
+  it('appends the per-report footer html when provided', () => {
+    const html = buildBundleHtml({
+      title: 'Bundle',
+      reports: [
+        {
+          title: 'With sources',
+          bodyHtml: '<p>body</p>',
+          footerHtml: "<div class='sources-footer'><h2>Sources</h2></div>",
+        },
+      ],
+    });
+    expect(html).toContain("<div class='sources-footer'>");
+  });
+
+  it('escapes report titles in the section heading', () => {
+    const html = buildBundleHtml({
+      title: 'Bundle',
+      reports: [{ title: 'Case <b> & "x"', bodyHtml: '<p>b</p>' }],
+    });
+    expect(html).toContain('Case &lt;b&gt; &amp; &quot;x&quot;');
+    expect(html).not.toContain('Case <b> & "x"');
+  });
+
+  it('produces a single msword blob', () => {
+    const blob = buildBundleBlob({ title: 'Bundle', reports });
+    expect(blob.type).toBe('application/msword');
   });
 });
 
