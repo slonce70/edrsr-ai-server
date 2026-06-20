@@ -51,6 +51,7 @@ const onJobUpdate = vi.fn(() => () => {});
 vi.mock('../state/WebSocketContext', () => ({
   useWebSocket: () => ({
     subscribe: vi.fn(),
+    unsubscribe: vi.fn(),
     onJobUpdate,
     clientId: 'client-1',
     status: 'connected',

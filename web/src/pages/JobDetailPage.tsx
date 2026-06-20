@@ -52,7 +52,7 @@ const ACTIVE_STATUSES = new Set<string>(ACTIVE_STATUS_KEYS);
 export function JobDetailPage() {
   const { jobId } = useParams();
   const { accessToken } = useAuth();
-  const { subscribe, onJobUpdate, clientId, status } = useWebSocket();
+  const { subscribe, unsubscribe, onJobUpdate, clientId, status } = useWebSocket();
   const { t, dateLocale } = useLocale();
   const { success, error: toastError } = useToast();
   const { activeWorkspaceId } = useWorkspace();
@@ -60,6 +60,7 @@ export function JobDetailPage() {
   const [job, setJob] = useState<JobDetail | null>(null);
   useDocumentTitle(job?.title || t('analyses.untitled'));
   const [analysis, setAnalysis] = useState<string | null>(null);
+  const analysisRef = useRef<string | null>(null);
   const [links, setLinks] = useState<LinkInfo[]>([]);
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
@@ -87,6 +88,7 @@ export function JobDetailPage() {
         { token: accessToken, workspaceId: activeWorkspaceId || undefined }
       );
       setAnalysis(data.analysis || null);
+      analysisRef.current = data.analysis || null;
     } catch {
       // ignore
     }
@@ -104,7 +106,7 @@ export function JobDetailPage() {
       });
       setJob(data);
       setLinks(data.links ?? []);
-      if (data.status === 'completed' && !analysis) {
+      if (data.status === 'completed' && !analysisRef.current) {
         fetchAnalysis();
       }
     } catch (err) {
@@ -113,7 +115,7 @@ export function JobDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [accessToken, activeWorkspaceId, analysis, fetchAnalysis, jobId, t]);
+  }, [accessToken, activeWorkspaceId, fetchAnalysis, jobId, t]);
 
   const fetchChat = useCallback(async () => {
     if (!accessToken || !jobId) return;
@@ -147,8 +149,10 @@ export function JobDetailPage() {
   }, [accessToken, activeWorkspaceId, job?.matter_id]);
 
   useEffect(() => {
-    if (jobId) subscribe(jobId, activeWorkspaceId);
-  }, [activeWorkspaceId, jobId, subscribe]);
+    if (!jobId) return undefined;
+    subscribe(jobId, activeWorkspaceId);
+    return () => unsubscribe(jobId);
+  }, [activeWorkspaceId, jobId, subscribe, unsubscribe]);
 
   const prevStatusRef = useRef(status);
   useEffect(() => {

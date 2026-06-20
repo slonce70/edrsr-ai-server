@@ -18,6 +18,7 @@ type WebSocketContextValue = {
   clientId: string | null;
   status: 'disconnected' | 'connecting' | 'connected';
   subscribe: (jobId: string, workspaceId?: string | null) => void;
+  unsubscribe: (jobId: string) => void;
   onJobUpdate: (handler: (payload: JobUpdatePayload) => void) => () => void;
 };
 
@@ -139,6 +140,15 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
     sentRef.current.add(jobId);
   }, []);
 
+  const unsubscribe = useCallback((jobId: string) => {
+    const workspaceId = subscriptionsRef.current.get(jobId) ?? undefined;
+    subscriptionsRef.current.delete(jobId);
+    sentRef.current.delete(jobId);
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: 'unsubscribe', jobId, workspaceId: workspaceId || undefined }));
+  }, []);
+
   const onJobUpdate = useCallback((handler: (payload: JobUpdatePayload) => void) => {
     listenersRef.current.add(handler);
     return () => listenersRef.current.delete(handler);
@@ -149,9 +159,10 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
       clientId,
       status,
       subscribe,
+      unsubscribe,
       onJobUpdate,
     }),
-    [clientId, status, subscribe, onJobUpdate]
+    [clientId, status, subscribe, unsubscribe, onJobUpdate]
   );
 
   return <WebSocketContext.Provider value={value}>{children}</WebSocketContext.Provider>;

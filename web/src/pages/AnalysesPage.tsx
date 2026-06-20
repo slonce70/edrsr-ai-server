@@ -27,6 +27,16 @@ import type { JobSummary } from '../types/api';
 
 const PAGE_SIZE = 20;
 
+const DEFAULT_SORT = 'created_at_desc';
+const SORT_KEYS = [
+  'created_at_desc',
+  'created_at_asc',
+  'updated_at_desc',
+  'title_asc',
+  'title_desc',
+  'status_asc',
+] as const;
+
 type JobsResponse = {
   success: boolean;
   jobs: JobSummary[];
@@ -44,11 +54,11 @@ export function AnalysesPage() {
   const { success, error: toastError } = useToast();
   const { activeWorkspaceId } = useWorkspace();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   useDocumentTitle(t('analyses.title'));
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [statusFilter, setStatusFilter] = useState(() => searchParams.get('status') || '');
-  const [sortBy, setSortBy] = useState('created_at_desc');
+  const [sortBy, setSortBy] = useState(DEFAULT_SORT);
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -62,6 +72,66 @@ export function AnalysesPage() {
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const selectAllRef = useRef<HTMLInputElement>(null);
+  // Guard so the URL hydration runs exactly once on mount. Without it, the
+  // write-back effect below (setSearchParams -> re-render) would re-hydrate and
+  // fight the user's current filter/sort/search/page state.
+  const hydratedRef = useRef(false);
+  // Skips the write-back effect's first invocation. On mount the hydrate effect
+  // schedules state updates that haven't applied yet to the current render, so
+  // an immediate write-back would build the URL from stale pre-hydration state
+  // and clobber the very params we just hydrated. We let the next render (which
+  // sees the hydrated state) own the first write.
+  const skipFirstSyncRef = useRef(true);
+
+  // Build the canonical, defaults-omitted query string for the current filters.
+  // Used both by the write-back effect and to skip the first redundant write.
+  const buildParamString = useCallback(() => {
+    const next = new URLSearchParams();
+    if (statusFilter) next.set('status', statusFilter);
+    if (search) next.set('search', search);
+    if (sortBy && sortBy !== DEFAULT_SORT) next.set('sort', sortBy);
+    if (page > 1) next.set('page', String(page));
+    return next.toString();
+  }, [statusFilter, search, sortBy, page]);
+
+  // Hydrate all filter state from the URL once on mount (covers reload,
+  // shareable links, and the dashboard's ?status= deep-link). Validates page
+  // and sort; status passes through (the API tolerates unknown values).
+  useEffect(() => {
+    if (hydratedRef.current) return;
+    hydratedRef.current = true;
+    const urlSearch = searchParams.get('search') || '';
+    if (urlSearch) {
+      setSearch(urlSearch);
+      setSearchInput(urlSearch);
+    }
+    const urlSort = searchParams.get('sort') || '';
+    if ((SORT_KEYS as readonly string[]).includes(urlSort)) {
+      setSortBy(urlSort);
+    }
+    const urlPage = Number.parseInt(searchParams.get('page') || '', 10);
+    if (Number.isInteger(urlPage) && urlPage > 0) {
+      setPage(urlPage);
+    }
+    // statusFilter is already initialized from the URL via useState.
+  }, [searchParams]);
+
+  // Write the non-default filter subset back to the URL so filters/sort/search/
+  // page survive reload and are shareable. `replace: true` keeps per-keystroke
+  // changes out of history. The "only write when different from the current
+  // search string" guard prevents the setSearchParams -> re-render -> effect
+  // loop: after the first write the recomputed string matches and we skip.
+  useEffect(() => {
+    if (!hydratedRef.current) return;
+    if (skipFirstSyncRef.current) {
+      skipFirstSyncRef.current = false;
+      return;
+    }
+    const nextString = buildParamString();
+    const current = searchParams.toString();
+    if (nextString === current) return;
+    setSearchParams(new URLSearchParams(nextString), { replace: true });
+  }, [statusFilter, search, sortBy, page, buildParamString, searchParams, setSearchParams]);
 
   const totalPages = useMemo(() => {
     return Math.max(1, Math.ceil(total / PAGE_SIZE));
