@@ -1,6 +1,15 @@
-import { type MouseEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  type ChangeEvent,
+  type MouseEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { apiRequest } from '../lib/api';
+import { clear as clearSelection, intersect, isAllSelected, selectAll, toggle } from '../lib/selection';
 import { formatDateShort, formatStatus } from '../lib/format';
 import { useDocumentTitle } from '../lib/useDocumentTitle';
 import { useAuth } from '../state/AuthContext';
@@ -45,10 +54,20 @@ export function AnalysesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  // Selection model: per current page only. Stored ids are pruned to the
+  // visible jobs whenever the page/filter/search/refetch changes, so a
+  // selection never silently spans pages the user can't see.
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const selectAllRef = useRef<HTMLInputElement>(null);
 
   const totalPages = useMemo(() => {
     return Math.max(1, Math.ceil(total / PAGE_SIZE));
   }, [total]);
+
+  const visibleIds = useMemo(() => jobs.map((job) => job.id), [jobs]);
+  const allSelected = isAllSelected(selected, visibleIds);
+  const someSelected = selected.size > 0 && !allSelected;
 
   const fetchJobs = useCallback(async () => {
     if (!accessToken) return;
@@ -107,6 +126,22 @@ export function AnalysesPage() {
     return () => window.clearInterval(interval);
   }, [fetchJobs, jobs]);
 
+  // Prune stale ids whenever the visible jobs change (page/filter/search/refetch)
+  // so selection stays scoped to the current page.
+  useEffect(() => {
+    setSelected((prev) => {
+      const pruned = intersect(prev, jobs.map((job) => job.id));
+      return pruned.size === prev.size ? prev : pruned;
+    });
+  }, [jobs]);
+
+  // Reflect the tri-state of the "select all on page" checkbox.
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = someSelected;
+    }
+  }, [someSelected]);
+
   const handleSearch = () => {
     setPage(1);
     setSearch(searchInput.trim());
@@ -144,6 +179,51 @@ export function AnalysesPage() {
       toastError(message);
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const handleToggleOne = (event: ChangeEvent<HTMLInputElement>, jobId: string) => {
+    event.stopPropagation();
+    setSelected((prev) => toggle(prev, jobId));
+  };
+
+  const handleToggleAll = () => {
+    setSelected((prev) => (isAllSelected(prev, visibleIds) ? clearSelection() : selectAll(prev, visibleIds)));
+  };
+
+  const handleClearSelection = () => {
+    setSelected(clearSelection());
+  };
+
+  const handleBulkDelete = async () => {
+    if (!accessToken) return;
+    const ids = visibleIds.filter((id) => selected.has(id));
+    if (ids.length === 0) return;
+    if (!window.confirm(t('analyses.bulkDeleteConfirm', { count: ids.length }))) return;
+    setBulkDeleting(true);
+    setError(null);
+    let ok = 0;
+    let failed = 0;
+    // Sequential deletes keep load on the API bounded and predictable.
+    for (const id of ids) {
+      try {
+        await apiRequest(`/jobs/${id}`, {
+          token: accessToken,
+          method: 'DELETE',
+          workspaceId: activeWorkspaceId || undefined,
+        });
+        ok += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    setSelected(clearSelection());
+    await fetchJobs();
+    setBulkDeleting(false);
+    if (failed === 0) {
+      success(t('analyses.bulkDeleted', { count: ok }));
+    } else {
+      toastError(t('analyses.bulkDeletePartial', { ok, failed }));
     }
   };
 
@@ -200,7 +280,42 @@ export function AnalysesPage() {
         <button className="btn btn-ghost" onClick={resetFilters}>
           {t('common.reset')}
         </button>
+        {jobs.length > 0 ? (
+          <label className="select-all">
+            <input
+              ref={selectAllRef}
+              type="checkbox"
+              checked={allSelected}
+              onChange={handleToggleAll}
+            />
+            <span>{t('analyses.selectAll')}</span>
+          </label>
+        ) : null}
       </div>
+
+      {selected.size > 0 ? (
+        <div className="bulk-bar" role="region" aria-label={t('analyses.selectedCount', { count: selected.size })}>
+          <span className="bulk-bar__count">
+            {t('analyses.selectedCount', { count: selected.size })}
+          </span>
+          <div className="bulk-bar__actions">
+            <button
+              className="btn btn-ghost"
+              onClick={handleClearSelection}
+              disabled={bulkDeleting}
+            >
+              {t('analyses.clearSelection')}
+            </button>
+            <button
+              className="btn btn-danger"
+              onClick={handleBulkDelete}
+              disabled={bulkDeleting}
+            >
+              {t('analyses.bulkDelete')}
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {loading ? (
         <div className="stack" aria-busy="true">
@@ -224,7 +339,7 @@ export function AnalysesPage() {
           {jobs.map((job) => (
             <div
               key={job.id}
-              className="card card--link"
+              className={`card card--link${selected.has(job.id) ? ' card--selected' : ''}`}
               role="link"
               tabIndex={0}
               onClick={() => navigate(`/analyses/${job.id}`)}
@@ -237,23 +352,33 @@ export function AnalysesPage() {
               }}
             >
               <div className="card__header">
-                <div>
-                  <div className="card__title">{job.title || t('analyses.untitled')}</div>
-                  <div className="card__meta">
-                    {formatDateShort(job.created_at, dateLocale)} •{' '}
-                    {formatStatus(job.status, {
-                      queued: t('status.queued'),
-                      retrying: t('status.retrying'),
-                      processing: t('status.processing'),
-                      downloading: t('status.downloading'),
-                      analyzing: t('status.analyzing'),
-                      completed: t('status.completed'),
-                      error: t('status.error'),
-                      failed: t('status.failed'),
-                      cancelled: t('status.cancelled'),
-                      pending: t('status.pending'),
-                      unknown: t('status.unknown'),
-                    })}
+                <div className="card__heading">
+                  <input
+                    type="checkbox"
+                    className="card__select"
+                    aria-label={t('analyses.selectOne')}
+                    checked={selected.has(job.id)}
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={(event) => handleToggleOne(event, job.id)}
+                  />
+                  <div>
+                    <div className="card__title">{job.title || t('analyses.untitled')}</div>
+                    <div className="card__meta">
+                      {formatDateShort(job.created_at, dateLocale)} •{' '}
+                      {formatStatus(job.status, {
+                        queued: t('status.queued'),
+                        retrying: t('status.retrying'),
+                        processing: t('status.processing'),
+                        downloading: t('status.downloading'),
+                        analyzing: t('status.analyzing'),
+                        completed: t('status.completed'),
+                        error: t('status.error'),
+                        failed: t('status.failed'),
+                        cancelled: t('status.cancelled'),
+                        pending: t('status.pending'),
+                        unknown: t('status.unknown'),
+                      })}
+                    </div>
                   </div>
                 </div>
                 <div className="card__actions">
