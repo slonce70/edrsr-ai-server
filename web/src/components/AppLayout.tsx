@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { APP_NAME } from '../lib/config';
 import { resolveInitialTheme, type Theme } from '../lib/theme';
+import { CommandPalette } from '../components/CommandPalette';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { useAuth } from '../state/AuthContext';
 import { useLocale } from '../state/LocaleContext';
@@ -130,6 +131,15 @@ export function AppLayout() {
             <span className={`pill pill-${status}`}>{statusLabel}</span>
             <button
               type="button"
+              className="btn btn-ghost cmdk-hint"
+              aria-label={t('command.placeholder')}
+              title={t('command.placeholder')}
+              onClick={() => window.dispatchEvent(new Event('open-command-palette'))}
+            >
+              {t('command.hint')}
+            </button>
+            <button
+              type="button"
               className="btn btn-ghost"
               aria-label={t('theme.toggle')}
               title={t('theme.toggle')}
@@ -157,6 +167,10 @@ export function AppLayout() {
           </ErrorBoundary>
         </main>
       </div>
+      <CommandPalette
+        onToggleTheme={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
+        theme={theme}
+      />
     </div>
   );
 }

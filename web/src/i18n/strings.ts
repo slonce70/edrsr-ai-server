@@ -44,6 +44,16 @@ export const translations = {
       light: 'Світла',
       dark: 'Темна',
     },
+    command: {
+      placeholder: 'Пошук дій, сторінок, аналізів…',
+      navGroup: 'Навігація',
+      actionGroup: 'Дії',
+      analysesGroup: 'Аналізи',
+      newAnalysis: 'Новий аналіз',
+      toggleTheme: 'Перемкнути тему',
+      empty: 'Нічого не знайдено',
+      hint: '⌘K',
+    },
     common: {
       loading: 'Завантаження...',
       back: 'Назад',
@@ -395,6 +405,16 @@ export const translations = {
       toggle: 'Тема',
       light: 'Светлая',
       dark: 'Тёмная',
+    },
+    command: {
+      placeholder: 'Поиск действий, страниц, анализов…',
+      navGroup: 'Навигация',
+      actionGroup: 'Действия',
+      analysesGroup: 'Анализы',
+      newAnalysis: 'Новый анализ',
+      toggleTheme: 'Переключить тему',
+      empty: 'Ничего не найдено',
+      hint: '⌘K',
     },
     common: {
       loading: 'Загрузка...',
