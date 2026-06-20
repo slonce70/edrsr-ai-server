@@ -1756,6 +1756,82 @@ select {
   white-space: pre-wrap;
 }
 
+.coverage-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.coverage-state {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+}
+
+.coverage-state__icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.coverage-state__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+
+.coverage-state__text strong {
+  font-weight: 600;
+}
+
+.coverage-state__detail {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.coverage-state--complete {
+  background: var(--status-success-bg);
+  border-color: var(--status-success-border);
+  color: var(--status-success-ink);
+}
+
+.coverage-state--incomplete {
+  background: var(--status-busy-bg);
+  border-color: var(--status-busy-border);
+  color: var(--status-busy-ink);
+}
+
+.coverage-meter {
+  width: 100%;
+}
+
+.coverage-meter--success .progress__fill {
+  background: var(--status-success-ink);
+}
+
+.coverage-meter--busy .progress__fill {
+  background: var(--status-busy-ink);
+}
+
+.coverage-meter--error .progress__fill {
+  background: var(--status-error-ink);
+}
+
+.coverage-panel__retry {
+  align-self: flex-start;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .coverage-meter .progress__fill {
+    transition: none;
+  }
+}
+
 /* loading skeletons */
 .sr-only {
   position: absolute;

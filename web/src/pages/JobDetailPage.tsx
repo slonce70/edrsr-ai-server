@@ -11,6 +11,7 @@ import { useToast } from '../state/ToastContext';
 import { useWebSocket } from '../state/WebSocketContext';
 import { useWorkspace } from '../state/WorkspaceContext';
 import { BackToTop } from '../components/BackToTop';
+import { CoveragePanel } from '../components/CoveragePanel';
 import { EmptyState } from '../components/EmptyState';
 import { ProgressBar } from '../components/ProgressBar';
 import { ReadingProgress } from '../components/ReadingProgress';
@@ -23,6 +24,7 @@ import { Skeleton, SkeletonCard } from '../components/Skeleton';
 import { buildRetryBody } from './jobRetry';
 import { buildWordBlob } from '../lib/exportDoc';
 import { mergeJobUpdate } from '../lib/jobUpdate';
+import { deriveCompleteness } from '../lib/reportCoverage';
 import type {
   ChatMessage,
   ChatResponse,
@@ -418,6 +420,17 @@ export function JobDetailPage() {
     });
   }, [job, t]);
 
+  const completeness = useMemo(
+    () =>
+      deriveCompleteness({
+        processedLinks: job?.processed_links,
+        totalLinks: job?.total_links,
+        links,
+        qualityPartial: job?.quality?.partial === true,
+      }),
+    [job, links]
+  );
+
   const evidenceLinks = useMemo(() => links.filter((link) => link.evidence_snippet), [links]);
 
   const handleDeleteJob = async () => {
@@ -780,6 +793,14 @@ export function JobDetailPage() {
                   <strong>{job.prompt ? t('job.promptCustom') : t('job.promptDefault')}</strong>
                 </div>
               </div>
+              <CoveragePanel
+                completeness={completeness}
+                quality={job.quality}
+                onRetry={
+                  !completeness.complete && job.status !== 'error' ? handleRetry : undefined
+                }
+                retrying={retrying}
+              />
               {job.status === 'error' && job.error_message ? (
                 <div className="card--error job-error">
                   <strong>{t('job.errorReasonTitle')}</strong>
@@ -802,6 +823,12 @@ export function JobDetailPage() {
               <div>
                 <div className="card__title">{t('job.sources')}</div>
                 <div className="card__meta">{t('job.sourcesCount', { count: links.length })}</div>
+                <div className="card__meta">
+                  {t('job.sourcesSummary', {
+                    processed: completeness.processed,
+                    failed: completeness.failed,
+                  })}
+                </div>
               </div>
             </div>
             <div className="card__body list list--compact">
