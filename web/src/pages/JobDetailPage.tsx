@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { apiRequest } from '../lib/api';
+import { ApiError, apiRequest } from '../lib/api';
 import { formatDate, formatDateShort, formatDurationSeconds, formatStatus, statusLabels } from '../lib/format';
 import { renderMarkdown } from '../lib/markdown';
 import { useDocumentTitle } from '../lib/useDocumentTitle';
@@ -66,6 +66,13 @@ export function JobDetailPage() {
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Distinguishes a genuine 404 (job not found) from a transient network/5xx
+  // failure so the not-found EmptyState and the retryable error card never mix.
+  const [notFound, setNotFound] = useState(false);
+  // Scoped error for the report-body fetch, so a failed /analysis call shows a
+  // distinct inline "couldn't load the report" block instead of being mistaken
+  // for "still processing".
+  const [reportError, setReportError] = useState(false);
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState('');
   const [pendingMessage, setPendingMessage] = useState('');
@@ -86,6 +93,7 @@ export function JobDetailPage() {
 
   const fetchAnalysis = useCallback(async () => {
     if (!accessToken || !jobId) return;
+    setReportError(false);
     try {
       const data = await apiRequest<{ success: boolean; analysis: string }>(
         `/jobs/${jobId}/analysis`,
@@ -94,7 +102,9 @@ export function JobDetailPage() {
       setAnalysis(data.analysis || null);
       analysisRef.current = data.analysis || null;
     } catch {
-      // ignore
+      // The report body fetch failed (network/5xx). Surface a scoped, retryable
+      // error in the report card instead of silently leaving it on "processing".
+      setReportError(true);
     }
   }, [accessToken, activeWorkspaceId, jobId]);
 
@@ -102,6 +112,7 @@ export function JobDetailPage() {
     if (!accessToken || !jobId) return;
     setLoading(true);
     setError(null);
+    setNotFound(false);
     try {
       const data = await apiRequest<StatusResponse>(`/status/${jobId}`, {
         token: accessToken,
@@ -114,8 +125,14 @@ export function JobDetailPage() {
         fetchAnalysis();
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('errors.generic');
-      setError(message);
+      // A genuine 404 means the analysis does not exist -> the not-found
+      // EmptyState. Anything else (network/timeout/5xx) is transient -> a
+      // retryable error card (mirrors DashboardPage).
+      if (err instanceof ApiError && err.status === 404) {
+        setNotFound(true);
+      } else {
+        setError(t('job.loadErrorMessage'));
+      }
     } finally {
       setLoading(false);
     }
@@ -214,7 +231,10 @@ export function JobDetailPage() {
       });
       await fetchChat();
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('errors.generic'));
+      // Surface the failure as a toast so a dropped question isn't silent, and
+      // restore the draft so the user can resend without retyping.
+      const message = err instanceof Error ? err.message : t('errors.generic');
+      toastError(message);
       setMessage(trimmed);
     } finally {
       setPendingMessage('');
@@ -574,13 +594,36 @@ export function JobDetailPage() {
     );
   }
 
+  // Genuine 404: the analysis does not exist. Localized not-found EmptyState
+  // with a way back to the list.
+  if (notFound && !job) {
+    return (
+      <EmptyState
+        title={t('job.notFoundTitle')}
+        message={t('job.notFoundMessage')}
+        action={
+          <Link to="/analyses" className="btn btn-ghost">
+            {t('job.back')}
+          </Link>
+        }
+      />
+    );
+  }
+
+  // Transient failure (network/5xx/timeout): retryable error card that re-calls
+  // fetchStatus, mirroring DashboardPage.
   if (error && !job) {
     return (
       <div className="card card--error">
         <div>{error}</div>
-        <Link to="/analyses" className="btn btn-ghost">
-          {t('job.back')}
-        </Link>
+        <div className="card__actions">
+          <button type="button" className="btn btn-primary" onClick={() => fetchStatus()}>
+            {t('common.retry')}
+          </button>
+          <Link to="/analyses" className="btn btn-ghost">
+            {t('job.back')}
+          </Link>
+        </div>
       </div>
     );
   }
@@ -680,6 +723,17 @@ export function JobDetailPage() {
               <ReportStatusBanner markdown={analysis} quality={job.quality} />
               {analysis ? (
                 <ReportSearch markdown={analysis} />
+              ) : reportError ? (
+                <div className="card card--error report-error">
+                  <div>{t('job.reportLoadError')}</div>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => fetchAnalysis()}
+                  >
+                    {t('common.retry')}
+                  </button>
+                </div>
               ) : (
                 <div className="muted">{t('job.reportEmpty')}</div>
               )}

@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { apiRequest } from '../lib/api';
+import { ApiError, apiRequest } from '../lib/api';
 import { formatDate } from '../lib/format';
 import { renderMarkdown } from '../lib/markdown';
 import { buildSourcesFooterHtml, buildWordBlob, PRINT_STYLE } from '../lib/exportDoc';
@@ -35,15 +35,47 @@ export function SharePage() {
   const { t, dateLocale } = useLocale();
   const { success, error: toastError } = useToast();
   const [data, setData] = useState<SharePayload | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // Discriminates the failure so recipients see accurate copy instead of every
+  // error collapsing into "link not found":
+  //   notFound  -> 404 (link never existed / bad token)
+  //   revoked   -> 410 with an "revoked" signal
+  //   expired   -> 410 with an "expired" signal
+  //   generic   -> 5xx / network -> retryable "try again later"
+  const [errorKind, setErrorKind] = useState<
+    'notFound' | 'revoked' | 'expired' | 'generic' | null
+  >(null);
   useDocumentTitle(data?.job.title);
 
-  useEffect(() => {
+  const loadShare = useCallback(() => {
     if (!token) return;
+    setErrorKind(null);
     apiRequest<SharePayload>(`/share/${token}`)
       .then((payload) => setData(payload))
-      .catch(() => setError(t('share.notFound')));
-  }, [token, t]);
+      .catch((err) => {
+        if (err instanceof ApiError) {
+          if (err.status === 404) {
+            setErrorKind('notFound');
+            return;
+          }
+          if (err.status === 410) {
+            // The server returns 410 for both revoked and expired links; the
+            // error message distinguishes them.
+            const message =
+              err.info && typeof err.info === 'object' && 'error' in err.info
+                ? String((err.info as { error?: unknown }).error || '')
+                : err.message;
+            setErrorKind(/revok/i.test(message) ? 'revoked' : 'expired');
+            return;
+          }
+        }
+        // 5xx / network / anything else is transient -> retryable generic error.
+        setErrorKind('generic');
+      });
+  }, [token]);
+
+  useEffect(() => {
+    loadShare();
+  }, [loadShare]);
 
   const handleCopyReport = async () => {
     if (!data?.analysis) return;
@@ -137,8 +169,30 @@ export function SharePage() {
     printWindow.print();
   };
 
-  if (error) {
+  if (errorKind === 'notFound') {
     return <EmptyState title={t('share.notFound')} message={t('share.publicNote')} />;
+  }
+
+  if (errorKind === 'revoked') {
+    return <EmptyState title={t('share.revoked')} message={t('share.publicNote')} />;
+  }
+
+  if (errorKind === 'expired') {
+    return <EmptyState title={t('share.expired')} message={t('share.publicNote')} />;
+  }
+
+  if (errorKind === 'generic') {
+    return (
+      <EmptyState
+        title={t('share.genericErrorTitle')}
+        message={t('share.genericErrorMessage')}
+        action={
+          <button type="button" className="btn btn-primary" onClick={() => loadShare()}>
+            {t('common.retry')}
+          </button>
+        }
+      />
+    );
   }
 
   if (!data) {

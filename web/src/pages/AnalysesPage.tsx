@@ -219,10 +219,11 @@ export function AnalysesPage() {
     } catch (err) {
       const message = err instanceof Error ? err.message : t('errors.generic');
       setError(message);
+      toastError(message);
     } finally {
       setLoading(false);
     }
-  }, [accessToken, activeWorkspaceId, page, search, statusFilter, matterFilter, sortBy, t]);
+  }, [accessToken, activeWorkspaceId, page, search, statusFilter, matterFilter, sortBy, t, toastError]);
 
   useEffect(() => {
     fetchJobs();
@@ -679,7 +680,14 @@ export function AnalysesPage() {
           <SkeletonList count={5} />
         </div>
       ) : error ? (
-        <div className="card card--error">{error}</div>
+        <div className="card card--error">
+          <div>{error}</div>
+          <div className="card__actions">
+            <button type="button" className="btn btn-primary" onClick={() => fetchJobs()}>
+              {t('common.retry')}
+            </button>
+          </div>
+        </div>
       ) : jobs.length === 0 ? (
         <EmptyState
           title={t('analyses.emptyTitle')}

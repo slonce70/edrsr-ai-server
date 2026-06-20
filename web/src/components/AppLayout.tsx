@@ -27,7 +27,14 @@ function AppLayoutInner() {
   const { activeCount } = useOverview();
   const { success } = useToast();
   const { t, locale, setLocale, labels } = useLocale();
-  const { workspaces, activeWorkspaceId, setActiveWorkspaceId } = useWorkspace();
+  const {
+    workspaces,
+    activeWorkspaceId,
+    setActiveWorkspaceId,
+    isLoading: workspacesLoading,
+    error: workspacesError,
+    refreshWorkspaces,
+  } = useWorkspace();
   const [isSidebarOpen, setSidebarOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(() =>
     resolveInitialTheme(
@@ -115,21 +122,38 @@ function AppLayoutInner() {
         </div>
         <div className="workspace-switch">
           <label className="workspace-switch__label">{t('settings.workspaceLabel')}</label>
-          <select
-            value={activeWorkspaceId || ''}
-            onChange={(event) => setActiveWorkspaceId(event.target.value || null)}
-            disabled={!workspaces.length}
-          >
-            {workspaces.length === 0 ? (
-              <option value="">{t('common.loading')}</option>
-            ) : (
-              workspaces.map((workspace) => (
-                <option key={workspace.id} value={workspace.id}>
-                  {workspace.name}
+          {workspacesError && workspaces.length === 0 ? (
+            // The workspace load FAILED: surface it with a Retry instead of a
+            // select stuck forever on "Loading…".
+            <div className="workspace-switch__error card--error">
+              <span>{t('common.workspaceLoadError')}</span>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => void refreshWorkspaces()}
+              >
+                {t('common.retry')}
+              </button>
+            </div>
+          ) : (
+            <select
+              value={activeWorkspaceId || ''}
+              onChange={(event) => setActiveWorkspaceId(event.target.value || null)}
+              disabled={!workspaces.length}
+            >
+              {workspaces.length === 0 ? (
+                <option value="">
+                  {workspacesLoading ? t('common.loading') : t('common.workspaceLoadError')}
                 </option>
-              ))
-            )}
-          </select>
+              ) : (
+                workspaces.map((workspace) => (
+                  <option key={workspace.id} value={workspace.id}>
+                    {workspace.name}
+                  </option>
+                ))
+              )}
+            </select>
+          )}
         </div>
         <nav className="nav">
           {navItems.map((item) => (
