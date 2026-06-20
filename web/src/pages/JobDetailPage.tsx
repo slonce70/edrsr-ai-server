@@ -245,6 +245,16 @@ export function JobDetailPage() {
     downloadText(`${safeTitle}.txt`, content);
   };
 
+  const handleCopyReport = async () => {
+    if (!analysis) return;
+    try {
+      await navigator.clipboard.writeText(analysis);
+      success(t('job.reportCopied'));
+    } catch {
+      toastError(t('errors.generic'));
+    }
+  };
+
   const handleDownloadWord = async () => {
     const safeTitle = job?.title ? job.title.replace(/[^a-zA-Z0-9_-]+/g, '_') : 'report';
     if (!analysis) {
@@ -670,6 +680,11 @@ export function JobDetailPage() {
             <div className="card__title">{t('job.report')}</div>
             <div className="card__meta">{t('job.reportMeta')}</div>
           </div>
+          {analysis ? (
+            <button type="button" className="btn btn-ghost" onClick={handleCopyReport}>
+              {t('job.copyReport')}
+            </button>
+          ) : null}
         </div>
         <div className="card__body">
           <ReportStatusBanner markdown={analysis} quality={job.quality} />
