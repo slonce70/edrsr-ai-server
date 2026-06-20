@@ -80,7 +80,7 @@ export default function App() {
         <Route path="/reset" element={<ResetPasswordPage />} />
         <Route path="/share/:token" element={<SharePage />} />
         <Route element={<ProtectedLayout />}>
-          <Route index element={<Navigate to="/analyses" replace />} />
+          <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/analyses" element={<AnalysesPage />} />
           <Route path="/analyses/:jobId" element={<JobDetailPage />} />
