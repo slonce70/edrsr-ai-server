@@ -36,14 +36,10 @@ document.addEventListener('DOMContentLoaded', async function () {
     return;
   }
 
-  const sessionToken = sessionStorage.getItem(TOKEN_STORAGE_KEY);
-  const localToken = localStorage.getItem(TOKEN_STORAGE_KEY);
-  const authToken = sessionToken || localToken;
+  // One-time legacy purge: remove any token previously mirrored into localStorage.
+  localStorage.removeItem(TOKEN_STORAGE_KEY);
+  const authToken = sessionStorage.getItem(TOKEN_STORAGE_KEY);
 
-  if (authToken) {
-    if (!sessionToken) sessionStorage.setItem(TOKEN_STORAGE_KEY, authToken);
-    if (!localToken) localStorage.setItem(TOKEN_STORAGE_KEY, authToken);
-  }
   if (!authToken) {
     window.location.href = '/admin';
     return;

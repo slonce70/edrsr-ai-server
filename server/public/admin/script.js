@@ -90,22 +90,16 @@ function setupLoginListener() {
   }
 }
 
+// One-time legacy purge: remove any token previously mirrored into localStorage
+// so existing users are migrated to sessionStorage-only even without logging out.
+localStorage.removeItem(TOKEN_STORAGE_KEY);
+
 function getStoredToken() {
-  const sessionToken = sessionStorage.getItem(TOKEN_STORAGE_KEY);
-  const localToken = localStorage.getItem(TOKEN_STORAGE_KEY);
-  const token = sessionToken || localToken;
-
-  if (token) {
-    if (!sessionToken) sessionStorage.setItem(TOKEN_STORAGE_KEY, token);
-    if (!localToken) localStorage.setItem(TOKEN_STORAGE_KEY, token);
-  }
-
-  return token;
+  return sessionStorage.getItem(TOKEN_STORAGE_KEY);
 }
 
 function setStoredToken(token) {
   sessionStorage.setItem(TOKEN_STORAGE_KEY, token);
-  localStorage.setItem(TOKEN_STORAGE_KEY, token);
 }
 
 function clearStoredToken() {
