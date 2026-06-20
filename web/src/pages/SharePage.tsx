@@ -2,9 +2,12 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { apiRequest } from '../lib/api';
 import { formatDate } from '../lib/format';
+import { useDocumentTitle } from '../lib/useDocumentTitle';
 import { useLocale } from '../state/LocaleContext';
+import { useToast } from '../state/ToastContext';
 import { MarkdownView } from '../components/MarkdownView';
 import { ReportStatusBanner } from '../components/ReportStatusBanner';
+import { Skeleton, SkeletonCard } from '../components/Skeleton';
 import { EmptyState } from '../components/EmptyState';
 
 type SharePayload = {
@@ -24,8 +27,10 @@ type SharePayload = {
 export function SharePage() {
   const { token } = useParams();
   const { t, dateLocale } = useLocale();
+  const { success, error: toastError } = useToast();
   const [data, setData] = useState<SharePayload | null>(null);
   const [error, setError] = useState<string | null>(null);
+  useDocumentTitle(data?.job.title);
 
   useEffect(() => {
     if (!token) return;
@@ -34,12 +39,34 @@ export function SharePage() {
       .catch(() => setError(t('share.notFound')));
   }, [token, t]);
 
+  const handleCopyReport = async () => {
+    if (!data?.analysis) return;
+    try {
+      await navigator.clipboard.writeText(data.analysis);
+      success(t('job.reportCopied'));
+    } catch {
+      toastError(t('errors.generic'));
+    }
+  };
+
   if (error) {
     return <EmptyState title={t('share.notFound')} message={t('share.publicNote')} />;
   }
 
   if (!data) {
-    return <div className="card">{t('common.loading')}</div>;
+    return (
+      <div className="share-view" aria-busy="true">
+        <span className="sr-only">{t('common.loading')}</span>
+        <div className="page-header">
+          <div>
+            <Skeleton width="40%" height="1.5rem" />
+            <Skeleton width="22%" height="0.75rem" />
+          </div>
+        </div>
+        <SkeletonCard />
+        <SkeletonCard />
+      </div>
+    );
   }
 
   const evidence = (data.links || []).filter((link) => link.evidence_snippet);
@@ -62,6 +89,11 @@ export function SharePage() {
             <div className="card__title">{t('job.report')}</div>
             <div className="card__meta">{t('job.reportMeta')}</div>
           </div>
+          {data.analysis ? (
+            <button type="button" className="btn btn-ghost" onClick={handleCopyReport}>
+              {t('job.copyReport')}
+            </button>
+          ) : null}
         </div>
         <div className="card__body">
           <ReportStatusBanner markdown={data.analysis} />
