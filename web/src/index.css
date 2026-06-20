@@ -346,6 +346,25 @@ select {
   flex-wrap: wrap;
 }
 
+/* inline title editing */
+.title-view {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.title-edit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.title-edit input {
+  flex: 1 1 16rem;
+  min-width: 12rem;
+}
+
 .stack {
   display: flex;
   flex-direction: column;

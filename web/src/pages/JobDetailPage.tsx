@@ -100,6 +100,9 @@ export function JobDetailPage() {
   const [shareNotice, setShareNotice] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState('');
+  const [savingTitle, setSavingTitle] = useState(false);
 
   const fetchAnalysis = useCallback(async () => {
     if (!accessToken || !jobId) return;
@@ -448,6 +451,53 @@ export function JobDetailPage() {
     }
   };
 
+  const handleSaveTitle = async () => {
+    if (!accessToken || !jobId) return;
+    const next = titleDraft.trim();
+    if (!next || next === job?.title) {
+      setEditingTitle(false);
+      return;
+    }
+    if (next.length > 255) {
+      toastError(t('job.titleTooLong'));
+      return;
+    }
+    setSavingTitle(true);
+    try {
+      const data = await apiRequest<{ success: boolean; job: { title?: string } }>(
+        `/jobs/${jobId}/title`,
+        {
+          token: accessToken,
+          method: 'PATCH',
+          body: { title: next },
+          workspaceId: activeWorkspaceId || undefined,
+        }
+      );
+      setJob((prev) => (prev ? { ...prev, title: data.job?.title ?? next } : prev));
+      setEditingTitle(false);
+      success(t('job.titleUpdated'));
+    } catch (err) {
+      toastError(err instanceof Error ? err.message : t('errors.generic'));
+    } finally {
+      setSavingTitle(false);
+    }
+  };
+
+  const handleCancelTitle = () => {
+    setEditingTitle(false);
+    setTitleDraft('');
+  };
+
+  const handleTitleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      void handleSaveTitle();
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      handleCancelTitle();
+    }
+  };
+
   if (loading && !job) {
     return (
       <div className="stack" aria-busy="true">
@@ -489,7 +539,46 @@ export function JobDetailPage() {
           <Link to="/analyses" className="link">
             {t('job.back')}
           </Link>
-          <h1>{job.title || t('analyses.untitled')}</h1>
+          {editingTitle ? (
+            <div className="title-edit">
+              <input
+                autoFocus
+                value={titleDraft}
+                maxLength={255}
+                aria-label={t('job.editTitle')}
+                onChange={(event) => setTitleDraft(event.target.value)}
+                onKeyDown={handleTitleKeyDown}
+              />
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleSaveTitle}
+                disabled={savingTitle || !titleDraft.trim()}
+              >
+                {t('common.save')}
+              </button>
+              <button type="button" className="btn btn-ghost" onClick={handleCancelTitle}>
+                {t('common.cancel')}
+              </button>
+            </div>
+          ) : (
+            <div className="title-view">
+              <h1>{job.title || t('analyses.untitled')}</h1>
+              {accessToken && jobId ? (
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label={t('job.editTitle')}
+                  onClick={() => {
+                    setTitleDraft(job.title || '');
+                    setEditingTitle(true);
+                  }}
+                >
+                  ✎
+                </button>
+              ) : null}
+            </div>
+          )}
           <p>{t('job.created', { date: formatDate(job.created_at, dateLocale) })}</p>
           {matter ? (
             <Link to={`/matters/${matter.id}`} className="pill">

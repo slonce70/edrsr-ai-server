@@ -158,6 +158,9 @@ export const translations = {
     },
     job: {
       back: 'До списку',
+      editTitle: 'Редагувати назву',
+      titleUpdated: 'Назву оновлено',
+      titleTooLong: 'Назва задовга (макс. 255 символів)',
       created: 'Створено {{date}}',
       printPdf: 'Друк / PDF',
       downloadLinks: 'Завантажити посилання TXT',
@@ -475,6 +478,9 @@ export const translations = {
     },
     job: {
       back: 'К списку',
+      editTitle: 'Редактировать название',
+      titleUpdated: 'Название обновлено',
+      titleTooLong: 'Название слишком длинное (макс. 255 символов)',
       created: 'Создано {{date}}',
       printPdf: 'Печать / PDF',
       downloadLinks: 'Скачать ссылки TXT',
