@@ -7,23 +7,12 @@ import { useLocale } from '../state/LocaleContext';
 import { useWorkspace } from '../state/WorkspaceContext';
 import { EmptyState } from '../components/EmptyState';
 import { Skeleton, SkeletonCard } from '../components/Skeleton';
-
-type Matter = {
-  id: string;
-  title: string;
-  description?: string | null;
-  client_name?: string | null;
-  tags?: string[] | null;
-  created_at?: string | null;
-};
-
-type MatterJob = {
-  id: string;
-  title: string;
-  status: string;
-  created_at: string;
-  updated_at: string;
-};
+import type {
+  Matter,
+  MatterJob,
+  MatterResponse,
+  MattersListResponse,
+} from '../types/api';
 
 type AvailableJob = {
   id: string;
@@ -37,17 +26,6 @@ type AvailableJob = {
 type JobsResponse = {
   success: boolean;
   jobs: AvailableJob[];
-};
-
-type MattersListResponse = {
-  success: boolean;
-  matters: { id: string; title: string }[];
-};
-
-type MatterResponse = {
-  success: boolean;
-  matter: Matter;
-  jobs: MatterJob[];
 };
 
 export function MatterDetailPage() {

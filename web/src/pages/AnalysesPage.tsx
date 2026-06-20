@@ -12,20 +12,9 @@ import { ProgressBar } from '../components/ProgressBar';
 import { SkeletonList } from '../components/Skeleton';
 import { StatusBadge } from '../components/StatusBadge';
 import { mergeJobUpdate } from '../lib/jobUpdate';
+import type { JobSummary } from '../types/api';
 
 const PAGE_SIZE = 20;
-
-type JobSummary = {
-  id: string;
-  title: string;
-  status: string;
-  progress: number;
-  processed_links: number;
-  total_links: number;
-  created_at: string;
-  updated_at: string;
-  duration?: number | null;
-};
 
 type JobsResponse = {
   success: boolean;

@@ -6,24 +6,7 @@ import { EmptyState } from '../components/EmptyState';
 import { useAuth } from '../state/AuthContext';
 import { useLocale } from '../state/LocaleContext';
 import { useWorkspace } from '../state/WorkspaceContext';
-
-type ShareLink = {
-  id: string;
-  job_id: string;
-  title?: string | null;
-  share_url?: string | null;
-  created_at: string;
-  expires_at?: string | null;
-  revoked_at?: string | null;
-  created_by?: string | null;
-};
-
-type ShareLinksResponse = {
-  success: boolean;
-  links: ShareLink[];
-};
-
-type ShareStatus = 'active' | 'expired' | 'revoked';
+import type { ShareLink, ShareLinksResponse, ShareStatus } from '../types/api';
 
 export function ShareLinksPage() {
   const { accessToken } = useAuth();

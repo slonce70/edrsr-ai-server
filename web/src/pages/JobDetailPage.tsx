@@ -18,41 +18,13 @@ import { Skeleton, SkeletonCard } from '../components/Skeleton';
 import { buildRetryBody } from './jobRetry';
 import { buildWordBlob } from '../lib/exportDoc';
 import { mergeJobUpdate } from '../lib/jobUpdate';
-import type { JobQuality } from '../lib/analysisQuality';
-
-type JobDetail = {
-  id: string;
-  title: string;
-  status: string;
-  progress: number;
-  processed_links: number;
-  total_links: number;
-  prompt?: string | null;
-  created_at: string;
-  updated_at: string;
-  duration?: number | null;
-  error_message?: string | null;
-  matter_id?: string | null;
-  quality?: JobQuality | null;
-};
-
-type LinkInfo = {
-  url: string;
-  status: string;
-  decision_date?: string | null;
-  evidence_snippet?: string | null;
-};
-
-type ChatMessage = {
-  role: 'user' | 'ai';
-  content: string;
-};
-
-type StatusResponse = JobDetail & {
-  links?: LinkInfo[];
-};
-
-type ChatResponse = ChatMessage[];
+import type {
+  ChatMessage,
+  ChatResponse,
+  JobDetail,
+  LinkInfo,
+  StatusResponse,
+} from '../types/api';
 
 type JobUpdatePayload = {
   id?: string;
