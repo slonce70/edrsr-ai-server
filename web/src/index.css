@@ -538,6 +538,18 @@ select {
     box-shadow 0.2s ease;
 }
 
+/* consistent keyboard focus rings (a11y) */
+.btn:focus-visible,
+.link:focus-visible,
+.nav__link:focus-visible,
+.locale-switch:focus-visible,
+.workspace-switch select:focus-visible,
+.toast__dismiss:focus-visible,
+.pagination button:focus-visible {
+  outline: 2px solid rgba(15, 118, 110, 0.5);
+  outline-offset: 2px;
+}
+
 .btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
@@ -1094,7 +1106,9 @@ select {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .toast {
+  .toast,
+  .page-header,
+  .card {
     animation: none;
   }
 }
