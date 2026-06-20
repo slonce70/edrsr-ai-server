@@ -11,6 +11,7 @@ import { useToast } from '../state/ToastContext';
 import { useWebSocket } from '../state/WebSocketContext';
 import { useWorkspace } from '../state/WorkspaceContext';
 import { BackToTop } from '../components/BackToTop';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { CoveragePanel } from '../components/CoveragePanel';
 import { EmptyState } from '../components/EmptyState';
 import { ProgressBar } from '../components/ProgressBar';
@@ -75,6 +76,9 @@ export function JobDetailPage() {
   const [shareLoading, setShareLoading] = useState(false);
   const [shareNotice, setShareNotice] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // Controls the styled confirm dialog that replaces the blocking
+  // window.confirm() for the destructive delete action.
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
@@ -433,9 +437,8 @@ export function JobDetailPage() {
 
   const evidenceLinks = useMemo(() => links.filter((link) => link.evidence_snippet), [links]);
 
-  const handleDeleteJob = async () => {
+  const performDeleteJob = async () => {
     if (!accessToken || !jobId) return;
-    if (!window.confirm(t('job.deleteConfirm'))) return;
     setDeleting(true);
     setError(null);
     try {
@@ -452,6 +455,11 @@ export function JobDetailPage() {
     } finally {
       setDeleting(false);
     }
+  };
+
+  const handleDeleteJob = () => {
+    if (!accessToken || !jobId) return;
+    setConfirmingDelete(true);
   };
 
   const handleRetry = async () => {
@@ -942,6 +950,19 @@ export function JobDetailPage() {
       </div>
 
       {error ? <div className="card card--error">{error}</div> : null}
+
+      <ConfirmDialog
+        open={confirmingDelete}
+        title={t('job.deleteTitle')}
+        message={t('job.deleteConfirm')}
+        confirmLabel={t('job.delete')}
+        danger
+        onConfirm={() => {
+          setConfirmingDelete(false);
+          void performDeleteJob();
+        }}
+        onCancel={() => setConfirmingDelete(false)}
+      />
     </div>
   );
 }

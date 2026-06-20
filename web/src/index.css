@@ -472,6 +472,55 @@ select {
   outline-offset: 3px;
 }
 
+/* Stretched-link card row: a plain container whose title is a real <Link>
+   stretched (via ::after) over the whole card, so the row is navigable with a
+   keyboard + screen-reader-correct link while keeping interactive descendants
+   (checkbox, delete button) independently clickable above the stretched link. */
+.card--row {
+  position: relative;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.card--row:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+  border-color: rgba(15, 118, 110, 0.45);
+}
+
+.card--row:active {
+  transform: translateY(0);
+  box-shadow: var(--shadow-soft);
+}
+
+.card__title-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.card__title-link::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.card__title-link:focus-visible {
+  outline: 2px solid rgba(15, 118, 110, 0.45);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* Keep the row's own interactive controls above the stretched ::after so they
+   stay independently clickable and the link does not swallow their clicks. */
+.card--row .card__select,
+.card--row .card__actions {
+  position: relative;
+  z-index: 1;
+}
+
 .card--error {
   border: 1px solid var(--status-error-border);
   background: var(--status-error-bg);
@@ -2485,6 +2534,61 @@ select {
   }
 }
 
+/* confirm dialog — styled replacement for window.confirm() */
+.confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 16px;
+  background: rgba(15, 23, 32, 0.5);
+  backdrop-filter: blur(3px);
+  z-index: 60;
+  animation: cmdkFade 0.14s ease;
+}
+
+.confirm-dialog {
+  width: 100%;
+  max-width: 440px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  animation: cmdkPop 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.confirm-dialog__title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.confirm-dialog__message {
+  margin: 0;
+  color: var(--ink);
+  line-height: 1.5;
+}
+
+.confirm-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .confirm-backdrop,
+  .confirm-dialog {
+    animation: none;
+  }
+}
+
 /* reading progress + back to top (report pages) */
 /* z-index 45: above the sticky header (40) and report-toc (30), but below the
    sidebar overlay (50), toaster (60) and command palette (60). */
@@ -2614,6 +2718,9 @@ select {
   .card--link,
   .card--link:hover,
   .card--link:active,
+  .card--row,
+  .card--row:hover,
+  .card--row:active,
   .stat-card--link,
   .stat-card--link:hover,
   .stat-card--link:active,

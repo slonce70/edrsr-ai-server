@@ -7,7 +7,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { apiRequest } from '../lib/api';
 import { clear as clearSelection, intersect, isAllSelected, selectAll, toggle } from '../lib/selection';
 import { formatDateShort, formatStatus, statusLabels } from '../lib/format';
@@ -17,6 +17,7 @@ import { useLocale } from '../state/LocaleContext';
 import { useToast } from '../state/ToastContext';
 import { useWebSocket } from '../state/WebSocketContext';
 import { useWorkspace } from '../state/WorkspaceContext';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { EmptyState } from '../components/EmptyState';
 import { ProgressBar } from '../components/ProgressBar';
 import { SkeletonList } from '../components/Skeleton';
@@ -53,7 +54,6 @@ export function AnalysesPage() {
   const { t, dateLocale } = useLocale();
   const { success, error: toastError } = useToast();
   const { activeWorkspaceId } = useWorkspace();
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   useDocumentTitle(t('analyses.title'));
   const [jobs, setJobs] = useState<JobSummary[]>([]);
@@ -71,6 +71,12 @@ export function AnalysesPage() {
   // selection never silently spans pages the user can't see.
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  // Holds the message + confirmed action for the styled confirm dialog that
+  // replaces the blocking window.confirm(). Null when no dialog is open.
+  const [pendingConfirm, setPendingConfirm] = useState<{
+    message: string;
+    onConfirm: () => void;
+  } | null>(null);
   const selectAllRef = useRef<HTMLInputElement>(null);
   // Guard so the URL hydration runs exactly once on mount. Without it, the
   // write-back effect below (setSearchParams -> re-render) would re-hydrate and
@@ -225,11 +231,8 @@ export function AnalysesPage() {
     setPage(1);
   };
 
-  const handleDelete = async (event: MouseEvent, jobId: string) => {
-    event.preventDefault();
-    event.stopPropagation();
+  const performDelete = async (jobId: string) => {
     if (!accessToken) return;
-    if (!window.confirm(t('analyses.deleteConfirm'))) return;
     setDeletingId(jobId);
     setError(null);
     try {
@@ -253,6 +256,19 @@ export function AnalysesPage() {
     }
   };
 
+  const handleDelete = (event: MouseEvent, jobId: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!accessToken) return;
+    setPendingConfirm({
+      message: t('analyses.deleteConfirm'),
+      onConfirm: () => {
+        setPendingConfirm(null);
+        void performDelete(jobId);
+      },
+    });
+  };
+
   const handleToggleOne = (event: ChangeEvent<HTMLInputElement>, jobId: string) => {
     event.stopPropagation();
     setSelected((prev) => toggle(prev, jobId));
@@ -266,11 +282,8 @@ export function AnalysesPage() {
     setSelected(clearSelection());
   };
 
-  const handleBulkDelete = async () => {
+  const performBulkDelete = async (ids: string[]) => {
     if (!accessToken) return;
-    const ids = visibleIds.filter((id) => selected.has(id));
-    if (ids.length === 0) return;
-    if (!window.confirm(t('analyses.bulkDeleteConfirm', { count: ids.length }))) return;
     setBulkDeleting(true);
     setError(null);
     let ok = 0;
@@ -296,6 +309,19 @@ export function AnalysesPage() {
     } else {
       toastError(t('analyses.bulkDeletePartial', { ok, failed }));
     }
+  };
+
+  const handleBulkDelete = () => {
+    if (!accessToken) return;
+    const ids = visibleIds.filter((id) => selected.has(id));
+    if (ids.length === 0) return;
+    setPendingConfirm({
+      message: t('analyses.bulkDeleteConfirm', { count: ids.length }),
+      onConfirm: () => {
+        setPendingConfirm(null);
+        void performBulkDelete(ids);
+      },
+    });
   };
 
   return (
@@ -428,17 +454,7 @@ export function AnalysesPage() {
           {jobs.map((job) => (
             <div
               key={job.id}
-              className={`card card--link${selected.has(job.id) ? ' card--selected' : ''}`}
-              role="link"
-              tabIndex={0}
-              onClick={() => navigate(`/analyses/${job.id}`)}
-              onKeyDown={(event) => {
-                if (event.currentTarget !== event.target) return;
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  navigate(`/analyses/${job.id}`);
-                }
-              }}
+              className={`card card--row${selected.has(job.id) ? ' card--selected' : ''}`}
             >
               <div className="card__header">
                 <div className="card__heading">
@@ -447,11 +463,14 @@ export function AnalysesPage() {
                     className="card__select"
                     aria-label={t('analyses.selectOne')}
                     checked={selected.has(job.id)}
-                    onClick={(event) => event.stopPropagation()}
                     onChange={(event) => handleToggleOne(event, job.id)}
                   />
                   <div>
-                    <div className="card__title">{job.title || t('analyses.untitled')}</div>
+                    <div className="card__title">
+                      <Link to={`/analyses/${job.id}`} className="card__title-link">
+                        {job.title || t('analyses.untitled')}
+                      </Link>
+                    </div>
                     <div className="card__meta">
                       {formatDateShort(job.created_at, dateLocale)} •{' '}
                       {formatStatus(job.status, statusLabels(t))}
@@ -504,6 +523,15 @@ export function AnalysesPage() {
           </button>
         </div>
       ) : null}
+
+      <ConfirmDialog
+        open={!!pendingConfirm}
+        message={pendingConfirm?.message ?? ''}
+        confirmLabel={t('common.remove')}
+        danger
+        onConfirm={() => pendingConfirm?.onConfirm()}
+        onCancel={() => setPendingConfirm(null)}
+      />
     </div>
   );
 }
