@@ -904,6 +904,48 @@ select {
   border-color: var(--status-error-border);
 }
 
+.pill-active-jobs {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+  color: var(--status-busy-ink);
+  border-color: var(--status-busy-border);
+  cursor: pointer;
+  transition:
+    border 0.2s ease,
+    background 0.2s ease;
+}
+
+.pill-active-jobs:hover {
+  background: var(--panel-muted);
+}
+
+.pill-active-jobs__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--status-busy-ink);
+  animation: pulse-dot 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pill-active-jobs__dot {
+    animation: none;
+    opacity: 0.9;
+  }
+}
+
 .progress {
   height: 8px;
   background: var(--panel-muted);

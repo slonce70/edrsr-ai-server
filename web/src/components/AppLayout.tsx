@@ -1,18 +1,31 @@
-import { useEffect, useState } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { APP_NAME } from '../lib/config';
+import { createJobNotifyState, reduceJobEvent } from '../lib/jobNotifications';
 import { resolveInitialTheme, type Theme } from '../lib/theme';
 import { CommandPalette } from '../components/CommandPalette';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { KeyboardShortcuts } from '../components/KeyboardShortcuts';
 import { useAuth } from '../state/AuthContext';
 import { useLocale } from '../state/LocaleContext';
+import { OverviewProvider, useOverview } from '../state/OverviewContext';
+import { useToast } from '../state/ToastContext';
 import { useWebSocket } from '../state/WebSocketContext';
 import { useWorkspace } from '../state/WorkspaceContext';
 
 export function AppLayout() {
+  return (
+    <OverviewProvider>
+      <AppLayoutInner />
+    </OverviewProvider>
+  );
+}
+
+function AppLayoutInner() {
   const { user, signOut } = useAuth();
-  const { status } = useWebSocket();
+  const { status, onJobUpdate } = useWebSocket();
+  const { activeCount } = useOverview();
+  const { success } = useToast();
   const { t, locale, setLocale, labels } = useLocale();
   const { workspaces, activeWorkspaceId, setActiveWorkspaceId } = useWorkspace();
   const [isSidebarOpen, setSidebarOpen] = useState(false);
@@ -28,6 +41,34 @@ export function AppLayout() {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('edrsr-ai-theme', theme);
   }, [theme]);
+
+  // Global "analysis finished" notification: watch WS job-status updates app-wide
+  // and toast once when a job we saw active this session transitions to completed.
+  const notifyStateRef = useRef(createJobNotifyState());
+  const tRef = useRef(t);
+  const successRef = useRef(success);
+
+  // Keep latest t/success in refs so the WS listener stays subscribed across
+  // locale/toast re-renders instead of re-registering on every render.
+  useEffect(() => {
+    tRef.current = t;
+    successRef.current = success;
+  }, [t, success]);
+
+  useEffect(() => {
+    return onJobUpdate((payload) => {
+      if (payload.type === 'CHAT_UPDATE') return;
+      const result = reduceJobEvent(notifyStateRef.current, {
+        id: typeof payload.id === 'string' ? payload.id : undefined,
+        status: typeof payload.status === 'string' ? payload.status : undefined,
+        title: typeof payload.title === 'string' ? payload.title : undefined,
+      });
+      if (result.notify) {
+        const title = result.notify.title || tRef.current('analyses.untitled');
+        successRef.current(tRef.current('job.finishedToast', { title }));
+      }
+    });
+  }, [onJobUpdate]);
 
   const navItems = [
     { to: '/dashboard', label: t('nav.dashboard') },
@@ -129,6 +170,17 @@ export function AppLayout() {
             <div className="topbar__title">{APP_NAME}</div>
           </div>
           <div className="topbar__actions">
+            {activeCount > 0 ? (
+              <Link
+                to="/analyses?status=processing"
+                className="pill pill-active-jobs"
+                aria-label={t('topbar.activeJobsAria', { count: activeCount })}
+                title={t('topbar.activeJobsAria', { count: activeCount })}
+              >
+                <span className="pill-active-jobs__dot" aria-hidden="true" />
+                {t('topbar.activeJobs', { count: activeCount })}
+              </Link>
+            ) : null}
             <span className={`pill pill-${status}`}>{statusLabel}</span>
             <button
               type="button"

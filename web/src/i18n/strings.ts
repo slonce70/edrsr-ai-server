@@ -27,6 +27,10 @@ export const translations = {
       openMenu: 'Відкрити меню',
       closeMenu: 'Закрити меню',
     },
+    topbar: {
+      activeJobs: 'В роботі: {{count}}',
+      activeJobsAria: '{{count}} аналізів виконується',
+    },
     dashboard: {
       title: 'Огляд',
       subtitle: 'Зведення ваших аналізів',
@@ -221,6 +225,8 @@ export const translations = {
     },
     job: {
       back: 'До списку',
+      finishedToast: 'Аналіз готовий: {{title}}',
+      failedToast: 'Аналіз завершився помилкою: {{title}}',
       editTitle: 'Редагувати назву',
       titleUpdated: 'Назву оновлено',
       titleTooLong: 'Назва задовга (макс. 255 символів)',
@@ -447,6 +453,10 @@ export const translations = {
       openMenu: 'Открыть меню',
       closeMenu: 'Закрыть меню',
     },
+    topbar: {
+      activeJobs: 'В работе: {{count}}',
+      activeJobsAria: '{{count}} анализов выполняется',
+    },
     dashboard: {
       title: 'Обзор',
       subtitle: 'Сводка ваших анализов',
@@ -641,6 +651,8 @@ export const translations = {
     },
     job: {
       back: 'К списку',
+      finishedToast: 'Анализ готов: {{title}}',
+      failedToast: 'Анализ завершился ошибкой: {{title}}',
       editTitle: 'Редактировать название',
       titleUpdated: 'Название обновлено',
       titleTooLong: 'Название слишком длинное (макс. 255 символов)',
