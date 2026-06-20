@@ -5,6 +5,7 @@ import { formatDateShort, formatStatus } from '../lib/format';
 import { useDocumentTitle } from '../lib/useDocumentTitle';
 import { useAuth } from '../state/AuthContext';
 import { useLocale } from '../state/LocaleContext';
+import { useToast } from '../state/ToastContext';
 import { useWorkspace } from '../state/WorkspaceContext';
 import { EmptyState } from '../components/EmptyState';
 import { Skeleton, SkeletonCard } from '../components/Skeleton';
@@ -33,6 +34,7 @@ export function MatterDetailPage() {
   const { matterId } = useParams();
   const { accessToken } = useAuth();
   const { t, dateLocale } = useLocale();
+  const { success, error: toastError } = useToast();
   const { activeWorkspaceId } = useWorkspace();
   const navigate = useNavigate();
   const [matter, setMatter] = useState<Matter | null>(null);
@@ -148,8 +150,11 @@ export function MatterDetailPage() {
       if (showAttach) {
         await loadAvailableJobs();
       }
+      success(t('matters.jobDetached'));
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('errors.generic'));
+      const message = err instanceof Error ? err.message : t('errors.generic');
+      setError(message);
+      toastError(message);
     }
   };
 
@@ -168,8 +173,11 @@ export function MatterDetailPage() {
       });
       await loadMatter();
       await loadAvailableJobs();
+      success(t('matters.jobAttached'));
     } catch (err) {
-      setAttachError(err instanceof Error ? err.message : t('errors.generic'));
+      const message = err instanceof Error ? err.message : t('errors.generic');
+      setAttachError(message);
+      toastError(message);
     }
   };
 

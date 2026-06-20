@@ -4,6 +4,7 @@ import { apiRequest } from '../lib/api';
 import { useDocumentTitle } from '../lib/useDocumentTitle';
 import { useAuth } from '../state/AuthContext';
 import { useLocale } from '../state/LocaleContext';
+import { useToast } from '../state/ToastContext';
 import { useWorkspace } from '../state/WorkspaceContext';
 import { EmptyState } from '../components/EmptyState';
 
@@ -26,6 +27,7 @@ const emptyForm = { id: '', name: '', content: '' };
 export function PromptsPage() {
   const { accessToken } = useAuth();
   const { t, dateLocale } = useLocale();
+  const { success, error: toastError } = useToast();
   const { activeWorkspaceId, workspaces } = useWorkspace();
   useDocumentTitle(t('prompts.title'));
   const [prompts, setPrompts] = useState<Prompt[]>([]);
@@ -165,8 +167,11 @@ export function PromptsPage() {
         await loadPrompts();
       }
       setForm(emptyForm);
+      success(t('prompts.saved'));
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : t('errors.generic'));
+      const message = err instanceof Error ? err.message : t('errors.generic');
+      setFormError(message);
+      toastError(message);
     } finally {
       setSaving(false);
     }
@@ -199,8 +204,11 @@ export function PromptsPage() {
         await loadPrompts();
       }
       setForm(emptyForm);
+      success(t('prompts.deleted'));
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : t('errors.generic'));
+      const message = err instanceof Error ? err.message : t('errors.generic');
+      setFormError(message);
+      toastError(message);
     } finally {
       setSaving(false);
     }
@@ -230,10 +238,14 @@ export function PromptsPage() {
         }
       );
       await loadSharedPrompts();
-      setFormNotice(result?.renamed ? t('prompts.shareRenamed') : t('prompts.shareSuccess'));
+      const notice = result?.renamed ? t('prompts.shareRenamed') : t('prompts.shareSuccess');
+      setFormNotice(notice);
+      success(notice);
       setActiveTab('shared');
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : t('errors.generic'));
+      const message = err instanceof Error ? err.message : t('errors.generic');
+      setFormError(message);
+      toastError(message);
     } finally {
       setSaving(false);
     }
@@ -273,8 +285,11 @@ export function PromptsPage() {
         body: { prompts: promptsPayload },
       });
       await loadPrompts();
+      success(t('prompts.imported'));
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : t('errors.generic'));
+      const message = err instanceof Error ? err.message : t('errors.generic');
+      setFormError(message);
+      toastError(message);
     } finally {
       setSaving(false);
       event.target.value = '';

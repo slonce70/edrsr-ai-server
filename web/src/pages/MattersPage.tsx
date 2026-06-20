@@ -4,6 +4,7 @@ import { apiRequest } from '../lib/api';
 import { useDocumentTitle } from '../lib/useDocumentTitle';
 import { useAuth } from '../state/AuthContext';
 import { useLocale } from '../state/LocaleContext';
+import { useToast } from '../state/ToastContext';
 import { useWorkspace } from '../state/WorkspaceContext';
 import { EmptyState } from '../components/EmptyState';
 import { SkeletonList } from '../components/Skeleton';
@@ -25,6 +26,7 @@ type MattersResponse = {
 export function MattersPage() {
   const { accessToken } = useAuth();
   const { t } = useLocale();
+  const { success, error: toastError } = useToast();
   const { activeWorkspaceId } = useWorkspace();
   useDocumentTitle(t('matters.title'));
   const [matters, setMatters] = useState<MatterSummary[]>([]);
@@ -84,8 +86,11 @@ export function MattersPage() {
       resetForm();
       setShowForm(false);
       await loadMatters();
+      success(t('matters.created'));
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('errors.generic'));
+      const message = err instanceof Error ? err.message : t('errors.generic');
+      setError(message);
+      toastError(message);
     } finally {
       setSaving(false);
     }

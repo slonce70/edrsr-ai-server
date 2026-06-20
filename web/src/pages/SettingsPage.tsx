@@ -4,6 +4,7 @@ import { API_BASE } from '../lib/config';
 import { useDocumentTitle } from '../lib/useDocumentTitle';
 import { useAuth } from '../state/AuthContext';
 import { useLocale } from '../state/LocaleContext';
+import { useToast } from '../state/ToastContext';
 import { useWorkspace } from '../state/WorkspaceContext';
 
 type HealthResponse = {
@@ -19,6 +20,7 @@ type Member = {
 export function SettingsPage() {
   const { accessToken, user } = useAuth();
   const { t } = useLocale();
+  const { success, error: toastError } = useToast();
   const { workspaces, activeWorkspaceId, setActiveWorkspaceId } = useWorkspace();
   useDocumentTitle(t('settings.title'));
   const [health, setHealth] = useState<HealthResponse | null>(null);
@@ -68,8 +70,11 @@ export function SettingsPage() {
       setMemberEmail('');
       setMemberRole('member');
       await loadMembers();
+      success(t('settings.memberAdded'));
     } catch (err) {
-      setMembersError(err instanceof Error ? err.message : t('errors.generic'));
+      const message = err instanceof Error ? err.message : t('errors.generic');
+      setMembersError(message);
+      toastError(message);
     }
   };
 
@@ -83,8 +88,11 @@ export function SettingsPage() {
         workspaceId: activeWorkspaceId,
       });
       await loadMembers();
+      success(t('settings.roleUpdated'));
     } catch (err) {
-      setMembersError(err instanceof Error ? err.message : t('errors.generic'));
+      const message = err instanceof Error ? err.message : t('errors.generic');
+      setMembersError(message);
+      toastError(message);
     }
   };
 
@@ -98,8 +106,11 @@ export function SettingsPage() {
         workspaceId: activeWorkspaceId,
       });
       await loadMembers();
+      success(t('settings.memberRemoved'));
     } catch (err) {
-      setMembersError(err instanceof Error ? err.message : t('errors.generic'));
+      const message = err instanceof Error ? err.message : t('errors.generic');
+      setMembersError(message);
+      toastError(message);
     }
   };
 

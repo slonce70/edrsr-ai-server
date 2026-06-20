@@ -6,12 +6,14 @@ import { useDocumentTitle } from '../lib/useDocumentTitle';
 import { EmptyState } from '../components/EmptyState';
 import { useAuth } from '../state/AuthContext';
 import { useLocale } from '../state/LocaleContext';
+import { useToast } from '../state/ToastContext';
 import { useWorkspace } from '../state/WorkspaceContext';
 import type { ShareLink, ShareLinksResponse, ShareStatus } from '../types/api';
 
 export function ShareLinksPage() {
   const { accessToken } = useAuth();
   const { t, dateLocale } = useLocale();
+  const { success, error: toastError } = useToast();
   const { activeWorkspaceId } = useWorkspace();
   useDocumentTitle(t('share.manageTitle'));
   const [links, setLinks] = useState<ShareLink[]>([]);
@@ -65,8 +67,11 @@ export function ShareLinksPage() {
         workspaceId: activeWorkspaceId,
       });
       await loadLinks();
+      success(t('share.revoked'));
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('errors.generic'));
+      const message = err instanceof Error ? err.message : t('errors.generic');
+      setError(message);
+      toastError(message);
     } finally {
       setRevokingId(null);
     }
