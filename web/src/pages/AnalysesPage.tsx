@@ -4,6 +4,7 @@ import { apiRequest } from '../lib/api';
 import { formatDateShort, formatStatus } from '../lib/format';
 import { useAuth } from '../state/AuthContext';
 import { useLocale } from '../state/LocaleContext';
+import { useToast } from '../state/ToastContext';
 import { useWebSocket } from '../state/WebSocketContext';
 import { useWorkspace } from '../state/WorkspaceContext';
 import { EmptyState } from '../components/EmptyState';
@@ -39,6 +40,7 @@ export function AnalysesPage() {
   const { accessToken } = useAuth();
   const { onJobUpdate, subscribe } = useWebSocket();
   const { t, dateLocale } = useLocale();
+  const { success, error: toastError } = useToast();
   const { activeWorkspaceId } = useWorkspace();
   const navigate = useNavigate();
   const [jobs, setJobs] = useState<JobSummary[]>([]);
@@ -142,9 +144,11 @@ export function AnalysesPage() {
       } else {
         await fetchJobs();
       }
+      success(t('analyses.deleted'));
     } catch (err) {
       const message = err instanceof Error ? err.message : t('errors.generic');
       setError(message);
+      toastError(message);
     } finally {
       setDeletingId(null);
     }

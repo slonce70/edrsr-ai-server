@@ -6,23 +6,26 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import './index.css';
 import { AuthProvider } from './state/AuthContext';
 import { LocaleProvider } from './state/LocaleContext';
+import { ToastProvider } from './state/ToastContext';
 import { WebSocketProvider } from './state/WebSocketContext';
 import { WorkspaceProvider } from './state/WorkspaceContext';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
-      <LocaleProvider>
-        <AuthProvider>
-          <WorkspaceProvider>
-            <WebSocketProvider>
-              <BrowserRouter>
-                <App />
-              </BrowserRouter>
-            </WebSocketProvider>
-          </WorkspaceProvider>
-        </AuthProvider>
-      </LocaleProvider>
+      <ToastProvider>
+        <LocaleProvider>
+          <AuthProvider>
+            <WorkspaceProvider>
+              <WebSocketProvider>
+                <BrowserRouter>
+                  <App />
+                </BrowserRouter>
+              </WebSocketProvider>
+            </WorkspaceProvider>
+          </AuthProvider>
+        </LocaleProvider>
+      </ToastProvider>
     </ErrorBoundary>
   </StrictMode>
 );

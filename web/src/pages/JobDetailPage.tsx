@@ -6,6 +6,7 @@ import { formatDate, formatDateShort, formatDurationSeconds, formatStatus } from
 import { renderMarkdown } from '../lib/markdown';
 import { useAuth } from '../state/AuthContext';
 import { useLocale } from '../state/LocaleContext';
+import { useToast } from '../state/ToastContext';
 import { useWebSocket } from '../state/WebSocketContext';
 import { useWorkspace } from '../state/WorkspaceContext';
 import { EmptyState } from '../components/EmptyState';
@@ -78,6 +79,7 @@ export function JobDetailPage() {
   const { accessToken } = useAuth();
   const { subscribe, onJobUpdate, clientId, status } = useWebSocket();
   const { t, dateLocale } = useLocale();
+  const { success, error: toastError } = useToast();
   const { activeWorkspaceId } = useWorkspace();
   const navigate = useNavigate();
   const [job, setJob] = useState<JobDetail | null>(null);
@@ -387,6 +389,7 @@ export function JobDetailPage() {
     try {
       await navigator.clipboard.writeText(shareUrl);
       setShareNotice(t('share.copied'));
+      success(t('share.copied'));
     } catch {
       setShareNotice(shareUrl);
     }
@@ -415,7 +418,9 @@ export function JobDetailPage() {
       });
       navigate('/analyses');
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('errors.generic'));
+      const message = err instanceof Error ? err.message : t('errors.generic');
+      setError(message);
+      toastError(message);
     } finally {
       setDeleting(false);
     }
@@ -434,7 +439,9 @@ export function JobDetailPage() {
       });
       navigate('/analyses');
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('errors.generic'));
+      const message = err instanceof Error ? err.message : t('errors.generic');
+      setError(message);
+      toastError(message);
     } finally {
       setRetrying(false);
     }

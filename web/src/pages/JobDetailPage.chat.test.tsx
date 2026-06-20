@@ -35,6 +35,17 @@ vi.mock('../state/WorkspaceContext', () => ({
   useWorkspace: () => ({ activeWorkspaceId: 'ws-1' }),
 }));
 
+vi.mock('../state/ToastContext', () => ({
+  useToast: () => ({
+    toasts: [],
+    notify: vi.fn(),
+    success: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    dismiss: vi.fn(),
+  }),
+}));
+
 const onJobUpdate = vi.fn(() => () => {});
 vi.mock('../state/WebSocketContext', () => ({
   useWebSocket: () => ({

@@ -46,6 +46,7 @@ export const translations = {
       remove: 'Видалити',
       edit: 'Редагувати',
       close: 'Закрити',
+      dismiss: 'Закрити',
       copy: 'Копіювати',
       copied: 'Скопійовано',
       signOut: 'Вийти',
@@ -122,6 +123,7 @@ export const translations = {
       untitled: 'Без назви',
       linksProcessed: '{{processed}} / {{total}} посилань опрацьовано',
       deleteConfirm: 'Видалити цей аналіз? Дію не можна скасувати.',
+      deleted: 'Аналіз видалено',
     },
     pagination: {
       prev: 'Попередня',
@@ -361,6 +363,7 @@ export const translations = {
       remove: 'Удалить',
       edit: 'Редактировать',
       close: 'Закрыть',
+      dismiss: 'Закрыть',
       copy: 'Копировать',
       copied: 'Скопировано',
       signOut: 'Выйти',
@@ -437,6 +440,7 @@ export const translations = {
       untitled: 'Без названия',
       linksProcessed: '{{processed}} / {{total}} ссылок обработано',
       deleteConfirm: 'Удалить этот анализ? Действие необратимо.',
+      deleted: 'Анализ удалён',
     },
     pagination: {
       prev: 'Предыдущая',
