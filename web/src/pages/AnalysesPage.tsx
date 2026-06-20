@@ -24,7 +24,13 @@ import { SkeletonList } from '../components/Skeleton';
 import { StatusBadge } from '../components/StatusBadge';
 import { mergeJobUpdate } from '../lib/jobUpdate';
 import { ACTIVE_STATUS_KEYS } from '../lib/overviewStats';
-import type { JobSummary, MattersListResponse } from '../types/api';
+import { buildSnippetParts } from '../lib/reportSearch';
+import type {
+  ContentSearchResponse,
+  ContentSearchResult,
+  JobSummary,
+  MattersListResponse,
+} from '../types/api';
 
 type MatterOption = MattersListResponse['matters'][number];
 
@@ -65,6 +71,15 @@ export function AnalysesPage() {
   const [sortBy, setSortBy] = useState(DEFAULT_SORT);
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
+  // Search mode: 'title' filters the paged jobs list by title/prompt (existing
+  // behaviour, untouched); 'content' runs a cross-report full-text search over
+  // report BODIES via GET /jobs/search and renders a distinct results panel.
+  const [searchMode, setSearchMode] = useState<'title' | 'content'>('title');
+  const [contentResults, setContentResults] = useState<ContentSearchResult[]>([]);
+  const [contentQuery, setContentQuery] = useState('');
+  const [contentLoading, setContentLoading] = useState(false);
+  const [contentSearched, setContentSearched] = useState(false);
+  const [contentError, setContentError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -254,9 +269,74 @@ export function AnalysesPage() {
     }
   }, [someSelected]);
 
+  // Cross-report content search. Tenant context is threaded via workspaceId the
+  // same way every other job call is (apiRequest appends it to the query). The
+  // backend scopes results to exactly what the user can read via /jobs.
+  const runContentSearch = useCallback(
+    async (rawTerm: string) => {
+      const term = rawTerm.trim();
+      setContentError(null);
+      if (term.length < 2) {
+        setContentResults([]);
+        setContentSearched(false);
+        setContentQuery(term);
+        return;
+      }
+      if (!accessToken) return;
+      setContentQuery(term);
+      setContentLoading(true);
+      try {
+        const data = await apiRequest<ContentSearchResponse>('/jobs/search', {
+          token: accessToken,
+          workspaceId: activeWorkspaceId || undefined,
+          query: { q: term },
+        });
+        setContentResults(data.results || []);
+        setContentSearched(true);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : t('errors.generic');
+        setContentError(message);
+        setContentResults([]);
+        setContentSearched(true);
+      } finally {
+        setContentLoading(false);
+      }
+    },
+    [accessToken, activeWorkspaceId, t]
+  );
+
   const handleSearch = () => {
+    if (searchMode === 'content') {
+      void runContentSearch(searchInput);
+      return;
+    }
     setPage(1);
     setSearch(searchInput.trim());
+  };
+
+  // Switch between title-filter and content-search modes. Each mode clears the
+  // other's results so a stale panel never lingers, and the title filter (its
+  // applied `search`) is left untouched/restored by re-running on switch back.
+  const handleSearchModeChange = (mode: 'title' | 'content') => {
+    if (mode === searchMode) return;
+    setSearchMode(mode);
+    if (mode === 'content') {
+      // Leaving title mode: drop the applied title filter so the paged list
+      // shows all jobs again behind the content results panel.
+      setSearch('');
+      setPage(1);
+      setSearchInput('');
+      setContentResults([]);
+      setContentSearched(false);
+      setContentQuery('');
+      setContentError(null);
+    } else {
+      setSearchInput('');
+      setContentResults([]);
+      setContentSearched(false);
+      setContentQuery('');
+      setContentError(null);
+    }
   };
 
   const resetFilters = () => {
@@ -266,6 +346,10 @@ export function AnalysesPage() {
     setMatterFilter('');
     setSortBy('created_at_desc');
     setPage(1);
+    setContentResults([]);
+    setContentSearched(false);
+    setContentQuery('');
+    setContentError(null);
   };
 
   const performDelete = async (jobId: string) => {
@@ -376,6 +460,28 @@ export function AnalysesPage() {
       <div className="filters">
         <div className="field">
           <span>{t('common.search')}</span>
+          <div
+            className="segmented"
+            role="group"
+            aria-label={t('common.search')}
+          >
+            <button
+              type="button"
+              className={`segmented__option${searchMode === 'title' ? ' segmented__option--active' : ''}`}
+              aria-pressed={searchMode === 'title'}
+              onClick={() => handleSearchModeChange('title')}
+            >
+              {t('analyses.searchInTitle')}
+            </button>
+            <button
+              type="button"
+              className={`segmented__option${searchMode === 'content' ? ' segmented__option--active' : ''}`}
+              aria-pressed={searchMode === 'content'}
+              onClick={() => handleSearchModeChange('content')}
+            >
+              {t('analyses.searchInContent')}
+            </button>
+          </div>
           <div className="field__row">
             <input
               value={searchInput}
@@ -383,8 +489,14 @@ export function AnalysesPage() {
               onKeyDown={(event) => {
                 if (event.key === 'Enter') handleSearch();
               }}
-              placeholder={t('analyses.searchPlaceholder')}
-              aria-label={t('common.search')}
+              placeholder={
+                searchMode === 'content'
+                  ? t('analyses.contentSearchPlaceholder')
+                  : t('analyses.searchPlaceholder')
+              }
+              aria-label={
+                searchMode === 'content' ? t('analyses.searchInContent') : t('common.search')
+              }
             />
             <button className="btn btn-ghost" onClick={handleSearch}>
               {t('common.search')}
@@ -480,6 +592,60 @@ export function AnalysesPage() {
               ×
             </button>
           </span>
+        </div>
+      ) : null}
+
+      {searchMode === 'content' ? (
+        <div className="content-search" aria-live="polite">
+          {contentLoading ? (
+            <div className="card" aria-busy="true">
+              {t('analyses.contentSearchLoading')}
+            </div>
+          ) : contentError ? (
+            <div className="card card--error">{contentError}</div>
+          ) : contentSearched && contentResults.length === 0 ? (
+            <EmptyState
+              title={t('analyses.contentSearchEmpty')}
+              message={t('analyses.contentSearchEmpty')}
+            />
+          ) : contentResults.length > 0 ? (
+            <>
+              <h2 className="content-search__heading">
+                {t('analyses.contentResults')} ({contentResults.length})
+              </h2>
+              <div className="list">
+                {contentResults.map((result) => (
+                  <Link
+                    key={result.id}
+                    to={`/analyses/${result.id}`}
+                    className="card card--row content-search__result"
+                  >
+                    <div className="card__header">
+                      <div className="card__title">
+                        {result.title || t('analyses.untitled')}
+                      </div>
+                      <StatusBadge status={result.status} />
+                    </div>
+                    <div className="card__meta">
+                      {formatDateShort(result.created_at, dateLocale)} •{' '}
+                      {formatStatus(result.status, statusLabels(t))}
+                    </div>
+                    {result.snippet ? (
+                      <p className="content-search__snippet">
+                        {buildSnippetParts(result.snippet, contentQuery).map((part, index) =>
+                          part.match ? (
+                            <mark key={index}>{part.text}</mark>
+                          ) : (
+                            <span key={index}>{part.text}</span>
+                          )
+                        )}
+                      </p>
+                    ) : null}
+                  </Link>
+                ))}
+              </div>
+            </>
+          ) : null}
         </div>
       ) : null}
 

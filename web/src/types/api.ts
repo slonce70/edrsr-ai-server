@@ -13,6 +13,19 @@ export type JobSummary = {
   matter_id?: string | null;
 };
 
+export type ContentSearchResult = {
+  id: string;
+  title: string;
+  status: string;
+  created_at: string;
+  snippet: string;
+};
+
+export type ContentSearchResponse = {
+  success: boolean;
+  results: ContentSearchResult[];
+};
+
 export type JobDetail = {
   id: string;
   title: string;

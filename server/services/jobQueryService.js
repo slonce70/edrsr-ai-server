@@ -130,6 +130,92 @@ class JobQueryService {
     };
   }
 
+  // Cross-report full-text search over report BODIES (job_results.analysis_text),
+  // tenant-scoped IDENTICALLY to getJobsPage / the GET /jobs read path: by
+  // workspace_id when a workspace is resolved, otherwise by user_id. Returns the
+  // matching jobs plus a short context snippet around the first match.
+  //
+  // The term is matched case-insensitively as a literal substring via ILIKE,
+  // with escapeLike() neutralizing %/_/\ so they are treated literally (never as
+  // wildcards) — fully parameterized, never interpolated (injection-safe).
+  //
+  // SCALE NOTE: ILIKE '%term%' is a sequential scan. That is fine at the current
+  // scale (a handful of reports per tenant). The scale-up path is a GIN/tsvector
+  // (or pg_trgm) index on analysis_text — out of scope here.
+  async searchJobsByContent({ userId = null, workspaceId = null, query = '', limit = 20 } = {}) {
+    const term = String(query || '').trim();
+    // Guard: don't run a full-table ILIKE on an empty/too-short term.
+    if (term.length < 2) return [];
+    const safeLimit = Math.min(Math.max(1, parseInt(limit, 10) || 20), 50);
+
+    // Scope predicate on the jobs row (j), mirroring getJobsPage exactly. We
+    // always JOIN job_results -> jobs so the same scoping applies whether we
+    // filter by workspace_id or user_id; no new exposure beyond /jobs.
+    const where = [];
+    const params = [];
+    let idx = 1;
+    if (workspaceId) {
+      where.push(`j.workspace_id = $${idx}`);
+      params.push(workspaceId);
+      idx++;
+    } else if (userId) {
+      where.push(`j.user_id = $${idx}`);
+      params.push(userId);
+      idx++;
+    }
+
+    // The match term. escapeLike() makes %/_/\ literal; we wrap with %...% in SQL
+    // so the value bound to $idx is just the (escaped) needle.
+    const likeTerm = `%${escapeLike(term)}%`;
+    const termIdx = idx;
+    where.push(`jr.analysis_text ILIKE $${termIdx}`);
+    params.push(likeTerm);
+    idx++;
+
+    // Raw (un-escaped) term for position() — position() does a literal match, so
+    // it must NOT receive the ILIKE-escaped form. Bound as its own parameter.
+    const posIdx = idx;
+    params.push(term);
+    idx++;
+
+    const whereClause = `WHERE ${where.join(' AND ')}`;
+
+    // snippet: a 160-char window starting ~60 chars before the first
+    // case-insensitive match, with internal whitespace collapsed. position() on
+    // the lowercased text/term locates the first hit; greatest(1, pos-60) keeps
+    // substring()'s start in range. All values are parameterized.
+    const rows = await database.all(
+      `SELECT j.id,
+              j.title,
+              j.status,
+              j.created_at,
+              regexp_replace(
+                trim(
+                  substring(
+                    jr.analysis_text
+                    FROM greatest(1, position(lower($${posIdx}) IN lower(jr.analysis_text)) - 60)
+                    FOR 160
+                  )
+                ),
+                '\\s+', ' ', 'g'
+              ) AS snippet
+       FROM job_results jr
+       JOIN jobs j ON j.id = jr.job_id
+       ${whereClause}
+       ORDER BY j.created_at DESC
+       LIMIT $${idx}`,
+      [...params, safeLimit]
+    );
+
+    return rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      status: row.status,
+      created_at: row.created_at,
+      snippet: row.snippet || '',
+    }));
+  }
+
   async getJobLight(jobId, userId = null) {
     const sql = userId
       ? `SELECT id, title, status, progress, processed_links, total_links, prompt, created_at, updated_at, duration, workspace_id, matter_id, error_message FROM jobs WHERE id = $1 AND user_id = $2`

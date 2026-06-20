@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { findMatches } from './reportSearch';
+import { findMatches, buildSnippetParts } from './reportSearch';
 
 describe('findMatches', () => {
   it('returns [] for an empty query', () => {
@@ -69,5 +69,49 @@ describe('findMatches', () => {
 
   it('trims surrounding whitespace in the query before matching', () => {
     expect(findMatches('hello world', '  world  ')).toEqual([{ start: 6, end: 11 }]);
+  });
+});
+
+describe('buildSnippetParts', () => {
+  it('returns [] for an empty snippet', () => {
+    expect(buildSnippetParts('', 'foo')).toEqual([]);
+  });
+
+  it('returns the whole snippet as one non-match part when query is empty', () => {
+    expect(buildSnippetParts('hello world', '')).toEqual([{ text: 'hello world', match: false }]);
+  });
+
+  it('returns the whole snippet as one non-match part when there is no match', () => {
+    expect(buildSnippetParts('hello world', 'xyz')).toEqual([{ text: 'hello world', match: false }]);
+  });
+
+  it('splits around a single match, preserving the original casing', () => {
+    expect(buildSnippetParts('see the World now', 'world')).toEqual([
+      { text: 'see the ', match: false },
+      { text: 'World', match: true },
+      { text: ' now', match: false },
+    ]);
+  });
+
+  it('marks a match at the very start with no leading plain part', () => {
+    expect(buildSnippetParts('foobar', 'foo')).toEqual([
+      { text: 'foo', match: true },
+      { text: 'bar', match: false },
+    ]);
+  });
+
+  it('marks every occurrence in a multi-match snippet', () => {
+    expect(buildSnippetParts('foo bar foo', 'foo')).toEqual([
+      { text: 'foo', match: true },
+      { text: ' bar ', match: false },
+      { text: 'foo', match: true },
+    ]);
+  });
+
+  it('handles Cyrillic terms (case-insensitive)', () => {
+    expect(buildSnippetParts('стаття 205 КК', 'СТАТТЯ')).toEqual([
+      { text: 'стаття', match: true },
+      { text: ' 205 КК', match: false },
+    ]);
   });
 });

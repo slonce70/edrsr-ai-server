@@ -54,3 +54,38 @@ export function findMatchesLowered(
 
   return matches;
 }
+
+export type SnippetPart = {
+  text: string;
+  match: boolean;
+};
+
+/**
+ * Split a (server-trimmed) snippet into alternating plain / matched segments so
+ * a caller can render the matched term highlighted (e.g. wrap `match: true`
+ * parts in <mark>). Matching is case-insensitive and literal, reusing
+ * findMatches. When the query is empty or has no match, returns the snippet as a
+ * single non-matched part.
+ *
+ * Pure and deterministic: no DOM, no side effects.
+ */
+export function buildSnippetParts(snippet: string, query: string): SnippetPart[] {
+  const text = snippet || '';
+  if (!text) return [];
+  const ranges = findMatches(text, query);
+  if (ranges.length === 0) return [{ text, match: false }];
+
+  const parts: SnippetPart[] = [];
+  let cursor = 0;
+  for (const range of ranges) {
+    if (range.start > cursor) {
+      parts.push({ text: text.slice(cursor, range.start), match: false });
+    }
+    parts.push({ text: text.slice(range.start, range.end), match: true });
+    cursor = range.end;
+  }
+  if (cursor < text.length) {
+    parts.push({ text: text.slice(cursor), match: false });
+  }
+  return parts;
+}

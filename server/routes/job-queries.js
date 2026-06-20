@@ -62,6 +62,31 @@ export default function createJobQueriesRouter({ resolveWorkspaceFromQuery }) {
     }
   });
 
+  // Cross-report content search over report BODIES. MUST be registered BEFORE
+  // any `/jobs/:jobId` param route below, otherwise Express would match the
+  // literal segment "search" as a :jobId. Tenant scope mirrors GET /jobs:
+  // resolveWorkspaceFromQuery -> workspace_id when present, else req.user.id.
+  router.get('/jobs/search', async (req, res, next) => {
+    try {
+      const rawQ = req.query.q;
+      const q = typeof rawQ === 'string' ? rawQ.trim() : '';
+      // Too-short / non-string query → empty result (service also guards).
+      if (q.length < 2) {
+        return res.json({ success: true, results: [] });
+      }
+      const workspace = await resolveWorkspaceFromQuery(req, res);
+      if (req.query.workspaceId && !workspace) return;
+      const results = await jobQueryService.searchJobsByContent({
+        userId: workspace ? null : req.user?.id || null,
+        workspaceId: workspace?.id || null,
+        query: q,
+      });
+      return res.json({ success: true, results });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
   router.get('/overview', async (req, res, next) => {
     try {
       const workspace = await resolveWorkspaceFromQuery(req, res);
