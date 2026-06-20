@@ -373,6 +373,18 @@ select {
   outline-offset: 2px;
 }
 
+/* Topbar action cluster (theme/help/active-jobs/user controls). Lay them out as
+   a wrapping flex row so they reflow instead of overflowing once the active-jobs
+   chip joins the row on narrow screens (Finding 15). Additive: previously
+   unstyled, so desktop just gains graceful wrapping. */
+.topbar__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
 .topbar__menu {
   display: none;
 }
@@ -944,6 +956,52 @@ select {
     animation: none;
     opacity: 0.9;
   }
+}
+
+/* Active-filters row + its inline clear control (Finding 19). The clear button
+   was a bare tiny "×"; give it a real >=24px touch target and consistent
+   styling. Base rules (additive — these elements were previously unstyled). */
+.active-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.active-filters .pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pill__clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin: -4px -6px -4px 0;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.pill__clear:hover {
+  background: var(--panel-muted);
+  color: var(--ink);
+}
+
+.pill__clear:focus-visible {
+  outline: 2px solid rgba(15, 118, 110, 0.5);
+  outline-offset: 2px;
 }
 
 .progress {
@@ -1847,6 +1905,37 @@ select {
     display: inline-flex;
   }
 
+  /* Touch targets >= 44px on mobile (Finding 12 / WCAG 2.5.5). The hamburger +
+     sidebar-close are the primary nav controls here; the base .icon-button is
+     38px. Scope to this breakpoint so the desktop topbar icons stay compact. */
+  .topbar__menu,
+  .sidebar__close {
+    width: 44px;
+    height: 44px;
+  }
+
+  /* Comfortable tap height on every button without changing the desktop look
+     (base .btn has no min-height). */
+  .btn {
+    min-height: 44px;
+  }
+
+  /* Enlarge the per-answer chat copy button toward a usable touch size; the
+     base is a hover-only 26px square that's too small to tap reliably. */
+  .chat__copy {
+    width: 34px;
+    height: 34px;
+    opacity: 0.55;
+  }
+
+  /* Larger checkbox hit area on touch (base 18px is below the ~24px AA target).
+     Sizing the input itself keeps it aligned in the card row / filter row. */
+  .card__select,
+  .select-all input {
+    width: 22px;
+    height: 22px;
+  }
+
   .grid--two {
     grid-template-columns: 1fr;
   }
@@ -1877,8 +1966,48 @@ select {
   .toaster {
     left: 16px;
     right: 16px;
-    bottom: 16px;
+    /* Lift the toast stack clear of the sticky selection action bar
+       (.bulk-bar, ~64px tall, pinned at bottom:16px) so the two don't overlap
+       when both are visible (Finding 22). */
+    bottom: 88px;
     width: auto;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Narrow-phone single-column refinements (uses the project's 600px breakpoint).
+   All rules here are mobile-only; desktop (>= 980px) is unaffected.
+--------------------------------------------------------------------------- */
+@media (max-width: 600px) {
+  /* Finding 17 (N6): report tables are a core deliverable and have no scroll
+     wrapper, so wide tables overflow the viewport. Make the table itself a
+     horizontally scrollable block on phones. Also benefits chat-answer tables
+     that share .markdown. */
+  .markdown table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Finding 16 (N11): the filters row crams Search input + Search btn + Status +
+     Matter + Sort + Reset + Select-all; selects shrink below a usable width.
+     Stack to a single full-width column so every control is tappable. */
+  .filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .filters > .field,
+  .filters > .btn,
+  .filters > .select-all {
+    width: 100%;
+  }
+
+  /* Finding 21: the in-report search input should fill the row on narrow
+     phones (the count + button stay sized by their own flex basis). */
+  .report-search input {
+    flex: 1 1 100%;
   }
 }
 
@@ -1894,6 +2023,10 @@ select {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  /* Additive safety: grid/flex children default to min-width:auto, so a long
+     unbreakable source URL in the rail can force horizontal overflow. Allow the
+     column to shrink below its content's intrinsic width (Finding 20). */
+  min-width: 0;
 }
 
 /* The metadata rail pins beside the report (report-as-hero) and scrolls
@@ -2696,10 +2829,11 @@ select {
 }
 
 @media (max-width: 980px) {
-  /* The toaster goes full-width at bottom: 16px on mobile; lift the button so
-     it clears the toast stack rather than sitting on top of it. */
+  /* On mobile the toaster is full-width and lifted to bottom: 88px (to clear the
+     sticky .bulk-bar). Raise the back-to-top button above that toast stack so
+     the three never collide: bulk-bar (16px) -> toaster (88px) -> button. */
   .back-to-top {
-    bottom: 96px;
+    bottom: 156px;
     right: 16px;
   }
 }
