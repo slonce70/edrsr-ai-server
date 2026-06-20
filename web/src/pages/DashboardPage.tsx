@@ -83,7 +83,7 @@ export function DashboardPage() {
     return computeJobStats({
       total: overview.total,
       completed: counts.completed || 0,
-      error: (counts.error || 0) + (counts.failed || 0),
+      error: (counts.error || 0) + (counts.failed || 0) + (counts.cancelled || 0),
     });
   }, [overview]);
 

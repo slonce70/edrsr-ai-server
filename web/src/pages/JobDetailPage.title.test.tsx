@@ -24,11 +24,12 @@ vi.mock('../state/AuthContext', () => ({
   useAuth: () => ({ accessToken: 'token-1' }),
 }));
 
+// Mirror production LocaleContext, where `t` is memoized (stable identity)
+// across renders, so `fetchStatus` (which depends on `t`) is not recreated
+// on every render. `mock`-prefixed names are allowed inside hoisted factories.
+const mockLocale = { t: (key: string) => key, dateLocale: 'uk-UA' };
 vi.mock('../state/LocaleContext', () => ({
-  useLocale: () => ({
-    t: (key: string) => key,
-    dateLocale: 'uk-UA',
-  }),
+  useLocale: () => mockLocale,
 }));
 
 vi.mock('../state/WorkspaceContext', () => ({

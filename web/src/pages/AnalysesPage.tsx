@@ -22,6 +22,7 @@ import { ProgressBar } from '../components/ProgressBar';
 import { SkeletonList } from '../components/Skeleton';
 import { StatusBadge } from '../components/StatusBadge';
 import { mergeJobUpdate } from '../lib/jobUpdate';
+import { ACTIVE_STATUS_KEYS } from '../lib/overviewStats';
 import type { JobSummary } from '../types/api';
 
 const PAGE_SIZE = 20;
@@ -116,11 +117,8 @@ export function AnalysesPage() {
   }, [onJobUpdate]);
 
   useEffect(() => {
-    const hasActive = jobs.some((job) =>
-      ['queued', 'retrying', 'processing', 'downloading', 'analyzing', 'pending'].includes(
-        job.status
-      )
-    );
+    const activeStatuses: readonly string[] = ACTIVE_STATUS_KEYS;
+    const hasActive = jobs.some((job) => activeStatuses.includes(job.status));
     if (!hasActive) return undefined;
     const interval = window.setInterval(() => {
       fetchJobs();
@@ -253,6 +251,7 @@ export function AnalysesPage() {
                 if (event.key === 'Enter') handleSearch();
               }}
               placeholder={t('analyses.searchPlaceholder')}
+              aria-label={t('common.search')}
             />
             <button className="btn btn-ghost" onClick={handleSearch}>
               {t('common.search')}

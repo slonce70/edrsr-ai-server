@@ -24,6 +24,7 @@ import { Skeleton, SkeletonCard } from '../components/Skeleton';
 import { buildRetryBody } from './jobRetry';
 import { buildWordBlob } from '../lib/exportDoc';
 import { mergeJobUpdate } from '../lib/jobUpdate';
+import { ACTIVE_STATUS_KEYS } from '../lib/overviewStats';
 import { deriveCompleteness } from '../lib/reportCoverage';
 import type {
   ChatMessage,
@@ -45,14 +46,7 @@ type JobUpdatePayload = {
   payload?: ChatMessage[];
 };
 
-const ACTIVE_STATUSES = new Set([
-  'queued',
-  'retrying',
-  'processing',
-  'downloading',
-  'analyzing',
-  'pending',
-]);
+const ACTIVE_STATUSES = new Set<string>(ACTIVE_STATUS_KEYS);
 
 export function JobDetailPage() {
   const { jobId } = useParams();
@@ -113,12 +107,12 @@ export function JobDetailPage() {
         fetchAnalysis();
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to load job';
+      const message = err instanceof Error ? err.message : t('errors.generic');
       setError(message);
     } finally {
       setLoading(false);
     }
-  }, [accessToken, activeWorkspaceId, analysis, fetchAnalysis, jobId]);
+  }, [accessToken, activeWorkspaceId, analysis, fetchAnalysis, jobId, t]);
 
   const fetchChat = useCallback(async () => {
     if (!accessToken || !jobId) return;
@@ -211,7 +205,7 @@ export function JobDetailPage() {
       });
       await fetchChat();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to send message');
+      setError(err instanceof Error ? err.message : t('errors.generic'));
       setMessage(trimmed);
     } finally {
       setPendingMessage('');
@@ -321,7 +315,7 @@ export function JobDetailPage() {
         .join('\n---\n\n');
       downloadText(`job_${jobId}_links.txt`, lines || 'No links content available.');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to download links');
+      setError(err instanceof Error ? err.message : t('errors.generic'));
     }
   };
 
@@ -661,7 +655,13 @@ export function JobDetailPage() {
               </div>
             </div>
             <div className="card__body">
-              <div className="chat" ref={chatScrollRef}>
+              <div
+                className="chat"
+                ref={chatScrollRef}
+                role="log"
+                aria-live="polite"
+                aria-relevant="additions"
+              >
                 {chat.length === 0 && !(sending && pendingMessage) ? (
                   <>
                     <div className="muted">{t('job.chatEmpty')}</div>
@@ -754,6 +754,7 @@ export function JobDetailPage() {
                   onChange={(event) => setMessage(event.target.value)}
                   onKeyDown={handleComposerKeyDown}
                   placeholder={t('job.chatPlaceholder')}
+                  aria-label={t('job.chatPlaceholder')}
                   rows={3}
                 />
                 <button
