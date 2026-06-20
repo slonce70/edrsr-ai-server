@@ -13,7 +13,7 @@ export default function createJobQueriesRouter({ resolveWorkspaceFromQuery }) {
 
   router.get('/jobs', async (req, res, next) => {
     try {
-      const { limit, page, status = '', search = '' } = req.query;
+      const { limit, page, status = '', search = '', sort = '' } = req.query;
       const workspace = await resolveWorkspaceFromQuery(req, res);
       if (req.query.workspaceId && !workspace) return;
       const maxLimit = parseInt(process.env.JOBS_MAX_LIMIT || '100', 10);
@@ -34,6 +34,7 @@ export default function createJobQueriesRouter({ resolveWorkspaceFromQuery }) {
         limit: finalLimit,
         status: typeof status === 'string' ? status : '',
         search: typeof search === 'string' ? search : '',
+        sort: typeof sort === 'string' ? sort : '',
         userId: workspace ? null : req.user?.id || null,
         workspaceId: workspace?.id || null,
       });

@@ -47,6 +47,7 @@ export function AnalysesPage() {
   useDocumentTitle(t('analyses.title'));
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [statusFilter, setStatusFilter] = useState(() => searchParams.get('status') || '');
+  const [sortBy, setSortBy] = useState('created_at_desc');
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -82,6 +83,7 @@ export function AnalysesPage() {
           page,
           status: statusFilter || undefined,
           search: search || undefined,
+          sort: sortBy || undefined,
         },
       });
       setJobs(data.jobs || []);
@@ -92,7 +94,7 @@ export function AnalysesPage() {
     } finally {
       setLoading(false);
     }
-  }, [accessToken, activeWorkspaceId, page, search, statusFilter, t]);
+  }, [accessToken, activeWorkspaceId, page, search, statusFilter, sortBy, t]);
 
   useEffect(() => {
     fetchJobs();
@@ -151,6 +153,7 @@ export function AnalysesPage() {
     setSearchInput('');
     setSearch('');
     setStatusFilter('');
+    setSortBy('created_at_desc');
     setPage(1);
   };
 
@@ -275,6 +278,23 @@ export function AnalysesPage() {
             <option value="error">{t('status.error')}</option>
             <option value="cancelled">{t('status.cancelled')}</option>
             <option value="pending">{t('status.pending')}</option>
+          </select>
+        </label>
+        <label className="field">
+          <span>{t('analyses.sortLabel')}</span>
+          <select
+            value={sortBy}
+            onChange={(event) => {
+              setSortBy(event.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="created_at_desc">{t('analyses.sortNewest')}</option>
+            <option value="created_at_asc">{t('analyses.sortOldest')}</option>
+            <option value="updated_at_desc">{t('analyses.sortUpdated')}</option>
+            <option value="title_asc">{t('analyses.sortTitleAsc')}</option>
+            <option value="title_desc">{t('analyses.sortTitleDesc')}</option>
+            <option value="status_asc">{t('analyses.sortStatus')}</option>
           </select>
         </label>
         <button className="btn btn-ghost" onClick={resetFilters}>

@@ -54,11 +54,23 @@ class JobQueryService {
     limit = 20,
     status = '',
     search = '',
+    sort = '',
     userId = null,
     workspaceId = null,
   } = {}) {
     const safePage = Math.max(1, parseInt(page, 10) || 1);
     const safeLimit = Math.max(1, parseInt(limit, 10) || 20);
+    // Whitelist sort keys → fixed ORDER BY clauses. The clause is NEVER built from
+    // user input — only a key is matched against this fixed map (injection-safe).
+    const SORT_CLAUSES = {
+      created_at_desc: 'created_at DESC',
+      created_at_asc: 'created_at ASC',
+      updated_at_desc: 'updated_at DESC',
+      title_asc: 'title ASC NULLS LAST',
+      title_desc: 'title DESC NULLS LAST',
+      status_asc: 'status ASC, created_at DESC',
+    };
+    const orderByClause = SORT_CLAUSES[sort] || SORT_CLAUSES.created_at_desc;
     const where = [];
     const params = [];
     let idx = 1;
@@ -91,7 +103,7 @@ class JobQueryService {
       `SELECT id, status, progress, processed_links, total_links, created_at, updated_at, title, duration, matter_id
        FROM jobs
        ${whereClause}
-       ORDER BY created_at DESC
+       ORDER BY ${orderByClause}
        LIMIT $${idx} OFFSET $${idx + 1}`,
       [...params, safeLimit, offset]
     );
