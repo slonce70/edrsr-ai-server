@@ -1226,7 +1226,13 @@ async function editJobTitle(jobId, currentTitle) {
 
 async function viewJobReport(jobId) {
   const reportUrl = `/admin/report.html?jobId=${jobId}`;
-  window.open(reportUrl, '_blank', 'noopener');
+  // NOTE: intentionally NOT using 'noopener'. The report page reads the admin
+  // token from sessionStorage, which is session-scoped (kept out of localStorage
+  // for security). A 'noopener' tab gets a fresh, EMPTY sessionStorage, so the
+  // report page would find no token and bounce to /admin. Opening as a normal
+  // same-origin tab lets it inherit the session token (and report.js severs the
+  // opener link immediately after, so there is no reverse-tabnabbing exposure).
+  window.open(reportUrl, '_blank');
 }
 
 async function performCleanup(type) {

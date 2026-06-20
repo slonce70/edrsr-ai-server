@@ -39,7 +39,32 @@ document.addEventListener('DOMContentLoaded', async function () {
 
   // One-time legacy purge: remove any token previously mirrored into localStorage.
   localStorage.removeItem(TOKEN_STORAGE_KEY);
-  const authToken = sessionStorage.getItem(TOKEN_STORAGE_KEY);
+
+  // This page is opened in a new tab from the admin list. A same-origin tab
+  // opened via window.open (without 'noopener') inherits a COPY of the opener's
+  // sessionStorage, so the admin token is normally already present here. As a
+  // cross-browser fallback, if our own copy is missing, pull it directly from
+  // the opener's sessionStorage. Then sever the opener link so this tab can't be
+  // used for reverse-tabnabbing (the token has already been captured by now).
+  let authToken = sessionStorage.getItem(TOKEN_STORAGE_KEY);
+  if (!authToken && window.opener) {
+    try {
+      const fromOpener = window.opener.sessionStorage.getItem(TOKEN_STORAGE_KEY);
+      if (fromOpener) {
+        authToken = fromOpener;
+        sessionStorage.setItem(TOKEN_STORAGE_KEY, fromOpener);
+      }
+    } catch {
+      // opener gone / cross-origin / storage blocked — ignore and fall through
+    }
+  }
+  if (window.opener) {
+    try {
+      window.opener = null;
+    } catch {
+      // some browsers make window.opener read-only — best effort only
+    }
+  }
 
   if (!authToken) {
     window.location.href = '/admin';
