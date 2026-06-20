@@ -343,6 +343,11 @@ export const translations = {
         revoked: 'Відкликано',
       },
     },
+    shareLinks: {
+      viewedCount: 'Переглянуто {{count}} раз(ів)',
+      lastViewed: 'останній перегляд {{date}}',
+      notViewed: 'Ще не відкривали',
+    },
     prompts: {
       title: 'Промпти',
       subtitle: 'Керуйте шаблонами, які використовує розширення і портал.',
@@ -785,6 +790,11 @@ export const translations = {
         expired: 'Срок истек',
         revoked: 'Отозвана',
       },
+    },
+    shareLinks: {
+      viewedCount: 'Просмотрено {{count}} раз(а)',
+      lastViewed: 'последний просмотр {{date}}',
+      notViewed: 'Еще не открывали',
     },
     prompts: {
       title: 'Промпты',

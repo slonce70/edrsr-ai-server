@@ -28,6 +28,10 @@ router.get('/share/:token', async (req, res, next) => {
       return res.status(410).json({ error: 'Share link expired' });
     }
 
+    // Read receipt: only count VALID (resolved, non-revoked, non-expired) views.
+    // Fire-and-forget — never block or fail the client response on a failed update.
+    collaborationService.recordShareView(payload.link.id).catch(() => {});
+
     return res.json({
       success: true,
       share: {
@@ -38,6 +42,7 @@ router.get('/share/:token', async (req, res, next) => {
       job: payload.job,
       analysis: payload.analysis,
       links: payload.links || [],
+      quality: payload.quality || null,
     });
   } catch (error) {
     next(error);

@@ -189,7 +189,12 @@ export function JobDetailPage() {
   useEffect(() => {
     return onJobUpdate((payload: JobUpdatePayload) => {
       if (payload.type === 'CHAT_UPDATE') {
-        if (Array.isArray(payload.payload)) setChat(payload.payload);
+        // Guard: a chat update for another job (multi-tab session) must not be
+        // applied to the job currently open here. The server now stamps the
+        // frame with `id`; only apply when it matches the viewed jobId.
+        if (payload.id && payload.id === jobId && Array.isArray(payload.payload)) {
+          setChat(payload.payload);
+        }
         return;
       }
       if (!payload.id || payload.id !== jobId) return;

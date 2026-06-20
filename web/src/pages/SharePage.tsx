@@ -10,6 +10,7 @@ import { useLocale } from '../state/LocaleContext';
 import { useToast } from '../state/ToastContext';
 import { ReportSearch } from '../components/ReportSearch';
 import { ReportStatusBanner } from '../components/ReportStatusBanner';
+import type { JobQuality } from '../lib/analysisQuality';
 import { ReportToc } from '../components/ReportToc';
 import { Skeleton, SkeletonCard } from '../components/Skeleton';
 import { EmptyState } from '../components/EmptyState';
@@ -28,6 +29,7 @@ type SharePayload = {
   };
   analysis?: string | null;
   links?: { url: string; evidence_snippet?: string | null }[];
+  quality?: JobQuality | null;
 };
 
 export function SharePage() {
@@ -249,7 +251,7 @@ export function SharePage() {
         </div>
         <div className="card__body">
           <ReportToc markdown={data.analysis} />
-          <ReportStatusBanner markdown={data.analysis} />
+          <ReportStatusBanner markdown={data.analysis} quality={data.quality} />
           {data.analysis ? (
             <ReportSearch markdown={data.analysis} />
           ) : (

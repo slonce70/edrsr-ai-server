@@ -8,6 +8,7 @@ import {
   normalizeWorkspaceRole,
 } from '../collaborationPolicy.js';
 import database from '../database/connection.js';
+import { computeReportCoverage } from '../quality/coverage.js';
 
 const hashToken = (token) => crypto.createHash('sha256').update(String(token)).digest('hex');
 const WORKSPACE_ROLE_VALUES = ['owner', 'admin', 'member'];
@@ -309,6 +310,7 @@ class CollaborationService {
   async listShareLinksForWorkspace(workspaceId) {
     return await database.all(
       `SELECT s.id, s.job_id, NULL::TEXT AS share_url, s.expires_at, s.created_by, s.created_at, s.revoked_at,
+        s.view_count, s.first_viewed_at, s.last_viewed_at,
         j.title
        FROM share_links s
        JOIN jobs j ON j.id = s.job_id
@@ -377,12 +379,42 @@ class CollaborationService {
       [link.job_id]
     );
 
+    const analysisText = analysis?.analysis_text || null;
+    // Reuse the SAME pure coverage helper the lawyer-side JobQuality uses, so a
+    // partial shared report is honestly flagged to the client. Shape matches
+    // ReportStatusBanner's JobQuality prop: { analyzed, total, cited, coverage, partial }.
+    const quality = computeReportCoverage(
+      analysisText,
+      links.map((l) => l.url)
+    );
+
     return {
       link,
       job,
-      analysis: analysis?.analysis_text || null,
+      analysis: analysisText,
       links,
+      quality,
     };
+  }
+
+  // Fire-and-forget read receipt: increments the view counter and timestamps for
+  // a VALID share view. Callers MUST only invoke this after the payload is
+  // resolved and confirmed non-revoked / non-expired. Errors are swallowed so a
+  // failed update never blocks or breaks the client's report response.
+  async recordShareView(linkId) {
+    if (!linkId) return;
+    try {
+      await database.run(
+        `UPDATE share_links
+         SET view_count = COALESCE(view_count, 0) + 1,
+             last_viewed_at = now(),
+             first_viewed_at = COALESCE(first_viewed_at, now())
+         WHERE id = $1`,
+        [linkId]
+      );
+    } catch (error) {
+      console.error('[collaboration] recordShareView failed:', error.message);
+    }
   }
 }
 

@@ -42,7 +42,9 @@ export default function createChatRouter({ chatMeta, chatSessions, resolveWorksp
       const newHistory = workspace
         ? await chatService.getChatHistoryForWorkspace(jobId, workspace.id)
         : await chatService.getChatHistory(jobId, req.user?.id || null);
-      sendUpdateToJobOwner(jobId, { type: 'CHAT_UPDATE', payload: newHistory });
+      // Include the job id so multi-tab consumers can verify the chat update
+      // belongs to the job they currently have open (privacy/trust guard).
+      sendUpdateToJobOwner(jobId, { type: 'CHAT_UPDATE', id: jobId, payload: newHistory });
 
       return res.json({ success: true, answer });
     } catch (error) {

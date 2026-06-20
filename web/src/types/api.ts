@@ -97,6 +97,9 @@ export type ShareLink = {
   expires_at?: string | null;
   revoked_at?: string | null;
   created_by?: string | null;
+  view_count?: number | null;
+  first_viewed_at?: string | null;
+  last_viewed_at?: string | null;
 };
 
 export type ShareLinksResponse = {

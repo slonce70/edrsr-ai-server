@@ -478,6 +478,7 @@ class Database {
     await this.runMigration_addWorkspaceColumns();
     await this.runMigration_addEvidenceColumns();
     await this.runMigration_addShareLinkUrl();
+    await this.runMigration_addShareViewColumns();
     await this.runMigration_normalizeWorkspaceRoles();
     await this.runMigration_scrubShareLinkUrls();
 
@@ -873,6 +874,29 @@ class Database {
     };
 
     await addColumnIfMissing('share_links', 'share_url', 'TEXT NULL');
+  }
+
+  async runMigration_addShareViewColumns() {
+    const addColumnIfMissing = async (table, column, typeSql) => {
+      try {
+        const safeTable = validateSqlIdentifier(table, 'table');
+        const safeColumn = validateSqlIdentifier(column, 'column');
+        const exists = await this.get(
+          `SELECT column_name FROM information_schema.columns WHERE table_name=$1 AND column_name=$2`,
+          [safeTable, safeColumn]
+        );
+        if (!exists) {
+          await this.query(`ALTER TABLE "${safeTable}" ADD COLUMN "${safeColumn}" ${typeSql}`);
+          console.log(`✅ Added column ${safeColumn} to ${safeTable}`);
+        }
+      } catch (e) {
+        console.error(`Migration error (addShareViewColumns ${table}.${column}):`, e.message);
+      }
+    };
+
+    await addColumnIfMissing('share_links', 'view_count', 'INTEGER DEFAULT 0');
+    await addColumnIfMissing('share_links', 'first_viewed_at', 'TIMESTAMPTZ NULL');
+    await addColumnIfMissing('share_links', 'last_viewed_at', 'TIMESTAMPTZ NULL');
   }
 
   async runMigration_normalizeWorkspaceRoles() {

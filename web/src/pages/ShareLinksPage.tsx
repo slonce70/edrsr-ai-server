@@ -152,6 +152,17 @@ export function ShareLinksPage() {
               <div className="card__body">
                 <div className="muted">{t('share.urlMissing')}</div>
                 <div className="meta">
+                  {link.view_count && link.view_count > 0
+                    ? `${t('shareLinks.viewedCount', { count: link.view_count })}${
+                        link.last_viewed_at
+                          ? ` · ${t('shareLinks.lastViewed', {
+                              date: formatDate(link.last_viewed_at, dateLocale),
+                            })}`
+                          : ''
+                      }`
+                    : t('shareLinks.notViewed')}
+                </div>
+                <div className="meta">
                   {link.created_by ? t('share.createdBy', { id: link.created_by }) : null}
                 </div>
               </div>
