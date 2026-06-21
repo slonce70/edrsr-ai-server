@@ -210,7 +210,12 @@ async function patchManifest(config) {
 
 async function scrubVendorFiles() {
   console.log('🧼 Scrubbing remote URL references in vendor files...');
-  const vendorFiles = ['jspdf.umd.min.js', 'html2canvas.min.js', 'marked.min.js']
+  const vendorFiles = [
+    'jspdf.umd.min.js',
+    'html2canvas.min.js',
+    'marked.min.js',
+    path.join('vendor', 'purify.min.js'),
+  ]
     .map((file) => path.join(buildDir, file))
     .filter((file) => fs.existsSync(file));
 

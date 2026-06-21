@@ -268,7 +268,7 @@ document.addEventListener('DOMContentLoaded', async function () {
   function sanitizeReportHtml(html) {
     // Blocks raw HTML/script surfaces such as <script, onerror, javascript:, and data:text/html.
     // Delegates to the vetted DOMPurify (Cure53) engine for parity with the React portal.
-    // Tags allowed: p, ul, ol, li, strong, em, code, pre, blockquote, a, h1-h4, hr, br,
+    // Tags allowed: p, ul, ol, li, strong, em, code, pre, blockquote, a, h1-h6, hr, br,
     // table, thead, tbody, tr, th, td. DOMPurify strips event handlers and script/style/iframe
     // by default; the allowlist + the anchor hook reproduce the old hand-rolled guarantees.
     if (!window.DOMPurify) {
@@ -309,6 +309,8 @@ document.addEventListener('DOMContentLoaded', async function () {
         'h2',
         'h3',
         'h4',
+        'h5',
+        'h6',
         'hr',
         'br',
         'table',

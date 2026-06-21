@@ -1,6 +1,6 @@
 /* eslint-disable no-console */
 // --- EDRSR-AI Results Page Script v2.0 ---
-/* global html2canvas */
+/* global html2canvas, DOMPurify */
 // This script uses a modern, robust architecture with a long-lived port
 // connection to the service worker for receiving job data.
 import {
@@ -28,76 +28,83 @@ document.addEventListener('DOMContentLoaded', async () => {
         .catch(() => {});
     }
   });
-  // --- Minimal HTML sanitizer (DOMPurify alternative for MV3) ---
-  const ALLOWED_TAGS = new Set([
+  // --- Markdown-report sanitizer ---
+  // Uses the vetted DOMPurify (Cure53) engine vendored at vendor/purify.min.js
+  // and loaded as a global by results.html BEFORE this module. This is the SAME
+  // unified policy as the React portal (web/src/lib/markdown.ts) and the admin
+  // page (server/public/admin/report.js): one allowlist, anchors hardened, no
+  // img / raw HTML. Replaces the previous hand-rolled DOMParser+TreeWalker pass.
+  const SANITIZE_ALLOWED_TAGS = [
     'p',
-    'ul',
-    'ol',
-    'li',
+    'br',
+    'hr',
     'strong',
     'em',
     'code',
     'pre',
     'blockquote',
+    'ul',
+    'ol',
+    'li',
     'a',
     'h1',
     'h2',
     'h3',
     'h4',
-    'hr',
-    'br',
+    'h5',
+    'h6',
     'table',
     'thead',
     'tbody',
     'tr',
     'th',
     'td',
-  ]);
-  const ALLOWED_ATTRS = {
-    a: new Set(['href', 'title']),
-    '*': new Set([]),
-  };
-  function isAllowedAttr(tag, attr) {
-    return (ALLOWED_ATTRS[tag] && ALLOWED_ATTRS[tag].has(attr)) || ALLOWED_ATTRS['*'].has(attr);
+  ];
+  const SANITIZE_ALLOWED_ATTR = ['href', 'title', 'target', 'rel', 'id'];
+
+  function sanitizeReportUrl(url) {
+    if (!url) return null;
+    try {
+      const parsed = new URL(url, location.origin);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+      return parsed.toString();
+    } catch {
+      return null;
+    }
   }
-  function sanitizeHtml(html) {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(String(html || ''), 'text/html');
-    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_ELEMENT, null, false);
-    const toStrip = [];
-    while (walker.nextNode()) {
-      const el = walker.currentNode;
-      const tag = el.tagName.toLowerCase();
-      if (!ALLOWED_TAGS.has(tag)) {
-        toStrip.push(el);
-        continue;
-      }
-      // Strip disallowed attributes
-      for (const { name } of Array.from(el.attributes)) {
-        if (!isAllowedAttr(tag, name)) el.removeAttribute(name);
-      }
-      if (tag === 'a') {
-        const href = el.getAttribute('href') || '';
-        try {
-          const u = new URL(href, location.origin);
-          if (u.protocol !== 'http:' && u.protocol !== 'https:') {
-            el.removeAttribute('href');
-          } else {
-            el.setAttribute('rel', 'noopener noreferrer');
-            el.setAttribute('target', '_blank');
-          }
-        } catch {
-          el.removeAttribute('href');
+
+  // DOMPurify.addHook accumulates, so register the anchor-hardening hook once.
+  let purifyHookRegistered = false;
+  function ensurePurifyHook() {
+    if (purifyHookRegistered) return;
+    DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+      if (node.nodeName === 'A') {
+        const safeHref = sanitizeReportUrl(node.getAttribute('href') || '');
+        if (!safeHref) {
+          node.removeAttribute('href');
+        } else {
+          node.setAttribute('href', safeHref);
+          node.setAttribute('target', '_blank');
+          node.setAttribute('rel', 'noopener noreferrer');
         }
       }
+    });
+    purifyHookRegistered = true;
+  }
+
+  function sanitizeHtml(html) {
+    if (typeof DOMPurify === 'undefined' || !DOMPurify || !DOMPurify.sanitize) {
+      // Hard-fail closed: if the vendored DOMPurify did not load, never write
+      // attacker-influenced markup into innerHTML — escape it to plain text.
+      return escapeHtml(String(html || ''));
     }
-    // Replace stripped nodes with their text content
-    for (const el of toStrip) {
-      const span = doc.createElement('span');
-      span.textContent = el.textContent || '';
-      el.replaceWith(span);
-    }
-    return doc.body.innerHTML;
+    ensurePurifyHook();
+    return DOMPurify.sanitize(String(html || ''), {
+      ALLOWED_TAGS: SANITIZE_ALLOWED_TAGS,
+      ALLOWED_ATTR: SANITIZE_ALLOWED_ATTR,
+      FORBID_TAGS: ['img', 'style', 'iframe', 'script'],
+      ALLOW_DATA_ATTR: false,
+    });
   }
 
   // --- Marked.js Configuration for new tabs ---
