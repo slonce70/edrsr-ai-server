@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "EDRSR AI Помощник",
-  "version": "2.0.6",
+  "version": "2.0.7",
   "description": "Помощник на базе ИИ для анализа судебных решений из ЄДРСР",
   "icons": {
     "16": "icon16.png",
