@@ -140,6 +140,22 @@ assert.ok(
 // ---------------------------------------------------------------------------
 
 const { JSDOM } = await import('jsdom');
+
+// The release build rewrites URLs in vendored libs (scripts/scrub-vendor.js). v2.0.7 shipped with
+// DOMPurify's xhtml/svg namespace URIs rewritten, so every sanitize() returned '' and results/chat were blank.
+{
+  const { scrubString } = await import('../../scripts/scrub-vendor.js');
+  const scrubbed = scrubString(
+    fs.readFileSync(path.join(root, 'extension/vendor/purify.min.js'), 'utf8')
+  );
+  const w = new JSDOM('<!doctype html><body></body>', { runScripts: 'outside-only' }).window;
+  w.eval(scrubbed);
+  assert.equal(
+    w.DOMPurify.sanitize('<p>hi <strong>x</strong></p>'),
+    '<p>hi <strong>x</strong></p>',
+    'DOMPurify must still sanitize correctly after the extension build scrubs vendor files'
+  );
+}
 const purifySource = fs.readFileSync(
   path.join(root, 'server/public/admin/vendor/purify.min.js'),
   'utf8'

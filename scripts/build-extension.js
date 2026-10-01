@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import archiver from 'archiver';
 import dotenv from 'dotenv';
+import { scrubString } from './scrub-vendor.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -94,14 +95,6 @@ function replaceBooleanConfigProperty(source, name, value) {
     throw new Error(`Could not find boolean config property ${name} in config.js`);
   }
   return source.replace(pattern, `$1${value ? 'true' : 'false'};`);
-}
-
-function scrubString(content) {
-  content = content.replace(
-    /https:\/\/cdnjs\.cloudflare\.com\/ajax\/libs\/pdfobject\/2\.1\.1\/pdfobject\.min\.js/g,
-    'pdfobject.min.js'
-  );
-  return content.replace(/https?:\/\/[\w.-]+/g, (match) => match.replace('://', ': //'));
 }
 
 async function ensureHermeticFonts() {
