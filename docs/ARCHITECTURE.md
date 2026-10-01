@@ -48,6 +48,9 @@ Full endpoint list: [API.md](./API.md).
 5. `jobWriteService` updates status; `websocket.js` sends `JOB_UPDATE` to subscribed, authorised clients.
 6. On startup `recoverJobsAfterServerRestart` re-queues unfinished jobs, so a restart is safe but the in-flight job starts over (its cookie, kept only in memory, is lost).
    Do not run two backends against one database: each would re-queue the other's running jobs on boot.
+7. Worker lifecycle: every terminal event (`jobSuccess`, `jobError`, `jobCancelled`, worker `error`/`exit`, force terminate) goes through `finishWorker` in `workerLifecycleService`.
+   The first one deregisters the worker, writes the final status, terminates the thread and releases the single processing slot once; later events from the same worker (including the `exit(1)` caused by our own `terminate()`) are ignored, as are messages from a deregistered worker.
+   A job may be claimed 5 times (`MAX_CLAIM_ATTEMPTS`, so a few deploy restarts are harmless); after that it is failed instead of looping. Temporary errors are auto-retried while `attempt < 3`. Admin retry/requeue resets the counter.
 
 Worker maintenance is driven by `ENABLE_WORKER_CLEANUP`, `ENABLE_WORKER_AUTO_TERMINATE`, `WORKER_CLEANUP_INTERVAL_MS`, `WORKER_MAX_LIFETIME_MS`, `WORKER_HEALTHCHECK_INTERVAL_MS`,
 `WORKER_HEALTHCHECK_AFTER_MS`, `ENABLE_PERIODIC_RECOVERY`, `RECOVERY_INTERVAL_MS`, `QUEUE_PUMP_INTERVAL_MS` (defaults in `server/env.example`).

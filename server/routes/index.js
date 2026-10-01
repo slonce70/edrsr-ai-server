@@ -133,7 +133,13 @@ const workerLifecycle = createWorkerLifecycleService({
   activeWorkers,
   processQueue,
 });
-const { forceTerminateWorker, getActiveWorkersInfo } = workerLifecycle;
+const {
+  finishWorker,
+  forceTerminateWorker,
+  getActiveWorkersInfo,
+  handleWorkerExit,
+  isActiveWorker,
+} = workerLifecycle;
 
 async function resolveWorkspaceFromQuery(req, res) {
   const workspaceId = typeof req.query.workspaceId === 'string' ? req.query.workspaceId : null;
@@ -161,12 +167,13 @@ function startWorker({ jobId, links, cookie, prompt, claimed = false }) {
   });
 
   // Отслеживаем активный воркер с дополнительной информацией
-  activeWorkers.set(jobId, {
+  const workerInfo = {
     worker,
     startTime: Date.now(),
     jobId,
     status: 'running',
-  });
+  };
+  activeWorkers.set(jobId, workerInfo);
 
   const updateStatus = async (status, progress, message, extra = {}) => {
     const jobDataToUpdate = { progress, ...extra };
@@ -210,118 +217,87 @@ function startWorker({ jobId, links, cookie, prompt, claimed = false }) {
   };
 
   worker.on('message', async (msg) => {
+    // Ignore anything from a worker that is no longer the registered one for this job: after a terminal
+    // event we terminate the thread, but already-posted messages (or a cancelled worker's trailing
+    // jobError) can still arrive and must not touch the status or the slot of a newer job.
+    if (!isActiveWorker(workerInfo)) return;
+
     if (msg.type === 'statusUpdate') {
       const { status, progress, message, extra } = msg.payload;
       await updateStatus(status, progress, message, extra);
       // Do NOT update title mid-process to avoid confusing partial counters.
       // Title will be refined only after completion (see jobSuccess handler).
       // Acknowledge the update so the worker can proceed
-      const workerInfo = activeWorkers.get(jobId);
-      if (workerInfo) {
-        workerInfo.worker.postMessage({ type: 'statusUpdateAck', requestId: msg.requestId });
+      if (isActiveWorker(workerInfo)) {
+        worker.postMessage({ type: 'statusUpdateAck', requestId: msg.requestId });
       }
     } else if (msg.type === 'healthCheckResponse') {
       // Обрабатываем ответ на health check
-      const workerInfo = activeWorkers.get(jobId);
-      if (workerInfo) {
-        workerInfo.lastHealthCheck = Date.now();
-        workerInfo.memoryUsedMB = msg.memoryUsedMB;
-        workerInfo.isHighMemory = msg.isHighMemory;
-        workerInfo.isCriticalMemory = msg.isCriticalMemory;
+      workerInfo.lastHealthCheck = Date.now();
+      workerInfo.memoryUsedMB = msg.memoryUsedMB;
+      workerInfo.isHighMemory = msg.isHighMemory;
+      workerInfo.isCriticalMemory = msg.isCriticalMemory;
 
-        logger.debug(
-          `[HEALTH_CHECK] Воркер ${jobId}: ${msg.memoryUsedMB}MB${msg.isHighMemory ? ' (HIGH)' : ''}${msg.isCriticalMemory ? ' (CRITICAL)' : ''}`
+      logger.debug(
+        `[HEALTH_CHECK] Воркер ${jobId}: ${msg.memoryUsedMB}MB${msg.isHighMemory ? ' (HIGH)' : ''}${msg.isCriticalMemory ? ' (CRITICAL)' : ''}`
+      );
+
+      // Если память критически высокая, предупреждаем и готовимся к принудительному завершению
+      if (msg.isCriticalMemory) {
+        logger.warn(
+          `[HEALTH_CHECK] Критическое потребление памяти воркером ${jobId}: ${msg.memoryUsedMB}MB`
         );
-
-        // Если память критически высокая, предупреждаем и готовимся к принудительному завершению
-        if (msg.isCriticalMemory) {
-          logger.warn(
-            `[HEALTH_CHECK] Критическое потребление памяти воркером ${jobId}: ${msg.memoryUsedMB}MB`
-          );
-          // Жестко завершаем только если разрешено конфигом (Render‑ограничение)
-          if (ENABLE_WORKER_AUTO_TERMINATE) {
-            forceTerminateWorker(jobId, 'Critical memory reported by worker');
-          } else {
-            logger.info(`[HEALTH_CHECK] Auto‑terminate disabled, worker ${jobId} left running`);
-          }
+        // Жестко завершаем только если разрешено конфигом (Render‑ограничение)
+        if (ENABLE_WORKER_AUTO_TERMINATE) {
+          forceTerminateWorker(jobId, 'Critical memory reported by worker');
+        } else {
+          logger.info(`[HEALTH_CHECK] Auto‑terminate disabled, worker ${jobId} left running`);
         }
       }
     } else if (msg.type === 'jobSuccess') {
-      await updateStatus('analyzing', 95, 'Контроль качества...');
-      await updateStatus('completed', 100, 'Анализ успешно завершён!', msg.payload);
-      await queueService.clearJobLock(jobId);
-      // Удаляем воркер из отслеживания
-      const workerInfo = activeWorkers.get(jobId);
-      if (workerInfo) {
-        workerInfo.status = 'completed';
-        activeWorkers.delete(jobId);
-      }
-      // Final title refinement
-      refreshHeuristicTitle(jobId);
-      // Освобождаем обработчик и запускаем следующую задачу
-      jobQueue.endProcessing();
-      logger.info(`[${jobId}] Задание завершено успешно. Проверяю очередь...`);
-
-      processQueue();
+      // finishWorker: убирает воркер из отслеживания, завершает поток и освобождает очередь (один раз)
+      await finishWorker(workerInfo, 'completed', async () => {
+        await updateStatus('analyzing', 95, 'Контроль качества...');
+        await updateStatus('completed', 100, 'Анализ успешно завершён!', msg.payload);
+        await queueService.clearJobLock(jobId);
+        // Final title refinement
+        refreshHeuristicTitle(jobId);
+        logger.info(`[${jobId}] Задание завершено успешно. Проверяю очередь...`);
+      });
     } else if (msg.type === 'jobError') {
       const { errorMessage, duration } = msg.payload;
-      await updateStatus('error', 0, `Критическая ошибка: ${errorMessage}`, {
-        error_message: errorMessage,
-        duration,
+      await finishWorker(workerInfo, 'error', async () => {
+        await updateStatus('error', 0, `Критическая ошибка: ${errorMessage}`, {
+          error_message: errorMessage,
+          duration,
+        });
+        await queueService.clearJobLock(jobId);
+        logger.info(`[${jobId}] Задание завершено с ошибкой. Проверяю очередь...`);
       });
-      await queueService.clearJobLock(jobId);
-      // Удаляем воркер из отслеживания
-      const workerInfo = activeWorkers.get(jobId);
-      if (workerInfo) {
-        workerInfo.status = 'error';
-        activeWorkers.delete(jobId);
-      }
-      // Освобождаем обработчик и запускаем следующую задачу
-      jobQueue.endProcessing();
-      logger.info(`[${jobId}] Задание завершено с ошибкой. Проверяю очередь...`);
-
-      processQueue();
     } else if (msg.type === 'jobCancelled') {
       const { message } = msg.payload;
-      await updateStatus('error', 0, `Задача отменена: ${message}`, {
-        error_message: message,
+      await finishWorker(workerInfo, 'cancelled', async () => {
+        await updateStatus('error', 0, `Задача отменена: ${message}`, {
+          error_message: message,
+        });
+        await queueService.clearJobLock(jobId);
+        logger.info(`[${jobId}] Задача отменена. Проверяю очередь...`);
       });
-      await queueService.clearJobLock(jobId);
-      // Удаляем воркер из отслеживания
-      const workerInfo = activeWorkers.get(jobId);
-      if (workerInfo) {
-        workerInfo.status = 'cancelled';
-        activeWorkers.delete(jobId);
-      }
-      // Освобождаем обработчик и запускаем следующую задачу
-      jobQueue.endProcessing();
-      logger.info(`[${jobId}] Задача отменена. Проверяю очередь...`);
-
-      processQueue();
     }
   });
 
   worker.on('error', async (error) => {
     logger.error(`❌ Критическая ошибка воркера для задания ${jobId}:`, error.message);
-    await updateStatus('error', 0, `Критическая ошибка: ${error.message}`, {
-      error_message: error.message,
+    // Первое терминальное событие освобождает слот: 'exit' после 'error' уже ничего не освобождает
+    await finishWorker(workerInfo, 'error', async () => {
+      await updateStatus('error', 0, `Критическая ошибка: ${error.message}`, {
+        error_message: error.message,
+      });
+      await queueService.clearJobLock(jobId);
     });
-    await queueService.clearJobLock(jobId);
   });
 
-  worker.on('exit', (code) => {
-    if (code !== 0) {
-      logger.error(`Воркер для задания ${jobId} завершился с кодом ${code}`);
-      // Если воркер упал некорректно, нужно освободить очередь
-      jobQueue.endProcessing();
-      logger.info(`[${jobId}] Воркер завершился аварийно. Проверяю очередь...`);
-
-      queueService.clearJobLock(jobId).catch(() => {});
-      processQueue();
-    } else {
-      logger.info(`[${jobId}] Воркер завершил работу корректно.`);
-    }
-  });
+  worker.on('exit', (code) => handleWorkerExit(workerInfo, code));
 }
 
 async function processQueue() {
@@ -335,7 +311,7 @@ async function processQueue() {
   try {
     const claimed = await queueService.claimNextJob(WORKER_ID);
     if (claimed && claimed.id) {
-      const links = await jobQueryService.getJobLinks(claimed.id, claimed.user_id || null);
+      const links = await jobQueryService.getJobLinksLight(claimed.id, claimed.user_id || null);
       // Спробувати отримати cookie з кешу (якщо job був щойно створений)
       const cachedCookie = jobQueue.getCachedCookie(claimed.id);
       const cookie = cachedCookie || '';

@@ -389,9 +389,13 @@ async function processJobInWorker(jobId, links, cookie, prompt) {
     }
 
     // Выполняем AI анализ всех валидных случаев (оригинальная логика)
-    const analysis = await analyzeCases(allValidCasesForAnalysis, prompt, (statusUpdate) =>
-      postStatusUpdate('analyzing', 65, statusUpdate, { processed_links: links.length })
-    );
+    // Старт AI-фазы и каждый её статус — тоже прогресс, иначе детектор зависания считает
+    // от последнего прогресса загрузки и убивает здоровую AI-фазу.
+    lastProgressTime = Date.now();
+    const analysis = await analyzeCases(allValidCasesForAnalysis, prompt, (statusUpdate) => {
+      lastProgressTime = Date.now();
+      return postStatusUpdate('analyzing', 65, statusUpdate, { processed_links: links.length });
+    });
 
     // Очищаем память после завершения AI анализа
     for (const caseData of allValidCasesForAnalysis) {

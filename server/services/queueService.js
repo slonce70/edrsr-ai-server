@@ -1,6 +1,12 @@
 import database from '../database/connection.js';
 import { logger } from '../utils.js';
 
+// Auto-retry of temporary errors: a failed job is re-queued while it has run fewer than this many times.
+const MAX_JOB_ATTEMPTS = 3;
+// Claims a job may get before it is failed for good. Higher than the auto-retry limit on purpose: a
+// deploy restart interrupts a running job and recovery re-queues it, which must not count as a failure.
+const MAX_CLAIM_ATTEMPTS = 5;
+
 class QueueService {
   async recoverStuckJobs() {
     const sql = `
@@ -73,7 +79,7 @@ class QueueService {
       SET status = 'retrying', locked_by = NULL, locked_at = NULL, lease_until = NULL, heartbeat_at = NULL,
           attempt = COALESCE(attempt, 0), updated_at = CURRENT_TIMESTAMP
       WHERE status = 'error'
-        AND COALESCE(attempt, 0) < 3
+        AND COALESCE(attempt, 0) < $1
         AND (
           error_message LIKE '%Memory limit exceeded%'
           OR error_message LIKE '%Worker terminated due to reaching memory limit%'
@@ -90,7 +96,7 @@ class QueueService {
         AND updated_at > NOW() - INTERVAL '24 hours'
     `;
     try {
-      const res = await database.run(sql);
+      const res = await database.run(sql, [MAX_JOB_ATTEMPTS]);
       if (res.changes > 0) {
         logger.info(`🔄 Retrying ${res.changes} failed job(s) with temporary errors`);
       }
@@ -121,7 +127,7 @@ class QueueService {
     const sql = `
       UPDATE jobs
       SET status = 'retrying', locked_by = NULL, locked_at = NULL, lease_until = NULL, heartbeat_at = NULL,
-          error_message = NULL, updated_at = CURRENT_TIMESTAMP
+          error_message = NULL, attempt = 0, updated_at = CURRENT_TIMESTAMP
       WHERE id = $1 AND status = 'error'
       RETURNING id
     `;
@@ -138,14 +144,38 @@ class QueueService {
     }
   }
 
+  // A job that already used all its attempts (e.g. it keeps killing the process and recovery keeps
+  // re-queuing it) is failed instead of being claimed again and burning Gemini quota.
+  async failExhaustedJobs() {
+    const sql = `
+      UPDATE jobs
+      SET status = 'error', error_message = $2, end_time = CURRENT_TIMESTAMP,
+          locked_by = NULL, locked_at = NULL, lease_until = NULL, heartbeat_at = NULL,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE status IN ('queued','retrying') AND COALESCE(attempt, 0) >= $1
+    `;
+    const message = `Завдання зупинено: вичерпано ліміт спроб обробки (${MAX_CLAIM_ATTEMPTS}). Створіть завдання повторно.`;
+    try {
+      const res = await database.run(sql, [MAX_CLAIM_ATTEMPTS, message]);
+      if (res.changes > 0) {
+        logger.warn(`🛑 Marked ${res.changes} job(s) as 'error': attempt limit reached`);
+      }
+      return res.changes || 0;
+    } catch (e) {
+      logger.error('[DB] failExhaustedJobs error:', e.message);
+      return 0;
+    }
+  }
+
   async claimNextJob(workerId) {
+    await this.failExhaustedJobs();
     const sql = `
       WITH lock AS (
         SELECT pg_try_advisory_xact_lock(42424242) AS ok
       ), next AS (
         SELECT id, prompt, user_id
         FROM jobs
-        WHERE status IN ('queued','retrying')
+        WHERE status IN ('queued','retrying') AND COALESCE(attempt, 0) < $2
         ORDER BY priority DESC, created_at ASC
         FOR UPDATE SKIP LOCKED
         LIMIT 1
@@ -162,7 +192,7 @@ class QueueService {
       RETURNING j.id, next.prompt, next.user_id
     `;
     try {
-      const row = await database.get(sql, [workerId]);
+      const row = await database.get(sql, [workerId, MAX_CLAIM_ATTEMPTS]);
       if (row?.id) {
         logger.info(`[QUEUE/DB] Claimed job ${row.id} by ${workerId}`);
         return row;
@@ -220,7 +250,7 @@ class QueueService {
   async requeueJob(jobId, { resetLinks = false } = {}) {
     const sql = `
       UPDATE jobs
-      SET status = 'retrying', locked_by = NULL, locked_at = NULL, lease_until = NULL, heartbeat_at = NULL, updated_at = CURRENT_TIMESTAMP
+      SET status = 'retrying', locked_by = NULL, locked_at = NULL, lease_until = NULL, heartbeat_at = NULL, attempt = 0, updated_at = CURRENT_TIMESTAMP
       WHERE id = $1
       RETURNING id
     `;

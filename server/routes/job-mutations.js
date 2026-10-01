@@ -29,10 +29,12 @@ export default function createJobMutationsRouter({
         return res.status(400).json({ error: 'Неверный или отсутствующий clientId' });
       }
 
-      const originalJob = await dbService.getJob(oldJobId, req.user?.id || null);
+      // Only url/decision_date of the old links are needed: skip the full bodies and the report.
+      const originalJob = await jobQueryService.getJobLight(oldJobId, req.user?.id || null);
       if (!originalJob) {
         return res.status(404).json({ error: 'Задание для повтора не найдено.' });
       }
+      const originalLinks = await jobQueryService.getJobLinksLight(oldJobId, req.user?.id || null);
 
       const newJobId = uuid();
       const today = new Date().toLocaleDateString('uk-UA');
@@ -42,8 +44,8 @@ export default function createJobMutationsRouter({
         id: newJobId,
         title: defaultTitle,
         status: 'queued',
-        totalLinks: originalJob.total_links || originalJob.totalLinks || originalJob.links.length,
-        links: originalJob.links.map((link) => ({
+        totalLinks: originalJob.total_links || originalJob.totalLinks || originalLinks.length,
+        links: originalLinks.map((link) => ({
           url: link.url,
           decisionDate: link.decision_date,
           status: 'pending',

@@ -70,11 +70,51 @@ export function createWorkerLifecycleService({ activeWorkers, processQueue }) {
     });
   }
 
-  function releaseQueueIfNeeded() {
-    if (!jobQueue.isIdle()) {
-      jobQueue.endProcessing();
-      processQueue();
+  // A worker counts as live only while activeWorkers still holds this exact entry.
+  function isActiveWorker(workerInfo) {
+    return activeWorkers.get(workerInfo.jobId) === workerInfo;
+  }
+
+  function terminateQuietly(workerInfo) {
+    return (async () => workerInfo.worker.terminate())().catch((error) => {
+      logger.error(`[${workerInfo.jobId}] Ошибка при завершении воркера:`, error.message);
+    });
+  }
+
+  // Single exit point for every terminal event (jobSuccess/jobError/jobCancelled, worker 'error'/'exit',
+  // force terminate). Only the first call per worker removes the entry, terminates the thread and
+  // releases the queue slot; later events from it (incl. the exit(1) caused by our own terminate())
+  // return false and must not touch slot accounting. `finalize` (status/lock writes) runs first.
+  async function finishWorker(workerInfo, status, finalize) {
+    if (!isActiveWorker(workerInfo)) return false;
+    workerInfo.status = status;
+    activeWorkers.delete(workerInfo.jobId);
+
+    if (finalize) {
+      try {
+        await finalize();
+      } catch (error) {
+        logger.error(`[${workerInfo.jobId}] Ошибка завершения воркера (${status}):`, error.message);
+      }
     }
+
+    void terminateQuietly(workerInfo);
+    jobQueue.endProcessing();
+    processQueue();
+    return true;
+  }
+
+  // 'exit' before any terminal event means the thread died on its own: release the queue (once).
+  // After finishWorker() it is only the exit(1) caused by our own terminate() and changes nothing.
+  function handleWorkerExit(workerInfo, code) {
+    const { jobId } = workerInfo;
+    if (!isActiveWorker(workerInfo)) {
+      logger.info(`[${jobId}] Воркер завершил работу корректно.`);
+      return;
+    }
+    logger.error(`Воркер для задания ${jobId} завершился с кодом ${code}`);
+    logger.info(`[${jobId}] Воркер завершился аварийно. Проверяю очередь...`);
+    void finishWorker(workerInfo, 'crashed', () => queueService.clearJobLock(jobId));
   }
 
   function forceTerminateWorker(jobId, reason = 'Принудительное завершение') {
@@ -94,40 +134,33 @@ export function createWorkerLifecycleService({ activeWorkers, processQueue }) {
       });
 
       setTimeout(() => {
-        const stillActive = activeWorkers.get(jobId);
-        if (!stillActive) return;
+        // Normally the worker answers with jobCancelled and finishWorker() has already terminated it.
+        // Compare the entry itself: a retried job may have a newer worker under the same jobId.
+        if (!isActiveWorker(workerInfo)) return;
 
         logger.error(
           `[FORCE_TERMINATE] Воркер ${jobId} не отвечает на сигнал отмены, принудительно завершаю`
         );
 
-        try {
-          stillActive.worker.terminate();
-        } catch (termError) {
-          logger.error(
-            `[FORCE_TERMINATE] Ошибка при завершении воркера ${jobId}:`,
-            termError.message
-          );
-        }
-
-        stillActive.status = 'force_terminated';
-        activeWorkers.delete(jobId);
+        void finishWorker(workerInfo, 'force_terminated');
         clearLockAfterForceTerminate(jobId, reason);
-        releaseQueueIfNeeded();
       }, 3000);
 
       return true;
     } catch (error) {
       logger.error(`[FORCE_TERMINATE] Ошибка при завершении воркера ${jobId}:`, error.message);
 
-      activeWorkers.delete(jobId);
+      void finishWorker(workerInfo, 'force_terminated');
       clearLockAfterForceTerminate(jobId, reason);
       return false;
     }
   }
 
   return {
+    finishWorker,
     forceTerminateWorker,
     getActiveWorkersInfo,
+    handleWorkerExit,
+    isActiveWorker,
   };
 }
