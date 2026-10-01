@@ -18,7 +18,53 @@ import { buildStrictCaseLinkMap, createAnalysisPrompt, logger } from './utils.js
 
 const CONFIGURED_MAX_RETRIES = parseInt(process.env.MAX_RETRIES, 10) || 15;
 const INITIAL_RETRY_DELAY_MS = 20000; // 20 seconds
+const MAX_RETRY_DELAY_MS = 60000; // стеля однієї паузи backoff (разом з jitter)
+const RETRY_JITTER = 0.2; // ±20 %
+// Чекаємо, поки ключ вийде з cooldown, лише якщо це недовго (cooldown 60–120 с). Довший soft-ban —
+// це реальний збій/вичерпана квота: чекати марно, тож поводимось як раніше (швидко падаємо у заглушку батча),
+// щоб завдання не висіло хвилинами й не впиралося в MAX_JOB_DURATION_MS (і авто-повтор).
+const MAX_KEY_WAIT_MS = 130000; // одна пауза
+const MAX_TOTAL_KEY_WAIT_MS = 300000; // сумарно на один виклик generatedContent
+const MODEL_BREAKER_THRESHOLD = 3; // стільки 503 поспіль на моделі відкривають breaker
+const MODEL_BREAKER_OPEN_MS = 90000; // на цей час модель пропускається (йдемо одразу на fallback)
+const SAME_BATCH_RETRIES = 1; // повтор того самого батча після 429/503 замість дроблення
 const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Явні ознаки мертвого ключа. Звичайний 400/INVALID_ARGUMENT — це помилка запиту, а не ключа.
+const INVALID_KEY_MESSAGE_RE =
+  /API_KEY_INVALID|API key (?:not valid|expired)|PERMISSION_DENIED|denied access/i;
+
+/**
+ * Пауза перед повтором після мережевої помилки/500: 20 с * 2^(n-1), але не більше 60 с, ±20 % jitter.
+ * Базу обрізано до 60 с / 1.2, щоб навіть з jitter пауза не перевищувала MAX_RETRY_DELAY_MS.
+ * @param {number} failures - Скільки мережевих/500 збоїв поспіль (1 = перший)
+ * @param {() => number} [random] - Джерело випадковості (для тестів)
+ */
+function getRetryDelayMs(failures, random = Math.random) {
+  const base = Math.min(
+    INITIAL_RETRY_DELAY_MS * 2 ** (failures - 1),
+    MAX_RETRY_DELAY_MS / (1 + RETRY_JITTER)
+  );
+  return Math.round(base * (1 - RETRY_JITTER + 2 * RETRY_JITTER * random()));
+}
+
+// HTTP-статус зі структурованих полів помилки (SDK ставить error.status); null, якщо його немає.
+function getErrorStatus(error) {
+  for (const value of [error?.status, error?.statusCode, error?.code]) {
+    const status = Number(value);
+    if (Number.isInteger(status) && status >= 400 && status < 600) return status;
+  }
+  return null;
+}
+
+const getErrorText = (error) => String(error?.message || error || '');
+
+// Спершу структурований статус; текст повідомлення лише коли статусу немає, і як окреме число (\b),
+// а не будь-який підрядок на кшталт "1503" чи "#400_errors".
+function hasHttpStatus(error, code) {
+  const status = getErrorStatus(error);
+  return status === null ? new RegExp(`\\b${code}\\b`).test(getErrorText(error)) : status === code;
+}
 
 function getEffectiveMaxRetriesFor(manager, primaryModel, fallbackModel, configuredMaxRetries) {
   const modelsPerKey = fallbackModel && fallbackModel !== primaryModel ? 2 : 1;
@@ -41,8 +87,17 @@ function createContentGenerator({
   safetySettings,
   logger: log = logger,
   sleep = defaultSleep,
+  now = () => Date.now(),
+  random = () => Math.random(),
   configuredMaxRetries = CONFIGURED_MAX_RETRIES,
+  maxKeyWaitMs = MAX_KEY_WAIT_MS,
+  maxTotalKeyWaitMs = MAX_TOTAL_KEY_WAIT_MS,
 }) {
+  // Circuit breaker по моделях: model → { count: 503 поспіль, openUntil }. 503 — перевантаження МОДЕЛІ,
+  // а не проблема ключа: ключ не охолоджуємо, а після кількох 503 поспіль тимчасово
+  // йдемо одразу на fallback-модель (на тому ж ключі). Скидається першим успіхом цієї моделі.
+  const modelBreaker = new Map();
+
   return async function generatedContent(prompt, reservedKeyIndex = null) {
     // ========== PHASE 1: CLIProxyAPI (PRIMARY) ==========
     if (enableCliProxy && proxyClient) {
@@ -82,9 +137,24 @@ function createContentGenerator({
       configuredMaxRetries
     );
     const keysFullyTried = new Set(); // Ключі де обидві моделі не спрацювали
+    let transientFailures = 0; // мережеві/500 збої для backoff (attempt росте ще й при ротації ключів)
+    let totalKeyWaitMs = 0;
 
     while (attempt < maxRetries) {
       attempt++;
+
+      // Усі валідні ключі в cooldown/soft-ban: коротке очікування найближчого закінчення замість
+      // стуку в той самий ключ. Довші паузи (soft-ban) не чекаємо: див. MAX_KEY_WAIT_MS.
+      const keyWaitMs = manager.getWaitMs?.() ?? 0;
+      if (
+        keyWaitMs > 0 &&
+        keyWaitMs <= maxKeyWaitMs &&
+        totalKeyWaitMs + keyWaitMs <= maxTotalKeyWaitMs
+      ) {
+        totalKeyWaitMs += keyWaitMs;
+        log.warn(`⏳ Усі ключі в cooldown, чекаю ${Math.ceil(keyWaitMs / 1000)} сек...`);
+        await sleep(keyWaitMs);
+      }
 
       // Використати зарезервований ключ або взяти наступний доступний
       const { client, keyIndex } =
@@ -93,10 +163,16 @@ function createContentGenerator({
           : manager.getNextClient();
 
       // Спробувати спочатку основну модель, потім fallback
-      const modelsToTry = [primaryModel];
+      const allModels = [primaryModel];
       if (fallbackModelName && fallbackModelName !== primaryModel) {
-        modelsToTry.push(fallbackModelName);
+        allModels.push(fallbackModelName);
       }
+      // Модель з відкритим breaker пропускаємо; якщо відкриті всі — пробуємо всі, щоб не зависнути.
+      const healthyModels = allModels.filter(
+        (model) => !(modelBreaker.get(model)?.openUntil > now())
+      );
+      const modelsToTry = healthyModels.length > 0 ? healthyModels : allModels;
+      let quotaHit = false; // на цьому ключі була 429 хоч на одній моделі
 
       for (const currentModel of modelsToTry) {
         log.info(
@@ -142,6 +218,9 @@ function createContentGenerator({
           if (!text?.trim()) {
             throw new Error('Gemini повернув порожню відповідь.');
           }
+          // Успіх скидає лічильник послідовних 429 ключа і лічильник 503 цієї моделі.
+          manager.markSuccess?.(keyIndex);
+          modelBreaker.delete(currentModel);
           return text.trim(); // Успіх!
         } catch (error) {
           // Обрив/блокування — це проблема контенту, а не ключа: не штрафуємо ключ
@@ -151,7 +230,7 @@ function createContentGenerator({
             throw error;
           }
           const message = String(error.message || '');
-          const statusCode = error.status || error.statusCode || message.match(/\b(\d{3})\b/)?.[1];
+          const statusCode = getErrorStatus(error);
 
           // Детальне логування помилки
           log.warn(`❌ [GEMINI] Ключ #${keyIndex + 1}, ${currentModel}: ${message.slice(0, 200)}`);
@@ -159,28 +238,32 @@ function createContentGenerator({
             log.warn(`   HTTP Status: ${statusCode}`);
           }
 
-          const statusText = String(statusCode || '');
           const normalizedMessage = message.toLowerCase();
-          const isQuotaError = statusText === '429' || message.includes('RESOURCE_EXHAUSTED');
+          const isQuotaError = hasHttpStatus(error, 429) || message.includes('RESOURCE_EXHAUSTED');
           // 429/RESOURCE_EXHAUSTED — це rate limit (квота поновлюється), а НЕ мертвий ключ.
           // Навіть повідомлення "exceeded your current quota"/"billing" → cooldown, а не перманентний бан.
-          // Перманентно банимо лише за справжніми ознаками мертвого ключа (400/401/403/API_KEY_INVALID).
-          const isOverloadError = message.includes('503') || message.includes('overloaded');
+          // 503/"overloaded" — перевантаження МОДЕЛІ, теж не вина ключа.
+          const isOverloadError =
+            !isQuotaError && (hasHttpStatus(error, 503) || message.includes('overloaded'));
           const isEmptyResponse =
             message.includes('порожню відповідь') ||
             normalizedMessage.includes('empty response');
-          const isPermissionDenied =
-            statusText === '403' ||
-            message.includes('PERMISSION_DENIED') ||
-            message.includes('denied access');
+          // Перманентно банимо лише за справжніми ознаками мертвого ключа: 401/403 або явне
+          // "API key not valid"/API_KEY_INVALID/PERMISSION_DENIED. Звичайний 400/INVALID_ARGUMENT —
+          // помилка ЗАПИТУ: ключ не банимо і той самий payload не ганяємо по всіх ключах,
+          // батч падає як будь-яка інша нетимчасова помилка (throw нижче).
           const isInvalidKey =
-            statusText === '400' ||
-            statusText === '401' ||
-            message.includes('API_KEY_INVALID') ||
-            message.includes('INVALID_ARGUMENT') ||
-            isPermissionDenied;
+            !isQuotaError &&
+            !isOverloadError &&
+            (hasHttpStatus(error, 401) ||
+              hasHttpStatus(error, 403) ||
+              INVALID_KEY_MESSAGE_RE.test(message));
 
-          manager.markError(keyIndex);
+          // markError скидає лічильник послідовних 429 — для 429/503 не викликаємо,
+          // інакше soft-ban (поріг 3) ніколи не накопичиться.
+          if (!isQuotaError && !isOverloadError) {
+            manager.markError(keyIndex);
+          }
 
           // Невалідний ключ - позначаємо як ПЕРМАНЕНТНО невалідний
           if (isInvalidKey) {
@@ -193,6 +276,19 @@ function createContentGenerator({
           }
 
           if (isQuotaError || isOverloadError || isEmptyResponse) {
+            if (isQuotaError) quotaHit = true;
+            if (isOverloadError) {
+              const breaker = modelBreaker.get(currentModel) || { count: 0, openUntil: 0 };
+              breaker.count++;
+              if (breaker.count >= MODEL_BREAKER_THRESHOLD) {
+                breaker.openUntil = now() + MODEL_BREAKER_OPEN_MS;
+                log.warn(
+                  `⚠️ ${currentModel}: ${breaker.count} помилок 503 поспіль, пропускаю модель на ${MODEL_BREAKER_OPEN_MS / 1000} сек`
+                );
+              }
+              modelBreaker.set(currentModel, breaker);
+            }
+
             // Спробувати fallback модель на цьому ж ключі
             if (currentModel === primaryModel && modelsToTry.length > 1) {
               log.info(`⚠️ ${currentModel} недоступна, пробую fallback модель...`);
@@ -200,9 +296,11 @@ function createContentGenerator({
               continue; // Спробувати наступну модель
             }
 
-            // Обидві моделі не спрацювали на цьому ключі
-            // Використовуємо адаптивний cooldown на основі моделі
-            manager.markRateLimited(keyIndex, null, currentModel);
+            // Обидві моделі не спрацювали на цьому ключі.
+            // Адаптивний cooldown на основі моделі; чистий 503 ключ не охолоджує (це не його вина).
+            if (quotaHit || !isOverloadError) {
+              manager.markRateLimited(keyIndex, null, currentModel);
+            }
             keysFullyTried.add(keyIndex);
             log.info(`⚠️ Ключ #${keyIndex + 1} тимчасово недоступний, пробую інший ключ...`);
             break; // Вийти з циклу моделей, спробувати інший ключ
@@ -213,10 +311,10 @@ function createContentGenerator({
             message.includes('fetch failed') ||
             message.includes('ENET') ||
             message.includes('ECONN');
-          const isInternalError = message.includes('500');
+          const isInternalError = hasHttpStatus(error, 500);
 
           if ((isNetworkError || isInternalError) && attempt < maxRetries) {
-            const delay = INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt - 1);
+            const delay = getRetryDelayMs(++transientFailures, random);
             log.info(`[RETRY] Помилка, повтор через ${Math.round(delay / 1000)} сек...`);
             await sleep(delay);
             break;
@@ -258,16 +356,21 @@ const generateContent = createContentGenerator({
 
 const batchProcessorTestOverrides = {
   generateContent: null,
+  sleep: null,
 };
 
 function setBatchProcessorTestOverrides(overrides = {}) {
   if (Object.prototype.hasOwnProperty.call(overrides, 'generateContent')) {
     batchProcessorTestOverrides.generateContent = overrides.generateContent;
   }
+  if (Object.prototype.hasOwnProperty.call(overrides, 'sleep')) {
+    batchProcessorTestOverrides.sleep = overrides.sleep;
+  }
 }
 
 function clearBatchProcessorTestOverrides() {
   batchProcessorTestOverrides.generateContent = null;
+  batchProcessorTestOverrides.sleep = null;
 }
 
 function getContentGenerator() {
@@ -286,32 +389,44 @@ function getContentGenerator() {
  */
 const MAX_FALLBACK_DEPTH = parseInt(process.env.BATCH_FALLBACK_MAX_DEPTH, 10) || 2;
 
-const isRetryableGeminiError = (message) => {
-  const msg = String(message || '').toLowerCase();
+// Дробити батч має сенс лише коли менший вивід/ізоляція справи реально допомагає:
+// обрив по ліміту токенів (менший вивід вміститься) або блокування контенту
+// (ізолювати проблемну справу). 429/503 дроблення не лікує — вони йдуть у isRetryableGeminiError.
+const isSplittableGeminiError = (error) => {
+  const msg = getErrorText(error).toLowerCase();
+  return Boolean(
+    error?.truncated ||
+    error?.blocked ||
+    msg.includes('max_tokens') ||
+    msg.includes('обірвав відповідь') ||
+    msg.includes('заблокував відповідь') ||
+    // 400 "завеликий запит": менший батч вміститься (раніше це вбивало всі ключі як "невалідні")
+    /token count|exceeds the maximum|payload size|request (?:is )?too large/.test(msg)
+  );
+};
+
+// Тимчасові збої (квота/перевантаження/мережа/порожня відповідь): повторюємо ТОЙ САМИЙ батч.
+const isRetryableGeminiError = (error) => {
+  const msg = getErrorText(error).toLowerCase();
   return (
     msg.includes('порожню відповідь') ||
     msg.includes('empty response') ||
     msg.includes('вичерпано всі спроби') ||
     msg.includes('resource_exhausted') ||
-    msg.includes('429') ||
-    msg.includes('503') ||
+    hasHttpStatus(error, 429) ||
+    hasHttpStatus(error, 503) ||
     msg.includes('overloaded') ||
     msg.includes('fetch failed') ||
     msg.includes('enetwork') ||
     msg.includes('enet') ||
-    msg.includes('econn') ||
-    // Обрив по ліміту токенів → роздробити батч на менші частини (менший вивід вміститься).
-    msg.includes('max_tokens') ||
-    msg.includes('обірвав відповідь') ||
-    // Блокування контенту → ізолювати проблемну справу через дроблення.
-    msg.includes('заблокував відповідь')
+    msg.includes('econn')
   );
 };
 
+const formatCaseLine = (c) => `- ${c.caseNumber || c.id || 'Н/Д'} | ${c.url || 'URL не вказано'}`;
+
 const buildFallbackSummary = (batchCases, message) => {
-  const lines = batchCases.map(
-    (c) => `- ${c.caseNumber || c.id || 'Н/Д'} | ${c.url || 'URL не вказано'}`
-  );
+  const lines = batchCases.map(formatCaseLine);
   return [
     '⚠️ Частина справ не була проаналізована через тимчасову помилку AI.',
     `Причина: ${message || 'Невідома помилка'}.`,
@@ -383,20 +498,36 @@ async function repairCustomReportCoverageIfNeeded(cases, userPromptKey, corpus, 
   );
 
   const repairPrompt = buildCoverageRepairPrompt(cases, userPromptKey, corpus, finalReport, missing);
-  const repairedReport = await generator(repairPrompt);
-  const stillMissing = findMissingCaseReferences(repairedReport, cases);
-
-  if (stillMissing.length > 0) {
-    const missingIds = stillMissing
-      .map((caseItem) => caseItem.caseNumber || caseItem.id || caseItem.url)
-      .join(', ');
-    throw new Error(
-      `Фінальний AI-звіт неповний: після repair-виклику відсутні ${stillMissing.length}/${cases.length} справ(и): ${missingIds}`
+  // Чернетка вже готова: збій необов'язкового repair-виклику не повинен її губити.
+  let report = finalReport;
+  let uncovered = missing;
+  try {
+    report = await generator(repairPrompt);
+    uncovered = findMissingCaseReferences(report, cases);
+  } catch (err) {
+    logger.warn(
+      `⚠️ Coverage repair call failed (${err?.message || err}), keeping the draft report`
     );
   }
 
+  if (uncovered.length > 0) {
+    // Не кидаємо помилку (це губило б готовий звіт): лишаємо звіт і чітко позначаємо прогалину.
+    // Фраза "Частина справ не була проаналізована" — маркер для computeReportCoverage (partial).
+    logger.warn(
+      `⚠️ Coverage repair left ${uncovered.length}/${cases.length} case link(s) uncovered; appending them to the report`
+    );
+    return [
+      report,
+      '',
+      '### ⚠️ Неповне охоплення справ',
+      'Частина справ не була проаналізована у фінальному звіті: AI не включив їх навіть після повторного запиту.',
+      'Перелік справ для ручної перевірки:',
+      ...uncovered.map(formatCaseLine),
+    ].join('\n');
+  }
+
   logger.info(`✅ Coverage repair completed: all ${cases.length} case link(s) present`);
-  return repairedReport;
+  return report;
 }
 
 async function getBatchSummary(
@@ -405,7 +536,8 @@ async function getBatchSummary(
   totalBatches,
   finalUserPrompt = null,
   reservedKeyIndex = null,
-  fallbackDepth = 0
+  fallbackDepth = 0,
+  sameBatchRetry = 0
 ) {
   logger.debug(
     `📦 Summarizing batch ${batchNumber}/${totalBatches} (${batchCases.length} cases) for task: ${finalUserPrompt || 'default'}`
@@ -528,8 +660,10 @@ ${materialsBlock}
     const message = err?.message || String(err);
     console.error(`❌ Error summarizing batch ${batchNumber}: ${message}`);
 
-    if (isRetryableGeminiError(message)) {
-      if (batchCases.length > 1 && fallbackDepth < MAX_FALLBACK_DEPTH) {
+    const splittable = isSplittableGeminiError(err);
+    if (splittable || isRetryableGeminiError(err)) {
+      // Дробимо лише при обриві/блокуванні; 429/503 дроблення не лікує (до 7 викликів замість 1).
+      if (splittable && batchCases.length > 1 && fallbackDepth < MAX_FALLBACK_DEPTH) {
         const mid = Math.ceil(batchCases.length / 2);
         logger.warn(
           `⚠️ Batch ${batchNumber} failed, splitting into smaller chunks (depth ${fallbackDepth + 1}/${MAX_FALLBACK_DEPTH})`
@@ -551,6 +685,23 @@ ${materialsBlock}
           fallbackDepth + 1
         );
         return `${left}\n\n${right}`;
+      }
+
+      if (!splittable && sameBatchRetry < SAME_BATCH_RETRIES) {
+        const delay = getRetryDelayMs(sameBatchRetry + 1);
+        logger.warn(
+          `⚠️ Batch ${batchNumber} failed, retrying the same batch in ${Math.round(delay / 1000)}s (${sameBatchRetry + 1}/${SAME_BATCH_RETRIES})`
+        );
+        await (batchProcessorTestOverrides.sleep || defaultSleep)(delay);
+        return getBatchSummary(
+          batchCases,
+          batchNumber,
+          totalBatches,
+          finalUserPrompt,
+          reservedKeyIndex,
+          fallbackDepth,
+          sameBatchRetry + 1
+        );
       }
 
       logger.warn(`⚠️ Batch ${batchNumber} skipped after retries: ${message}`);

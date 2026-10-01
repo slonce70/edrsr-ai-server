@@ -16,7 +16,7 @@ dotenv.config();
  * Клас для керування кількома Gemini API ключами з round-robin ротацією.
  * Автоматично пропускає ключі, що досягли rate limit.
  */
-class ApiKeyManager {
+export class ApiKeyManager {
   /**
    * @param {string[]} keys - Масив API ключів
    */
@@ -31,10 +31,11 @@ class ApiKeyManager {
     this.cooldowns = new Map(); // keyIndex → cooldown until timestamp
     this.softBans = new Map(); // keyIndex → soft-ban until timestamp (after consecutive 429)
     this.consecutive429 = new Map(); // keyIndex → count of consecutive 429s
-    this.invalidKeys = new Set(); // keyIndex → permanently invalid keys (400/401 errors)
+    this.invalidKeys = new Set(); // keyIndex → permanently invalid keys (401/403 або явне "API key not valid")
     this.usageStats = keys.map(() => ({ requests: 0, errors: 0, rateLimits: 0, invalid: false }));
     this.reservedKeys = new Map(); // batchId → keyIndex (для паралельної обробки)
     this.activeRequests = new Map(); // keyIndex → count (активні запити на ключі)
+    this.reserveCursor = 0; // з якого ключа reserveKeyForBatch починає пошук (рівномірний розподіл)
 
     console.log(`✅ [API KEY MANAGER] Ініціалізовано ${keys.length} API ключ(ів)`);
   }
@@ -121,6 +122,31 @@ class ApiKeyManager {
   }
 
   /**
+   * Момент, до якого ключ недоступний (cooldown або soft-ban, що довший). 0 = доступний.
+   * @param {number} keyIndex
+   * @returns {number}
+   */
+  _unavailableUntil(keyIndex) {
+    return Math.max(this.cooldowns.get(keyIndex) || 0, this.softBans.get(keyIndex) || 0);
+  }
+
+  /**
+   * Скільки мс чекати до першого доступного ключа. 0 — вільний ключ вже є
+   * (або всі ключі невалідні: тоді getNextClient сам кине помилку).
+   * Потрібно, щоб при всіх ключах у cooldown/soft-ban не стукатись у забанений ключ.
+   * @returns {number}
+   */
+  getWaitMs() {
+    const now = Date.now();
+    let waitMs = Infinity;
+    for (let i = 0; i < this.keys.length; i++) {
+      if (this.invalidKeys.has(i)) continue;
+      waitMs = Math.min(waitMs, this._unavailableUntil(i) - now);
+    }
+    return Number.isFinite(waitMs) ? Math.max(0, waitMs) : 0;
+  }
+
+  /**
    * Позначити ключ як rate limited (429 помилка)
    * Адаптивний cooldown на основі RPM ліміту моделі:
    * - Gemini Flash: 10 RPM = cooldown 6 секунд
@@ -172,7 +198,8 @@ class ApiKeyManager {
   }
 
   /**
-   * Позначити помилку для ключа
+   * Позначити помилку для ключа (НЕ для 429/503: це скидає лічильник послідовних 429
+   * і soft-ban ніколи не спрацює; 429 йде через markRateLimited, 503 ключа не стосується)
    * @param {number} keyIndex - Індекс ключа
    */
   markError(keyIndex) {
@@ -181,7 +208,7 @@ class ApiKeyManager {
   }
 
   /**
-   * Позначити ключ як перманентно невалідний (400/401 помилки)
+   * Позначити ключ як перманентно невалідний (401/403 або явне "API key not valid")
    * Такий ключ більше ніколи не буде використовуватись
    * @param {number} keyIndex - Індекс ключа
    */
@@ -298,19 +325,22 @@ class ApiKeyManager {
       }
     }
 
-    // Знайти ключ з найменшою кількістю активних запитів, що не на cooldown і не invalid
+    // Знайти ключ з найменшою кількістю активних запитів, що не на cooldown/soft-ban і не invalid.
+    // Пошук іде по колу від reserveCursor: серед рівнозавантажених ключів перемагає перший після
+    // попереднього вибору, а не завжди ключ #1 (інакше 2 ключі з 11 вигорають, решта простоюють).
     let bestKeyIndex = -1;
     let minActiveRequests = Infinity;
 
-    for (let i = 0; i < this.keys.length; i++) {
+    for (let offset = 0; offset < this.keys.length; offset++) {
+      const i = (this.reserveCursor + offset) % this.keys.length;
+
       // Пропустити invalid ключі
       if (this.invalidKeys.has(i)) {
         continue;
       }
 
-      const cooldownUntil = this.cooldowns.get(i);
-      if (cooldownUntil && now < cooldownUntil) {
-        continue; // Пропустити ключі на cooldown
+      if (now < this._unavailableUntil(i)) {
+        continue; // Пропустити ключі на cooldown/soft-ban
       }
 
       const activeCount = this.activeRequests.get(i) || 0;
@@ -320,16 +350,16 @@ class ApiKeyManager {
       }
     }
 
-    // Якщо всі валідні ключі на cooldown - взяти з найменшим cooldown
+    // Якщо всі валідні ключі на cooldown/soft-ban - взяти з найближчим закінченням
     if (bestKeyIndex === -1) {
       let minCooldown = Infinity;
       for (let i = 0; i < this.keys.length; i++) {
         // Пропустити invalid ключі навіть у fallback
         if (this.invalidKeys.has(i)) continue;
 
-        const cooldownUntil = this.cooldowns.get(i) || 0;
-        if (cooldownUntil < minCooldown) {
-          minCooldown = cooldownUntil;
+        const unavailableUntil = this._unavailableUntil(i);
+        if (unavailableUntil < minCooldown) {
+          minCooldown = unavailableUntil;
           bestKeyIndex = i;
         }
       }
@@ -341,6 +371,7 @@ class ApiKeyManager {
     }
 
     // Зарезервувати ключ
+    this.reserveCursor = (bestKeyIndex + 1) % this.keys.length;
     this.reservedKeys.set(batchId, bestKeyIndex);
     this.activeRequests.set(bestKeyIndex, (this.activeRequests.get(bestKeyIndex) || 0) + 1);
 

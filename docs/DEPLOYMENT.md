@@ -103,7 +103,7 @@ Rules that cause outages when missed:
 
 - Newest stable Flash: `gemini-3.8-flash` (also available: 3.7, 3.6, 3.5, 3-flash-preview, 2.5-flash; `gemini-2.5-pro` is not available to these keys; Google now limits 2.5 to existing users).
 - With a realistic 25k-token prompt, 3.8, 3.7 and 3.5 frequently answered `503 high demand`, while `3.6-flash`, `3-flash-preview` and `2.5-flash` succeeded 3 of 3.
-  Hence primary 3.8 and fallback 3.6 (full-size model, separate quota). On any 429/503 the server retries the same key with the fallback model, then rotates keys; 503 never blacklists a key (only 400/401/403 do). Lite models are deliberately not used.
+  Hence primary 3.8 and fallback 3.6 (full-size model, separate quota). On any 429/503 the server retries the same key with the fallback model, then rotates keys. 503 never cools or blacklists a key (3 in a row open a 90 s breaker that skips that model); three 429s in a row soft-ban a key; only 401/403 or an explicit "API key not valid" blacklist it, a plain 400 is a request error. A batch is split only when its output was truncated or blocked (or the request was too large); 429/503 retry the same batch once. Lite models are deliberately not used.
 - Google recommends `temperature=1.0` for all Gemini 3 models (lower values can loop). Thinking is on by default and its tokens count against `MAX_TOKENS`.
 - To change models edit the env file and `systemctl restart edrsr-ai`.
 

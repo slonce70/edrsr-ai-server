@@ -1281,6 +1281,8 @@ router.post('/gemini/reset-stats', async (req, res) => {
       apiKeyManager.usageStats[i] = { requests: 0, errors: 0, rateLimits: 0 };
     }
     apiKeyManager.cooldowns.clear();
+    apiKeyManager.softBans.clear();
+    apiKeyManager.consecutive429.clear();
 
     await logAdminAction(req.user.id, 'RESET_GEMINI_STATS', 'system', 'N/A', {}, req);
 
