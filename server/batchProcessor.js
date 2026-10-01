@@ -66,8 +66,20 @@ function hasHttpStatus(error, code) {
   return status === null ? new RegExp(`\\b${code}\\b`).test(getErrorText(error)) : status === code;
 }
 
+// FALLBACK_MODEL_NAME може бути списком через кому: "gemini-3.6-flash,gemini-2.5-flash" (порядок = пріоритет).
+function parseFallbackModels(fallbackModelName, primaryModel) {
+  return [
+    ...new Set(
+      String(fallbackModelName || '')
+        .split(',')
+        .map((name) => name.trim())
+        .filter((name) => name && name !== primaryModel)
+    ),
+  ];
+}
+
 function getEffectiveMaxRetriesFor(manager, primaryModel, fallbackModel, configuredMaxRetries) {
-  const modelsPerKey = fallbackModel && fallbackModel !== primaryModel ? 2 : 1;
+  const modelsPerKey = 1 + parseFallbackModels(fallbackModel, primaryModel).length;
 
   return Math.max(configuredMaxRetries, manager.totalCount * modelsPerKey);
 }
@@ -163,10 +175,7 @@ function createContentGenerator({
           : manager.getNextClient();
 
       // Спробувати спочатку основну модель, потім fallback
-      const allModels = [primaryModel];
-      if (fallbackModelName && fallbackModelName !== primaryModel) {
-        allModels.push(fallbackModelName);
-      }
+      const allModels = [primaryModel, ...parseFallbackModels(fallbackModelName, primaryModel)];
       // Модель з відкритим breaker пропускаємо; якщо відкриті всі — пробуємо всі, щоб не зависнути.
       const healthyModels = allModels.filter(
         (model) => !(modelBreaker.get(model)?.openUntil > now())
@@ -289,8 +298,8 @@ function createContentGenerator({
               modelBreaker.set(currentModel, breaker);
             }
 
-            // Спробувати fallback модель на цьому ж ключі
-            if (currentModel === primaryModel && modelsToTry.length > 1) {
+            // Спробувати наступну (fallback) модель на цьому ж ключі
+            if (currentModel !== modelsToTry[modelsToTry.length - 1]) {
               log.info(`⚠️ ${currentModel} недоступна, пробую fallback модель...`);
               await sleep(1000);
               continue; // Спробувати наступну модель

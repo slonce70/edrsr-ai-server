@@ -82,7 +82,7 @@ SUPABASE_URL=https://<project-ref>.supabase.co
 SUPABASE_ANON_KEY=<anon key>
 GEMINI_API_KEYS=<key1>,<key2>,...
 MODEL_NAME=gemini-3.8-flash
-FALLBACK_MODEL_NAME=gemini-3.6-flash
+FALLBACK_MODEL_NAME=gemini-3.6-flash,gemini-2.5-flash
 TEMPERATURE=1.0
 MAX_CONCURRENT_BATCHES=2
 ENABLE_CLI_PROXY=false
@@ -103,7 +103,7 @@ Rules that cause outages when missed:
 
 - Newest stable Flash: `gemini-3.8-flash` (also available: 3.7, 3.6, 3.5, 3-flash-preview, 2.5-flash; `gemini-2.5-pro` is not available to these keys; Google now limits 2.5 to existing users).
 - With a realistic 25k-token prompt, 3.8, 3.7 and 3.5 frequently answered `503 high demand`, while `3.6-flash`, `3-flash-preview` and `2.5-flash` succeeded 3 of 3.
-  Hence primary 3.8 and fallback 3.6 (full-size model, separate quota). On any 429/503 the server retries the same key with the fallback model, then rotates keys. 503 never cools or blacklists a key (3 in a row open a 90 s breaker that skips that model); three 429s in a row soft-ban a key; only 401/403 or an explicit "API key not valid" blacklist it, a plain 400 is a request error. A batch is split only when its output was truncated or blocked (or the request was too large); 429/503 retry the same batch once. Lite models are deliberately not used.
+  Hence primary 3.8, then 3.6 and 2.5-flash (full-size models, separate quotas; a live test job on 2026-10-01 spent most of its 14 minutes on 503s from 3.8 and 3.6, 2.5-flash answered 4 of 4 in 2.5 s). On any 429/503 the server tries the listed models in order on the same key, then rotates keys. 503 never cools or blacklists a key (3 in a row open a 90 s breaker that skips that model); three 429s in a row soft-ban a key; only 401/403 or an explicit "API key not valid" blacklist it, a plain 400 is a request error. A batch is split only when its output was truncated or blocked (or the request was too large); 429/503 retry the same batch once. Lite models are deliberately not used.
 - Google recommends `temperature=1.0` for all Gemini 3 models (lower values can loop). Thinking is on by default and its tokens count against `MAX_TOKENS`.
 - To change models edit the env file and `systemctl restart edrsr-ai`.
 

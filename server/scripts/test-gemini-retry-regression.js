@@ -740,6 +740,37 @@ async function test503DoesNotCoolKeyAndBreakerFlipsToFallbackAndRecovers() {
   }
 }
 
+async function testFallbackListTriesEveryModelOnTheSameKey() {
+  // FALLBACK_MODEL_NAME may list several models: primary -> first fallback -> second fallback, same key.
+  const clock = createFakeClock();
+  try {
+    const seen = [];
+    const manager = createRealManager(1, async ({ model }) => {
+      seen.push(model);
+      if (model !== 'model-third') throw httpError(503, OVERLOAD_BODY);
+      return { text: 'from the third model' };
+    });
+    const result = await createRealGenerator(manager, clock, {
+      fallbackModelName: ' model-fallback , model-third ,model-primary',
+    })('p');
+    assert.equal(result, 'from the third model');
+    assert.deepEqual(seen, ['model-primary', 'model-fallback', 'model-third']);
+    assert.equal(manager.cooldowns.size, 0, '503 does not cool the key');
+
+    // a single name keeps working exactly as before
+    const single = [];
+    const manager2 = createRealManager(1, async ({ model }) => {
+      single.push(model);
+      if (model === 'model-primary') throw httpError(503, OVERLOAD_BODY);
+      return { text: 'fallback ok' };
+    });
+    assert.equal(await createRealGenerator(manager2, clock)('p'), 'fallback ok');
+    assert.deepEqual(single, ['model-primary', 'model-fallback']);
+  } finally {
+    clock.restore();
+  }
+}
+
 async function testOverloadOnBothModelsStillDoesNotCoolKey() {
   const clock = createFakeClock();
   try {
@@ -1039,6 +1070,7 @@ async function run() {
   await testGeneratorSoftBansAfterThreeQuotaFailuresAndWaitsWhenAllKeysBanned();
   await testAllKeysBannedStillTerminates();
   await testLongBanIsNotWaitedOutByDefault();
+  await testFallbackListTriesEveryModelOnTheSameKey();
   await testOversizedRequest400SplitsTheBatch();
   await test503DoesNotCoolKeyAndBreakerFlipsToFallbackAndRecovers();
   await testOverloadOnBothModelsStillDoesNotCoolKey();
