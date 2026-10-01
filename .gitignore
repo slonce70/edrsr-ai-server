@@ -85,3 +85,10 @@ AGENTS.md
 # Subagent-driven-development transient artifacts (keep the plan .md, drop the working files)
 /docs/superpowers/plans/.phase0-progress.md
 /docs/superpowers/plans/.task-*-report.md
+
+# Local secret leftovers (keys / env backups) - never commit
+gemini.md
+*.env.bak*
+
+# server-side npm cache (HOME=/opt/edrsr-ai on the host)
+.npm/

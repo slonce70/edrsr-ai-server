@@ -1,7 +1,7 @@
 Chrome Web Store Listing — EDRSR‑AI
 
 Short name: EDRSR AI
-Full name: EDRSR AI — Анализ судебных решений ЄДРСР с ИИ
+Full name: EDRSR AI Помощник (must match `name` in `extension/manifest.json`)
 
 Short description (80 chars):
 Анализ судебных решений ЄДРСР с ИИ: сбор, отчёты, экспорт PDF/TXT.
@@ -52,10 +52,10 @@ Prohibited content/behavior (комплаенс):
 - Один сценарий использования (single‑purpose): анализ ЄДРСР.
 
 Release checklist:
-1) Увеличьте версию в `package.json`, `package-lock.json` и `extension/manifest.json`.
-2) Запустите release-сборку: `npm run build:extension:release`.
-3) Загрузите ZIP `edrsr-ai-extension-vX.Y.Z.zip` в Chrome Web Store (Unlisted).
-4) Укажите URL Privacy Policy и заполните Data Safety.
-5) В описании перечислите и обоснуйте permissions/host_permissions.
-6) После публикации убедитесь, что production API разрешает Store origin:
-   `chrome-extension://dknfodmbknjengdbmdecidpapbiabgdb`.
+1) Bump the version in `package.json`, `package-lock.json` and `extension/manifest.json` (the build refuses a manifest/package mismatch).
+2) Run the release build: `npm run build:extension:release` (see README, "Chrome extension release").
+3) Upload `edrsr-ai-extension-vX.Y.Z.zip` to the Chrome Web Store (Unlisted).
+4) Provide the Privacy Policy URL and fill in Data Safety.
+5) List and justify permissions/host_permissions in the description.
+6) After publishing, make sure the production API allows the Store origin
+   `chrome-extension://dknfodmbknjengdbmdecidpapbiabgdb` (`CHROME_EXTENSION_IDS`, see docs/DEPLOYMENT.md).

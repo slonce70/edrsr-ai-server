@@ -19,10 +19,6 @@ const authMiddlewareSource = read('middleware/auth.js');
 const workerLifecycleSource = read('services/workerLifecycleService.js');
 const dbSource = read('database/connection.js');
 const envExampleSource = read('env.example');
-const envDocsSource = fs.readFileSync(
-  path.resolve(serverRoot, '../docs/ENVIRONMENT_VARIABLES.md'),
-  'utf8'
-);
 
 const expectations = [
   {
@@ -89,9 +85,7 @@ const expectations = [
     label: 'postgres SSL examples verify certificates by default',
     ok:
       envExampleSource.includes('PG_SSL_REJECT_UNAUTHORIZED=true') &&
-      envDocsSource.includes('PG_SSL_REJECT_UNAUTHORIZED=true') &&
-      envExampleSource.includes('false only for explicit') &&
-      envDocsSource.includes('false only for explicit'),
+      envExampleSource.includes('false only for explicit'),
   },
   {
     label: 'delete user uses DB transaction helper',

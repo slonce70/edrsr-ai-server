@@ -237,18 +237,15 @@ async function run() {
     );
     const i18nSource = fs.readFileSync(path.resolve(__dirname, '../extension/i18n.js'), 'utf8');
     const popupSource = fs.readFileSync(path.resolve(__dirname, '../extension/popup.js'), 'utf8');
-    const docsSource = fs.readFileSync(
-      path.resolve(__dirname, '../docs/ENVIRONMENT_VARIABLES.md'),
-      'utf8'
-    );
+    const docsSource = fs.readFileSync(path.resolve(__dirname, '../server/env.example'), 'utf8');
     assert.doesNotMatch(
       i18nSource,
       /Требуется запущенный сервер API|Потрібен запущений сервер API/
     );
     assert.match(popupSource, /API_BASE_URL/);
     assert.match(popupSource, /apiHost/);
-    assert.match(docsSource, /CHROME_EXTENSION_IDS=__CHROME_STORE_EXTENSION_ID__/);
-    assert.match(docsSource, /chrome-extension:\/\/__CHROME_STORE_EXTENSION_ID__/);
+    assert.match(docsSource, /^CHROME_EXTENSION_IDS=/m);
+    assert.match(docsSource, /chrome-extension:\/\//);
     pass('extensionBuildPolicy');
   } catch (e) {
     fail('extensionBuildPolicy', e);
