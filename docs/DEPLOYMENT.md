@@ -234,7 +234,7 @@ The script, serialized with a lock, as root:
 
 1. `git fetch` + `reset --hard <sha>` in `/opt/edrsr-ai` as `edrsr`;
 2. `npm ci --omit=dev` inside `edrsr.slice`, only if a `package*.json` changed;
-3. `systemctl restart edrsr-ai` and waits up to 90 s for `/api/health/light`; if unhealthy it resets to the previous commit, reinstalls if needed, restarts and exits non-zero (the portal is untouched);
+3. `systemctl restart edrsr-ai` and waits up to 90 s until `/api/health/light` reports `server` and `db` ok (its `upstream` check of the court registry is ignored: that endpoint answers 503 while the registry is unreachable, which must not fail a deploy); if unhealthy it resets to the previous commit, reinstalls if needed, restarts and exits non-zero (the portal is untouched);
 4. swaps `/var/www/edrsr-ai-app` for the new portal. It never touches Caddy, Obriy or other units.
 
 Repo secrets: `VPS_HOST` (195.133.38.174), `VPS_USER` (root), `VPS_SSH_KEY` (the restricted deploy key), `VPS_KNOWN_HOSTS` (the host's ed25519 line, pinned, no trust-on-first-use).

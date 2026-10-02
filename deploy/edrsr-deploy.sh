@@ -24,9 +24,13 @@ chmod -R u=rwX,go=rX "$tmp"
 
 as_edrsr() { runuser -u edrsr -- "$@"; }
 
+# Healthy = the backend itself and its database answer. /api/health/light also reports the court registry
+# (upstream) and returns 503 when that is unreachable: an outage there must not fail or roll back a deploy.
 wait_healthy() {
+  local body
   for _ in $(seq 1 90); do
-    curl -fsS --max-time 2 "$HEALTH" >/dev/null 2>&1 && return 0
+    body=$(curl -s --max-time 3 "$HEALTH" 2>/dev/null || true)
+    [[ "$body" == *'"server":{"status":"ok"}'* && "$body" == *'"db":{"status":"ok"'* ]] && return 0
     sleep 1
   done
   return 1
@@ -71,4 +75,4 @@ rm -rf "$WEB.old"
 mv "$tmp" "$WEB"
 rm -rf "$WEB.old"
 
-echo "deployed $sha ($(curl -fsS --max-time 2 "$HEALTH" | head -c 120))"
+echo "deployed $sha ($(curl -s --max-time 3 "$HEALTH" | head -c 120))"

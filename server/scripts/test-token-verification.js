@@ -160,4 +160,85 @@ assert.equal(isSupabaseNetworkError(null), false);
   assert.equal(supa.calls, 2101, 'oldest entry was evicted (cache is bounded)');
 }
 
+// 7. an explicit 4xx verdict is final even when its message sounds like a network problem
+{
+  clearTokenCache();
+  let rejected = false;
+  const supa = fakeSupa(() =>
+    rejected
+      ? {
+          data: { user: null },
+          error: Object.assign(new Error('network access denied'), {
+            name: 'AuthApiError',
+            status: 401,
+          }),
+        }
+      : { data: { user: USER }, error: null }
+  );
+  const token = tokenValidFor(3_600_000);
+  await verifyAccessToken(supa, token, now);
+  rejected = true;
+  nowMs += 130_000;
+  assert.equal(
+    (await verifyAccessToken(supa, token, now)).user,
+    null,
+    'a 401 is never turned into a stale accept by its message text'
+  );
+  assert.equal(isSupabaseNetworkError(Object.assign(new Error('timeout'), { status: 403 })), false);
+  assert.equal(
+    isSupabaseNetworkError(Object.assign(new Error('slow down'), { status: 429 })),
+    true
+  );
+  assert.equal(isSupabaseNetworkError(Object.assign(new Error('x'), { status: 408 })), true);
+}
+
+// 8. a token without a usable exp is never cached and never accepted stale
+for (const exp of [undefined, 0, 'soon', NaN, nowMs * 5]) {
+  clearTokenCache();
+  let down = false;
+  const supa = fakeSupa(() =>
+    down ? Promise.reject(fetchFailed) : { data: { user: USER }, error: null }
+  );
+  const token = [
+    'aGVhZGVy',
+    Buffer.from(JSON.stringify({ sub: 'u1', exp })).toString('base64url'),
+    'c2ln',
+  ].join('.');
+  await verifyAccessToken(supa, token, now);
+  await verifyAccessToken(supa, token, now);
+  assert.equal(supa.calls, 2, `exp=${String(exp)} must not be cached`);
+  down = true;
+  assert.equal(
+    (await verifyAccessToken(supa, token, now)).user,
+    null,
+    `exp=${String(exp)} not stale`
+  );
+}
+
+// 9. concurrent calls with one token share a single Supabase call and one verdict
+{
+  clearTokenCache();
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const supa = fakeSupa(async () => {
+    await gate;
+    return {
+      data: { user: null },
+      error: Object.assign(new Error('invalid JWT'), { name: 'AuthApiError', status: 401 }),
+    };
+  });
+  const token = tokenValidFor(3_600_000);
+  const both = Promise.all([
+    verifyAccessToken(supa, token, now),
+    verifyAccessToken(supa, token, now),
+  ]);
+  release();
+  const [a, b] = await both;
+  assert.equal(supa.calls, 1, 'one in-flight request per token');
+  assert.equal(a.user, null);
+  assert.equal(b.user, null);
+}
+
 console.log('Token verification regressions passed.');

@@ -16,10 +16,14 @@ const cache = new Map(); // sha256(token) -> { user, checkedAt, expMs }
 
 const keyOf = (token) => crypto.createHash('sha256').update(token).digest('base64');
 
+// The token's own expiry in ms, or 0 when it is missing or implausible (not a number, not positive, or
+// milliseconds where seconds are expected). A token without a usable exp is never cached.
 function tokenExpMs(token) {
   try {
     const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8'));
-    return Number(payload.exp) * 1000 || 0;
+    const exp = payload.exp;
+    if (typeof exp !== 'number' || !Number.isFinite(exp) || exp <= 0 || exp > 1e11) return 0;
+    return exp * 1000;
   } catch {
     return 0;
   }
@@ -27,6 +31,11 @@ function tokenExpMs(token) {
 
 export function isSupabaseNetworkError(err) {
   if (!err) return false;
+  // An explicit 4xx answer from Supabase is a verdict on the token (401/403/400/422...), whatever its
+  // message says. 408 and 429 are transient. Only then do the name/code/message heuristics apply.
+  if (typeof err.status === 'number' && err.status >= 400 && err.status < 500) {
+    return err.status === 408 || err.status === 429;
+  }
   if (err.name === 'AuthRetryableFetchError') return true;
   if (typeof err.status === 'number' && (err.status === 0 || err.status >= 500)) return true;
   const code = String(err.cause?.code || err.code || '');
@@ -38,22 +47,18 @@ export function isSupabaseNetworkError(err) {
 
 function remember(key, user, token, now) {
   cache.delete(key);
-  cache.set(key, { user, checkedAt: now, expMs: tokenExpMs(token) });
+  const expMs = tokenExpMs(token);
+  if (!expMs) return;
+  cache.set(key, { user, checkedAt: now, expMs });
   if (cache.size > MAX_ENTRIES) cache.delete(cache.keys().next().value);
 }
 
-const stillValid = (entry, now, windowMs) =>
-  now - entry.checkedAt < windowMs && (!entry.expMs || now < entry.expMs);
+const stillValid = (entry, now, windowMs) => now - entry.checkedAt < windowMs && now < entry.expMs;
 
-/**
- * @param {{auth: {getUser: (token: string) => Promise<{data: any, error: any}>}}} supa
- * @param {string} token
- * @returns {Promise<{user: object|null, error?: any, stale?: boolean}>}
- */
-export async function verifyAccessToken(supa, token, now = Date.now) {
-  const key = keyOf(token);
+const inflight = new Map(); // key -> Promise: one Supabase call per token at a time
+
+async function check(supa, key, token, now) {
   const hit = cache.get(key);
-  if (hit && stillValid(hit, now(), FRESH_MS)) return { user: hit.user };
 
   let result;
   try {
@@ -78,6 +83,26 @@ export async function verifyAccessToken(supa, token, now = Date.now) {
 
   cache.delete(key);
   return { user: null, error };
+}
+
+/**
+ * Concurrent calls with the same token share one Supabase request and one verdict, so a rejection
+ * seen by one caller can never be overridden by another caller's stale view of the cache.
+ * @param {{auth: {getUser: (token: string) => Promise<{data: any, error: any}>}}} supa
+ * @param {string} token
+ * @returns {Promise<{user: object|null, error?: any, stale?: boolean}>}
+ */
+export function verifyAccessToken(supa, token, now = Date.now) {
+  const key = keyOf(token);
+  const hit = cache.get(key);
+  if (hit && stillValid(hit, now(), FRESH_MS)) return Promise.resolve({ user: hit.user });
+
+  let pending = inflight.get(key);
+  if (!pending) {
+    pending = check(supa, key, token, now).finally(() => inflight.delete(key));
+    inflight.set(key, pending);
+  }
+  return pending;
 }
 
 export function clearTokenCache() {
