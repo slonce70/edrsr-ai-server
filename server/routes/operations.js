@@ -25,8 +25,50 @@ export default function createOperationsRouter({
   const HEALTH_LIGHT_UPSTREAM_URL =
     process.env.HEALTH_LIGHT_UPSTREAM_URL || 'https://reyestr.court.gov.ua/';
   let healthCache = { data: null, ts: 0 };
+  // The registry is only looked at every few minutes: polling it on every health check made this
+  // server a steady client of reyestr.court.gov.ua, and its outage must not turn the API itself red.
+  const HEALTH_LIGHT_UPSTREAM_TTL = parseInt(
+    process.env.HEALTH_LIGHT_UPSTREAM_TTL_MS || '300000',
+    10
+  );
+  let healthLightUpstreamCache = { data: null, ts: 0 };
   let healthLightCache = { data: null, ts: 0, statusCode: 503 };
   let healthLightInflight = null;
+
+  async function checkUpstream() {
+    const now = Date.now();
+    if (
+      healthLightUpstreamCache.data &&
+      now - healthLightUpstreamCache.ts < HEALTH_LIGHT_UPSTREAM_TTL
+    ) {
+      return healthLightUpstreamCache.data;
+    }
+    const startedAt = Date.now();
+    let result;
+    try {
+      const response = await got(HEALTH_LIGHT_UPSTREAM_URL, {
+        retry: { limit: 0 },
+        throwHttpErrors: false,
+        timeout: { request: HEALTH_LIGHT_TIMEOUT_MS },
+        headers: {
+          'User-Agent': 'EDRSR-AI Healthcheck',
+        },
+      });
+      const upstreamOk = response.statusCode >= 200 && response.statusCode < 400;
+      result = {
+        status: upstreamOk ? 'ok' : 'down',
+        statusCode: response.statusCode,
+        latencyMs: Date.now() - startedAt,
+      };
+    } catch (error) {
+      result = {
+        status: 'down',
+        error: error?.code || error?.name || 'request_failed',
+      };
+    }
+    healthLightUpstreamCache = { data: result, ts: Date.now() };
+    return result;
+  }
 
   async function buildHealthLightPayload() {
     const checks = {
@@ -46,32 +88,13 @@ export default function createOperationsRouter({
       };
     }
 
-    const upstreamStartedAt = Date.now();
-    try {
-      const response = await got(HEALTH_LIGHT_UPSTREAM_URL, {
-        retry: { limit: 0 },
-        throwHttpErrors: false,
-        timeout: { request: HEALTH_LIGHT_TIMEOUT_MS },
-        headers: {
-          'User-Agent': 'EDRSR-AI Healthcheck',
-        },
-      });
-      const upstreamOk = response.statusCode >= 200 && response.statusCode < 400;
-      checks.upstream = {
-        status: upstreamOk ? 'ok' : 'down',
-        statusCode: response.statusCode,
-        latencyMs: Date.now() - upstreamStartedAt,
-      };
-    } catch (error) {
-      checks.upstream = {
-        status: 'down',
-        error: error?.code || error?.name || 'request_failed',
-      };
-    }
+    checks.upstream = await checkUpstream();
 
+    // 503 only when this server cannot work (database down). A registry outage is reported as
+    // 'degraded' but stays 200: load balancers, deploy checks and monitors must not treat it as a crash.
     const isHealthy = checks.db.status === 'ok' && checks.upstream.status === 'ok';
     return {
-      statusCode: isHealthy ? 200 : 503,
+      statusCode: checks.db.status === 'ok' ? 200 : 503,
       payload: {
         status: isHealthy ? 'ok' : 'degraded',
         version: APP_VERSION,

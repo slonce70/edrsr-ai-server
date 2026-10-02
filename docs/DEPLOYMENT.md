@@ -206,7 +206,7 @@ Use `--resolve` while DNS caches are stale (`curl --resolve edrsr-ai-server.fun:
 ```bash
 D=edrsr-ai-server.fun; EXT=chrome-extension://dknfodmbknjengdbmdecidpapbiabgdb
 curl -fsS https://$D/                                                            # JSON with version
-curl -i  https://$D/api/health/light                                             # 200 needs DB and reyestr reachable, else 503
+curl -i  https://$D/api/health/light                                             # 200 + status ok; "degraded" = only reyestr unreachable; 503 = DB down
 curl -i -H "Origin: $EXT" https://$D/api/prompts/definitions                     # 200 + access-control-allow-origin
 curl -i -H 'Origin: https://evil.example' https://$D/api/prompts/definitions     # 403
 curl -i https://$D/api/me                                                        # 401
@@ -216,7 +216,7 @@ curl -I https://app.$D/analyses                                                 
 ```
 
 Then in a browser: sign in to the portal, create an analysis, watch live progress; sign in from the extension and run one analysis.
-`/api/health/light` pings reyestr, so use `/` as the liveness probe. A bare `curl` to `reyestr.court.gov.ua` gets an empty reply (no browser User-Agent); that is not a block, the scraper sends browser headers.
+`/api/health/light` also checks reyestr (cached 5 min) and shows `upstream: down` when the registry blocks or drops this server's address; analyses cannot download decisions then, while login, WebSocket and the portal keep working. A bare `curl` to `reyestr.court.gov.ua` gets an empty reply (no browser User-Agent); that is not a block, the scraper sends browser headers.
 
 ## Backups
 
@@ -234,7 +234,7 @@ The script, serialized with a lock, as root:
 
 1. `git fetch` + `reset --hard <sha>` in `/opt/edrsr-ai` as `edrsr`;
 2. `npm ci --omit=dev` inside `edrsr.slice`, only if a `package*.json` changed;
-3. `systemctl restart edrsr-ai` and waits up to 90 s until `/api/health/light` reports `server` and `db` ok (its `upstream` check of the court registry is ignored: that endpoint answers 503 while the registry is unreachable, which must not fail a deploy); if unhealthy it resets to the previous commit, reinstalls if needed, restarts and exits non-zero (the portal is untouched);
+3. `systemctl restart edrsr-ai` and waits up to 90 s until `/api/health/light` reports `server` and `db` ok (its `upstream` check of the court registry is ignored: a registry outage must not fail a deploy); if unhealthy it resets to the previous commit, reinstalls if needed, restarts and exits non-zero (the portal is untouched);
 4. swaps `/var/www/edrsr-ai-app` for the new portal. It never touches Caddy, Obriy or other units.
 
 Repo secrets: `VPS_HOST` (195.133.38.174), `VPS_USER` (root), `VPS_SSH_KEY` (the restricted deploy key), `VPS_KNOWN_HOSTS` (the host's ed25519 line, pinned, no trust-on-first-use).

@@ -24,7 +24,7 @@ Routes are defined in `server/routes/`; if this document and the code disagree, 
 
 | Method and path | Notes |
 | --- | --- |
-| `GET /api/health/light` | Cached for `HEALTH_LIGHT_TTL_MS`. `200 {status:"ok"}` or `503 {status:"degraded"}`. |
+| `GET /api/health/light` | Cached for `HEALTH_LIGHT_TTL_MS`. `200 {status:"ok"}`, `200 {status:"degraded"}` when only the court registry (`upstream`) is unreachable, `503` when the database is down. |
 | `GET /api/prompts/definitions` | Built-in prompt templates. Supports `ETag` / `If-None-Match`. Rate limited. |
 | `GET /api/share/:token` | Public report for a share link. `404` unknown token, `410` revoked or expired. |
 | `POST /api/auth/signin` | Server-side Supabase password sign-in (used by the admin UI). Body `{email, password}` -> `{access_token, user:{id,email}}`. Rate limited, failed attempts tracked. |
@@ -47,7 +47,7 @@ Health sample:
 }
 ```
 
-`version` comes from the root `package.json` (override with `APP_VERSION`). `upstream` is a request to `HEALTH_LIGHT_UPSTREAM_URL` (reyestr.court.gov.ua).
+`version` comes from the root `package.json` (override with `APP_VERSION`). `upstream` is a request to `HEALTH_LIGHT_UPSTREAM_URL` (reyestr.court.gov.ua), repeated at most every `HEALTH_LIGHT_UPSTREAM_TTL_MS` (5 min) so health checks do not hammer the registry.
 
 ## User
 

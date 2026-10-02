@@ -25,7 +25,7 @@ chmod -R u=rwX,go=rX "$tmp"
 as_edrsr() { runuser -u edrsr -- "$@"; }
 
 # Healthy = the backend itself and its database answer. /api/health/light also reports the court registry
-# (upstream) and returns 503 when that is unreachable: an outage there must not fail or roll back a deploy.
+# (upstream) and reports it as degraded: an outage there must not fail or roll back a deploy.
 wait_healthy() {
   local body
   for _ in $(seq 1 90); do
