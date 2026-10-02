@@ -19,6 +19,7 @@ const commands = [
   ['node', ['server/scripts/test-delete-job-security-regression.js']],
   ['node', ['server/scripts/test-websocket-message-hardening.js']],
   ['node', ['server/scripts/test-websocket-subscription-auth.js']],
+  ['node', ['server/scripts/test-token-verification.js']],
   ['node', ['server/scripts/test-proxy-ip-regression.js']],
   ['node', ['server/scripts/test-queue-cookie-cache.js']],
   ['node', ['server/scripts/test-worker-lifecycle-settlement.js']],

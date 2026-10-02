@@ -11,6 +11,7 @@ import {
   sanitizeWsLogValue,
 } from './services/wsMessageValidator.js';
 import { createClient } from '@supabase/supabase-js';
+import { verifyAccessToken } from './auth/verifyToken.js';
 import { parseDevAuthToken } from './auth/devAuth.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -252,15 +253,15 @@ function initWebSocket(server) {
           }
           const s = getSupabase();
           if (!s) return; // If Supabase not configured, skip
-          const { data: userData, error } = await s.auth.getUser(token);
-          if (!error && userData?.user) {
+          const { user, error } = await verifyAccessToken(s, token);
+          if (!error && user) {
             const clientData = clients.get(clientId);
-            if (clientData) clientData.userId = userData.user.id;
+            if (clientData) clientData.userId = user.id;
             if (ws.authTimeout) {
               clearTimeout(ws.authTimeout);
               ws.authTimeout = null;
             }
-            logger.debug(`[WS] Client ${clientId} authenticated as ${userData.user.id}`);
+            logger.debug(`[WS] Client ${clientId} authenticated as ${user.id}`);
           }
         } else if (data.type === 'subscribe') {
           const clientData = clients.get(clientId);

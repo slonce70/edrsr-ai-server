@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { isDevAuthEnabled, parseDevAuthToken } from '../auth/devAuth.js';
+import { verifyAccessToken } from '../auth/verifyToken.js';
 import database from '../database/connection.js';
 import { logger, getClientIp } from '../utils.js';
 
@@ -56,7 +57,8 @@ export async function attachUser(req, _res, next) {
         return next();
       }
 
-      const { data, error } = await supa.auth.getUser(token);
+      const { user, error } = await verifyAccessToken(supa, token);
+      const data = user ? { user } : null;
 
       if (error) {
         // Log authentication failure with details for monitoring

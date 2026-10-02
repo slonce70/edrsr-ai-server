@@ -12,7 +12,7 @@ Admin UI (/admin) ┘            │            ├─> reyestr.court.gov.ua (sc
 
 - **Postgres** is the source of truth (plain `pg` over `DATABASE_URL`; no Supabase-specific SQL at runtime).
   The schema is created and migrated at startup by `server/database/connection.js`.
-- **Supabase** is used only for authentication. Every authenticated request verifies the bearer token with `auth.getUser` against the server's `SUPABASE_URL`.
+- **Supabase** is used only for authentication. Every authenticated request verifies the bearer token with `auth.getUser` against the server's `SUPABASE_URL`, through `auth/verifyToken.js`: a successful check is reused for 2 minutes, and when Supabase is unreachable (network failure, never a rejection) a token validated in the last 30 minutes is still accepted until its own `exp`. Without this a short outage closed every WebSocket with `auth_required` and the extension kept showing "reconnecting".
   The server, the portal build and the extension must use the same Supabase project.
 
 ## HTTP mounts (`server/server.js`)
