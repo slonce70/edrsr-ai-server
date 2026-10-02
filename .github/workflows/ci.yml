@@ -60,6 +60,9 @@ jobs:
       - name: Scraper fixture tests
         run: node server/scripts/test-scraper-fixtures.js
 
+      - name: Scraper proxy tests
+        run: node server/scripts/test-scraper-proxy.js
+
       - name: Prompt assembly tests
         run: node server/scripts/test-prompts.js
 

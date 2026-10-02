@@ -1,5 +1,6 @@
 import express from 'express';
 import got from 'got';
+import { getScraperAgent } from '../scraperProxy.js';
 
 import database from '../database/connection.js';
 import dbService from '../services/dbService.js';
@@ -46,7 +47,9 @@ export default function createOperationsRouter({
     const startedAt = Date.now();
     let result;
     try {
+      const agent = getScraperAgent();
       const response = await got(HEALTH_LIGHT_UPSTREAM_URL, {
+        ...(agent ? { agent } : {}),
         retry: { limit: 0 },
         throwHttpErrors: false,
         timeout: { request: HEALTH_LIGHT_TIMEOUT_MS },

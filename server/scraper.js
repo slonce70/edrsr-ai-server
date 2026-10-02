@@ -1,4 +1,5 @@
 import got from 'got';
+import { getScraperAgent } from './scraperProxy.js';
 import * as cheerio from 'cheerio';
 import iconv from 'iconv-lite';
 import pLimit from 'p-limit';
@@ -849,8 +850,10 @@ export async function fetchCase(url, cookie = '', signal = null, options = {}) {
 
     // Use the abort controller's signal
     tFetchStart = Date.now();
+    const agent = getScraperAgent();
     const response = await got(url, {
       headers,
+      ...(agent ? { agent } : {}),
       signal: abortSignal,
       retry: {
         limit: RETRY_LIMIT,

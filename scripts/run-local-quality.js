@@ -14,6 +14,7 @@ const commands = [
   ['npm', ['run', 'test:selfcheck']],
   ['node', ['server/scripts/test-scraper-parsing.js']],
   ['node', ['server/scripts/test-scraper-fixtures.js']],
+  ['node', ['server/scripts/test-scraper-proxy.js']],
   ['node', ['server/scripts/test-prompts.js']],
   ['node', ['server/scripts/test-security-regressions.js']],
   ['node', ['server/scripts/test-delete-job-security-regression.js']],

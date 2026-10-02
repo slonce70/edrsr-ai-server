@@ -216,6 +216,7 @@ curl -I https://app.$D/analyses                                                 
 ```
 
 Then in a browser: sign in to the portal, create an analysis, watch live progress; sign in from the extension and run one analysis.
+If the registry blocks the VPS address (2026-10-02: from 19:22 UTC `reyestr.court.gov.ua` dropped TCP from 195.133.38.174 only, while it was reachable from other countries), set `SCRAPER_PROXY_URL=http://user:pass@host:port` (a proxy with an address the registry accepts) in `/etc/edrsr-ai/server.env` and restart `edrsr-ai`; the scraper and the health check then go through it.
 `/api/health/light` also checks reyestr (cached 5 min) and shows `upstream: down` when the registry blocks or drops this server's address; analyses cannot download decisions then, while login, WebSocket and the portal keep working. A bare `curl` to `reyestr.court.gov.ua` gets an empty reply (no browser User-Agent); that is not a block, the scraper sends browser headers.
 
 ## Backups
